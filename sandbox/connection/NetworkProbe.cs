@@ -1,9 +1,9 @@
 using System.Linq;
 using Godot;
 using GameFactory.Core;
-using GameFactory.Networking.Transport;
-using GameFactory.Networking.Sessions;
 using GameFactory.Networking.Peers;
+using GameFactory.Networking.Sessions;
+using GameFactory.Networking.Transport;
 
 namespace GameFactory.Sandbox.Connection;
 
@@ -13,41 +13,37 @@ public partial class NetworkProbe : Node
     private const int MaxClients = 8;
     private const string DefaultAddress = "127.0.0.1";
 
+    private readonly PeerRegistry _peers = new();
     private readonly RuntimeContext _runtime = new();
 
     private INetworkTransport? _transport;
     private NetworkSession? _session;
-    private readonly PeerRegistry _peers =
-        new();
+
     public override void _Ready()
     {
-        _transport = new ENetTransport(
-            Multiplayer);
+        _transport = new ENetTransport(Multiplayer);
 
         _session = new NetworkSession(
-        _transport,
-        _runtime,
-        _peers);
+            _transport,
+            _runtime,
+            _peers);
 
         SubscribeToSessionEvents();
         SubscribeToPeerEvents();
         // SubscribeToTransportDebugEvents();
 
-        string[] args =
-            OS.GetCmdlineUserArgs();
+        string[] args = OS.GetCmdlineUserArgs();
 
         if (args.Contains("--server"))
         {
-            StartServer(
-                HostMode.Listen);
+            StartServer(HostMode.Listen);
 
             return;
         }
 
         if (args.Contains("--dedicated-server"))
         {
-            StartServer(
-                HostMode.Dedicated);
+            StartServer(HostMode.Dedicated);
 
             return;
         }
@@ -80,14 +76,9 @@ public partial class NetworkProbe : Node
         _transport?.Dispose();
     }
 
-    private void StartServer(
-     HostMode hostMode)
+    private void StartServer(HostMode hostMode)
     {
-        SessionResult result =
-            _session!.Host(
-                Port,
-                MaxClients,
-                hostMode);
+        SessionResult result = _session!.Host(Port, MaxClients, hostMode);
 
         if (!result.Success)
         {
@@ -97,23 +88,14 @@ public partial class NetworkProbe : Node
             return;
         }
 
-        GD.Print(
-            $"[server] mode: {hostMode}");
-
-        GD.Print(
-            $"[server] listening on UDP {Port}");
-
-        GD.Print(
-            $"[server] peer id: " +
-            $"{Multiplayer.GetUniqueId()}");
+        GD.Print($"[server] mode: {hostMode}");
+        GD.Print($"[server] listening on UDP {Port}");
+        GD.Print($"[server] peer id: {Multiplayer.GetUniqueId()}");
     }
 
     private void StartClient()
     {
-        SessionResult result =
-            _session!.Join(
-                DefaultAddress,
-                Port);
+        SessionResult result = _session!.Join(DefaultAddress, Port);
 
         if (!result.Success)
         {
@@ -127,6 +109,7 @@ public partial class NetworkProbe : Node
             $"[client] connecting to " +
             $"{DefaultAddress}:{Port}");
     }
+
     private void SubscribeToSessionEvents()
     {
         _session!.StateChanged +=
@@ -157,6 +140,7 @@ public partial class NetworkProbe : Node
                 }
             };
     }
+
     private void SubscribeToPeerEvents()
     {
         _peers.PeerAdded += peer =>
@@ -171,6 +155,7 @@ public partial class NetworkProbe : Node
                 $"[peers] removed: {peer}");
         };
     }
+
     private void SubscribeToTransportDebugEvents()
     {
         _transport!.PeerConnected += peerId =>

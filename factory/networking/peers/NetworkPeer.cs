@@ -8,12 +8,9 @@ public sealed class NetworkPeer
 
     public bool IsLocal { get; }
 
-    public bool IsServer =>
-        Id.IsServer;
+    public bool IsServer => Id.IsServer;
 
-    public NetworkPeer(
-        PeerId id,
-        bool isLocal)
+    public NetworkPeer(PeerId id, bool isLocal)
     {
         Id = id;
         IsLocal = isLocal;
@@ -21,11 +18,8 @@ public sealed class NetworkPeer
 
     public override string ToString()
     {
-        string locality =
-            IsLocal ? "local" : "remote";
-
-        string role =
-            IsServer ? "server" : "client";
+        string locality = IsLocal ? "local" : "remote";
+        string role = IsServer ? "server" : "client";
 
         return $"{Id} ({locality}, {role})";
     }

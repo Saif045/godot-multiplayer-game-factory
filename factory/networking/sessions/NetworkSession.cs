@@ -14,17 +14,13 @@ public sealed class NetworkSession
 
     private bool _isEnding;
 
-    public SessionState State { get; private set; }
-        = SessionState.Offline;
+    public SessionState State { get; private set; } = SessionState.Offline;
 
-    public SessionEndReason LastEndReason { get; private set; }
-        = SessionEndReason.None;
+    public SessionEndReason LastEndReason { get; private set; } = SessionEndReason.None;
 
     public string? LastError { get; private set; }
 
-    public event Action<
-        SessionState,
-        SessionState>? StateChanged;
+    public event Action<SessionState, SessionState>? StateChanged;
 
     public NetworkSession(
         INetworkTransport transport,
@@ -38,14 +34,10 @@ public sealed class NetworkSession
         SubscribeToTransport();
     }
 
-    // --------------------------------------------------
-    // START
-    // --------------------------------------------------
-
     public SessionResult Host(
-     int port,
-     int maxClients,
-     HostMode hostMode = HostMode.Listen)
+        int port,
+        int maxClients,
+        HostMode hostMode = HostMode.Listen)
     {
         if (State != SessionState.Offline)
         {
@@ -55,43 +47,30 @@ public sealed class NetworkSession
 
         ResetLastResult();
 
-        TransitionTo(
-            SessionState.Starting);
+        TransitionTo(SessionState.Starting);
 
-        TransportResult result =
-            _transport.StartServer(
-                port,
-                maxClients);
+        TransportResult result = _transport.StartServer(port, maxClients);
 
         if (!result.Success)
         {
-            string error =
-                result.Error
-                ?? "Failed to start server.";
+            string error = result.Error ?? "Failed to start server.";
 
-            Fail(
-                SessionEndReason.HostStartFailed,
-                error);
+            Fail(SessionEndReason.HostStartFailed, error);
 
             return SessionResult.Fail(error);
         }
 
-        RuntimeMode runtimeMode =
-            hostMode == HostMode.Dedicated
-                ? RuntimeMode.DedicatedServer
-                : RuntimeMode.ListenServer;
+        RuntimeMode runtimeMode = hostMode == HostMode.Dedicated
+            ? RuntimeMode.DedicatedServer
+            : RuntimeMode.ListenServer;
 
         _runtime.SetMode(runtimeMode);
 
-        PeerId localPeerId =
-            _transport.GetLocalPeerId();
+        PeerId localPeerId = _transport.GetLocalPeerId();
 
-        _peers.Add(
-            localPeerId,
-            isLocal: true);
+        _peers.Add(localPeerId, isLocal: true);
 
-        TransitionTo(
-            SessionState.Running);
+        TransitionTo(SessionState.Running);
 
         return SessionResult.Ok();
     }
@@ -108,44 +87,26 @@ public sealed class NetworkSession
 
         ResetLastResult();
 
-        TransitionTo(
-            SessionState.Connecting);
+        TransitionTo(SessionState.Connecting);
 
-        TransportResult result =
-            _transport.Connect(
-                address,
-                port);
+        TransportResult result = _transport.Connect(address, port);
 
         if (!result.Success)
         {
             Fail(
                 SessionEndReason.ConnectionFailed,
-                result.Error
-                ?? "Failed to initialize connection.");
+                result.Error ?? "Failed to initialize connection.");
 
-            return SessionResult.Fail(
-                result.Error
-                ?? "Failed to initialize connection.");
+            return SessionResult.Fail(result.Error ?? "Failed to initialize connection.");
         }
 
-        _runtime.SetMode(
-            RuntimeMode.Client);
+        _runtime.SetMode(RuntimeMode.Client);
 
-        // Important:
-        //
-        // We are still CONNECTING here.
-        //
-        // ENet creating the client successfully does not
-        // mean the server connection is established.
-        //
-        // OnConnectedToServer() moves us to Running.
+        // Creating the client transport does not confirm the server connection.
+        // OnConnectedToServer moves the session from Connecting to Running.
 
         return SessionResult.Ok();
     }
-
-    // --------------------------------------------------
-    // INTENTIONAL END
-    // --------------------------------------------------
 
     public SessionResult Leave()
     {
@@ -162,8 +123,7 @@ public sealed class NetworkSession
                 $"Cannot leave while session is {State}.");
         }
 
-        EndIntentionally(
-            SessionEndReason.LocalLeave);
+        EndIntentionally(SessionEndReason.LocalLeave);
 
         return SessionResult.Ok();
     }
@@ -183,15 +143,10 @@ public sealed class NetworkSession
                 $"Cannot shut down host while session is {State}.");
         }
 
-        EndIntentionally(
-            SessionEndReason.HostShutdown);
+        EndIntentionally(SessionEndReason.HostShutdown);
 
         return SessionResult.Ok();
     }
-
-    // --------------------------------------------------
-    // FAILURE RESET
-    // --------------------------------------------------
 
     public SessionResult ResetFailure()
     {
@@ -204,63 +159,37 @@ public sealed class NetworkSession
         LastError = null;
         LastEndReason = SessionEndReason.None;
 
-        TransitionTo(
-            SessionState.Offline);
+        TransitionTo(SessionState.Offline);
 
         return SessionResult.Ok();
     }
 
-    // --------------------------------------------------
-    // TRANSPORT EVENTS
-    // --------------------------------------------------
-
     private void SubscribeToTransport()
     {
-        _transport.PeerConnected +=
-            OnPeerConnected;
-
-        _transport.PeerDisconnected +=
-            OnPeerDisconnected;
-
-        _transport.ConnectedToServer +=
-            OnConnectedToServer;
-
-        _transport.ConnectionFailed +=
-            OnConnectionFailed;
-
-        _transport.ServerDisconnected +=
-            OnServerDisconnected;
+        _transport.PeerConnected += OnPeerConnected;
+        _transport.PeerDisconnected += OnPeerDisconnected;
+        _transport.ConnectedToServer += OnConnectedToServer;
+        _transport.ConnectionFailed += OnConnectionFailed;
+        _transport.ServerDisconnected += OnServerDisconnected;
     }
 
-    private void OnPeerConnected(
-        PeerId peerId)
+    private void OnPeerConnected(PeerId peerId)
     {
         if (_isEnding)
             return;
 
-        _peers.Add(
-            peerId,
-            isLocal: false);
+        _peers.Add(peerId, isLocal: false);
     }
 
-    private void OnPeerDisconnected(
-        PeerId peerId)
+    private void OnPeerDisconnected(PeerId peerId)
     {
         if (_isEnding)
             return;
 
         _peers.Remove(peerId);
 
-        // Important:
-        //
-        // If peer 1 disappears on a client,
-        // ServerDisconnected will tell the session
-        // that the whole client session has ended.
-        //
-        // Do NOT fail the session here.
-        //
-        // This event also fires normally when some
-        // other client leaves the server.
+        // ServerDisconnected handles the loss of a client's server. This event
+        // also fires normally when another client leaves a server session.
     }
 
     private void OnConnectedToServer()
@@ -271,15 +200,11 @@ public sealed class NetworkSession
         if (State != SessionState.Connecting)
             return;
 
-        PeerId localPeerId =
-            _transport.GetLocalPeerId();
+        PeerId localPeerId = _transport.GetLocalPeerId();
 
-        _peers.Add(
-            localPeerId,
-            isLocal: true);
+        _peers.Add(localPeerId, isLocal: true);
 
-        TransitionTo(
-            SessionState.Running);
+        TransitionTo(SessionState.Running);
     }
 
     private void OnConnectionFailed()
@@ -311,28 +236,21 @@ public sealed class NetworkSession
             "Server disconnected.");
     }
 
-    // --------------------------------------------------
-    // ENDING
-    // --------------------------------------------------
-
-    private void EndIntentionally(
-        SessionEndReason reason)
+    private void EndIntentionally(SessionEndReason reason)
     {
         if (_isEnding)
             return;
 
         _isEnding = true;
 
-        TransitionTo(
-            SessionState.Stopping);
+        TransitionTo(SessionState.Stopping);
 
         LastEndReason = reason;
         LastError = null;
 
         Cleanup();
 
-        TransitionTo(
-            SessionState.Offline);
+        TransitionTo(SessionState.Offline);
 
         _isEnding = false;
     }
@@ -366,12 +284,7 @@ public sealed class NetworkSession
         _runtime.Reset();
     }
 
-    // --------------------------------------------------
-    // STATE
-    // --------------------------------------------------
-
-    private void TransitionTo(
-        SessionState next)
+    private void TransitionTo(SessionState next)
     {
         if (State == next)
             return;
@@ -380,9 +293,7 @@ public sealed class NetworkSession
 
         State = next;
 
-        StateChanged?.Invoke(
-            previous,
-            next);
+        StateChanged?.Invoke(previous, next);
     }
 
     private void ResetLastResult()

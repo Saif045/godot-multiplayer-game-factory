@@ -3,11 +3,11 @@
 [ext_resource type="Script" uid="uid://didoyqccfml3l" path="res://sandbox/replication/ReplicationProbe.cs" id="1_lo53f"]
 [ext_resource type="PackedScene" uid="uid://xi8tfffb1rdx" path="res://sandbox/replication/spawn_root.tscn" id="2_lo53f"]
 
-[node name="replication_probe" type="Node3D" unique_id=1620561584]
+[node name="ReplicationProbe" type="Node3D" unique_id=1620561584]
 script = ExtResource("1_lo53f")
 
-[node name="spawn_root" parent="." unique_id=1926825131 instance=ExtResource("2_lo53f")]
+[node name="SpawnRoot" parent="." unique_id=1926825131 instance=ExtResource("2_lo53f")]
 
 [node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="." unique_id=1076942114]
 _spawnable_scenes = PackedStringArray("uid://cmd75sthaht2g")
-spawn_path = NodePath("../spawn_root")
+spawn_path = NodePath("../SpawnRoot")

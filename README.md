@@ -55,17 +55,17 @@ These are project commitments. Not all are implemented yet.
 
 ## Repository map
 
-- `factory/Core/` — process role and runtime context.
-- `factory/networking/Core/` — networking value types.
-- `factory/networking/Peers/` — peer model and registry.
-- `factory/networking/Sessions/` — session lifecycle policy.
-- `factory/networking/Transport/` — transport contract and ENet adapter.
+- `factory/core/` — process role and runtime context.
+- `factory/networking/core/` — networking value types.
+- `factory/networking/peers/` — peer model and registry.
+- `factory/networking/sessions/` — session lifecycle policy.
+- `factory/networking/transport/` — transport contract and ENet adapter.
 - `factory/networking/objects/` — early replication component and annotation.
 - `sandbox/connection/` — manual connection lifecycle probe.
 - `sandbox/replication/` — manual spawn, RPC, and property-replication probe.
 - `docs/` — project policy and architecture documentation.
 
-Path casing above follows Git's tracked names. Casing and namespace configuration have known inconsistencies recorded in the [module map](docs/module-map.md).
+Directory names use lowercase or snake_case, while C# namespaces, types, and filenames use PascalCase.
 
 ## Documentation
 
@@ -83,11 +83,11 @@ Path casing above follows Git's tracked names. Casing and namespace configuratio
 The next work is planned in connected stages:
 
 1. establish the project documentation and engineering standards;
-2. normalize namespace spelling, path casing, module placement, and formatting without changing behavior;
+2. normalize namespace spelling, path casing, project naming, and formatting without changing behavior;
 3. add engine-independent unit tests and a fake transport around the existing lifecycle contracts;
 4. harden lifecycle ownership, disposal, cleanup, transitions, and invariants;
 5. finish the replication abstraction with explicit automatic and manual paths, validation, diagnostics, tests, and dimension-independent composition;
 6. add reusable multiprocess scenario infrastructure;
 7. begin a network-world layer for stable spawn definitions and runtime spawn/despawn behavior.
 
-Everything after the documentation stage is planned work. Names and contracts remain subject to architectural review until implemented and recorded.
+Everything after mechanical normalization is planned work. Names and contracts remain subject to architectural review until implemented and recorded.

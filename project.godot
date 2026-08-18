@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="multiplayer-game-factory"
+config/name="GameFactory"
 run/main_scene="uid://c1wmk3dg3kupe"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 config/icon="res://icon.svg"
@@ -22,7 +22,7 @@ window/stretch/aspect="expand"
 
 [dotnet]
 
-project/assembly_name="multiplayer-game-factory"
+project/assembly_name="GameFactory"
 
 [physics]
 

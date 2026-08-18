@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" uid="uid://c77m75fr11dbw" path="res://sandbox/connection/NetworkProbe.cs" id="1_a5myy"]
 
-[node name="network_probe" type="Node3D" unique_id=1496513849]
+[node name="NetworkProbe" type="Node3D" unique_id=1496513849]
 script = ExtResource("1_a5myy")

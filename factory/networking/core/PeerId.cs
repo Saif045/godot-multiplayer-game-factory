@@ -6,13 +6,11 @@ public readonly record struct PeerId
 {
     public const long ServerValue = 1;
 
-    public static PeerId Server =>
-        new(ServerValue);
+    public static PeerId Server => new(ServerValue);
 
     public long Value { get; }
 
-    public bool IsServer =>
-        Value == ServerValue;
+    public bool IsServer => Value == ServerValue;
 
     public PeerId(long value)
     {

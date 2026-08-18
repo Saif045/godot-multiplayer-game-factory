@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://bnhqt7n4rs5sq" path="res://sandbox/replication/objects/RawDoor.cs" id="1_i7nvg"]
 [ext_resource type="PackedScene" uid="uid://hons87n7eb" path="res://factory/networking/objects/network_object.tscn" id="2_87fh2"]
 
-[node name="raw_door" type="Node3D" unique_id=1783504893]
+[node name="RawDoor" type="Node3D" unique_id=1783504893]
 script = ExtResource("1_i7nvg")
 
 [node name="NetworkObject" parent="." unique_id=1985479742 instance=ExtResource("2_87fh2")]

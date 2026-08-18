@@ -1,6 +1,6 @@
 # Coding Standards
 
-These standards govern new and modified work after the documentation phase. Existing files contain known deviations; conformance must be introduced deliberately and separately from behavioral changes.
+These standards govern new and modified work. Conformance is introduced deliberately and separately from behavioral changes.
 
 ## General principles
 
@@ -14,13 +14,12 @@ These standards govern new and modified work after the documentation phase. Exis
 ## Names and layout
 
 - Use `GameFactory` as the namespace root for current source.
-- Match namespace segments, directory names, and type names with consistent PascalCase.
+- Use PascalCase for C# namespaces, types, and filenames.
+- Use lowercase or snake_case for directories, scenes, resources, and assets.
 - Use one primary type per C# file and match the filename to that type.
 - Keep reusable code under `factory/`; keep exploratory examples under `sandbox/`.
 - Do not place game-specific rules, balance, content, progression, or presentation in factory modules.
 - Treat case-only renames as explicit Git operations and verify them on a case-sensitive view.
-
-The misspelled project `RootNamespace` and mixed tracked path casing are existing debt. They are not alternative conventions.
 
 ## Formatting
 
@@ -29,7 +28,7 @@ The misspelled project `RootNamespace` and mixed tracked path casing are existin
 - Keep related statements together without decorative blocks of repeated separator comments.
 - Keep lines at a readable width; wrap around semantic units rather than one token per line.
 - Preserve UTF-8 and repository LF normalization.
-- Expand `.editorconfig` during mechanical normalization so formatting rules are machine-checkable.
+- Keep basic whitespace and indentation rules machine-checkable through `.editorconfig`.
 
 Until an automated formatter is adopted, avoid large formatting-only changes alongside behavior changes.
 

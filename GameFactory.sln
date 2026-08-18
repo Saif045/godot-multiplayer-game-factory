@@ -1,6 +1,6 @@
 ﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "multiplayer-game-factory", "multiplayer-game-factory.csproj", "{F0453FF6-1C80-465D-8A45-2BFF39F68A3B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameFactory", "GameFactory.csproj", "{F0453FF6-1C80-465D-8A45-2BFF39F68A3B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

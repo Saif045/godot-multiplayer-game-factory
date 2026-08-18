@@ -4,9 +4,9 @@ namespace GameFactory.Networking.Objects;
 
 public enum ReplicationMode
 {
-  Never,
-  Always,
-  OnChange
+    Never,
+    Always,
+    OnChange
 }
 
 [AttributeUsage(
@@ -15,13 +15,13 @@ public enum ReplicationMode
     Inherited = true)]
 public sealed class ReplicatedAttribute : Attribute
 {
-  public ReplicationMode Mode { get; }
+    public ReplicationMode Mode { get; }
 
-  public bool Spawn { get; set; } = true;
+    public bool Spawn { get; set; } = true;
 
-  public ReplicatedAttribute(
-      ReplicationMode mode = ReplicationMode.OnChange)
-  {
-    Mode = mode;
-  }
+    public ReplicatedAttribute(
+        ReplicationMode mode = ReplicationMode.OnChange)
+    {
+        Mode = mode;
+    }
 }

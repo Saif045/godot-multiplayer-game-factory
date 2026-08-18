@@ -1,134 +1,130 @@
 using Godot;
 using GameFactory.Networking.Objects;
+
 namespace GameFactory.Sandbox.Replication;
 
 public partial class RawDoor : Node3D
 {
-  [Export]
-  [Replicated(
-      ReplicationMode.OnChange,
-      Spawn = true)]
-  public bool IsOpen { get; set; }
-  private NetworkObject _network = null!;
-  private MultiplayerSynchronizer _synchronizer = null!;
+    [Export]
+    [Replicated(
+        ReplicationMode.OnChange,
+        Spawn = true)]
+    public bool IsOpen { get; set; }
 
-  public override void _UnhandledInput(
-      InputEvent inputEvent)
-  {
-    if (inputEvent is not InputEventKey key)
-      return;
+    private NetworkObject _network = null!;
+    private MultiplayerSynchronizer _synchronizer = null!;
 
-    if (!key.Pressed || key.Echo)
-      return;
-
-    if (key.Keycode != Key.E)
-      return;
-
-    if (!Multiplayer.HasMultiplayerPeer())
+    public override void _UnhandledInput(
+        InputEvent inputEvent)
     {
-      GD.Print(
-          "[door] no multiplayer peer available");
+        if (inputEvent is not InputEventKey key)
+            return;
 
-      return;
+        if (!key.Pressed || key.Echo)
+            return;
+
+        if (key.Keycode != Key.E)
+            return;
+
+        if (!Multiplayer.HasMultiplayerPeer())
+        {
+            GD.Print(
+                "[door] no multiplayer peer available");
+
+            return;
+        }
+
+        // For B1 we only test:
+        //
+        // client -> server
+        //
+        // The host-side player case comes later.
+        if (_network.HasAuthority)
+        {
+            GD.Print(
+                "[door][server] E pressed locally; " +
+                "B1 only tests remote client requests.");
+
+            return;
+        }
+
+        GD.Print(
+            $"[door][client] requesting open; " +
+            $"local IsOpen = {IsOpen}");
+
+        RpcId(
+            1,
+            MethodName.RequestOpen);
     }
 
-    // For B1 we only test:
-    //
-    // client -> server
-    //
-    // The host-side player case comes later.
-    if (_network.HasAuthority)
+    [Rpc(
+        MultiplayerApi.RpcMode.AnyPeer,
+        CallLocal = false,
+        TransferMode =
+            MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void RequestOpen()
     {
-      GD.Print(
-          "[door][server] E pressed locally; " +
-          "B1 only tests remote client requests.");
+        int senderId = Multiplayer.GetRemoteSenderId();
 
-      return;
+        GD.Print(
+            $"[door][server] RequestOpen received " +
+            $"from peer {senderId}");
+
+        if (!_network.HasAuthority)
+        {
+            GD.PushWarning(
+                "[door] RequestOpen executed " +
+                "on a non-server peer");
+
+            return;
+        }
+
+        if (IsOpen)
+        {
+            GD.Print(
+                "[door][server] door already open");
+
+            return;
+        }
+
+        Open();
     }
 
-    GD.Print(
-        $"[door][client] requesting open; " +
-        $"local IsOpen = {IsOpen}");
-
-    RpcId(
-        1,
-        MethodName.RequestOpen);
-  }
-
-  [Rpc(
-      MultiplayerApi.RpcMode.AnyPeer,
-      CallLocal = false,
-      TransferMode =
-          MultiplayerPeer.TransferModeEnum.Reliable)]
-  private void RequestOpen()
-  {
-    int senderId =
-        Multiplayer.GetRemoteSenderId();
-
-    GD.Print(
-        $"[door][server] RequestOpen received " +
-        $"from peer {senderId}");
-
-    if (!_network.HasAuthority)
+    private void Open()
     {
-      GD.PushWarning(
-          "[door] RequestOpen executed " +
-          "on a non-server peer");
+        IsOpen = true;
 
-      return;
+        GD.Print(
+            $"[door][server] door opened; " +
+            $"IsOpen = {IsOpen}");
     }
 
-    if (IsOpen)
+    public override void _Ready()
     {
-      GD.Print(
-          "[door][server] door already open");
+        _network = GetNode<NetworkObject>("NetworkObject");
 
-      return;
+        _synchronizer = _network.Synchronizer;
+
+        GD.Print(
+            $"[door][network] authority peer = {_network.AuthorityPeerId}, " +
+            $"has authority = {_network.HasAuthority}");
+
+        _synchronizer.Synchronized += () =>
+        {
+            GD.Print(
+                $"[door][sync] full sync received; " +
+                $"IsOpen = {IsOpen}");
+        };
+
+        _synchronizer.DeltaSynchronized += () =>
+        {
+            GD.Print(
+                $"[door][sync] delta received; " +
+                $"IsOpen = {IsOpen}");
+        };
+
+        GD.Print(
+            $"[door] created on peer " +
+            $"{Multiplayer.GetUniqueId()}");
     }
-
-    Open();
-  }
-
-  private void Open()
-  {
-    IsOpen = true;
-
-    GD.Print(
-        $"[door][server] door opened; " +
-        $"IsOpen = {IsOpen}");
-  }
-
-
-
-  public override void _Ready()
-  {
-    _network =
-     GetNode<NetworkObject>(
-         "NetworkObject");
-
-    _synchronizer =
-        _network.Synchronizer;
-
-    GD.Print(
-        $"[door][network] authority peer = {_network.AuthorityPeerId}, " +
-        $"has authority = {_network.HasAuthority}");
-
-    _synchronizer.Synchronized += () =>
-  {
-    GD.Print(
-      $"[door][sync] full sync received; " +
-      $"IsOpen = {IsOpen}");
-  };
-
-    _synchronizer.DeltaSynchronized += () =>
-    {
-      GD.Print(
-      $"[door][sync] delta received; " +
-      $"IsOpen = {IsOpen}");
-    };
-
-    GD.Print(
-        $"[door] created on peer " +
-        $"{Multiplayer.GetUniqueId()}");
-  }
 }

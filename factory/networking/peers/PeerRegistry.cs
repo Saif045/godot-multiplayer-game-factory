@@ -6,27 +6,18 @@ namespace GameFactory.Networking.Peers;
 
 public sealed class PeerRegistry
 {
-    private readonly Dictionary<
-        PeerId,
-        NetworkPeer
-    > _peers = new();
+    private readonly Dictionary<PeerId, NetworkPeer> _peers = new();
 
-    public IReadOnlyCollection<NetworkPeer> Peers =>
-        _peers.Values;
+    public IReadOnlyCollection<NetworkPeer> Peers => _peers.Values;
 
-    public int Count =>
-        _peers.Count;
+    public int Count => _peers.Count;
 
     public event Action<NetworkPeer>? PeerAdded;
     public event Action<NetworkPeer>? PeerRemoved;
 
-    public NetworkPeer Add(
-     PeerId id,
-     bool isLocal)
+    public NetworkPeer Add(PeerId id, bool isLocal)
     {
-        if (_peers.TryGetValue(
-            id,
-            out NetworkPeer? existing))
+        if (_peers.TryGetValue(id, out NetworkPeer? existing))
         {
             if (existing.IsLocal != isLocal)
             {
@@ -38,13 +29,9 @@ public sealed class PeerRegistry
             return existing;
         }
 
-        var peer = new NetworkPeer(
-            id,
-            isLocal);
+        var peer = new NetworkPeer(id, isLocal);
 
-        _peers.Add(
-            id,
-            peer);
+        _peers.Add(id, peer);
 
         PeerAdded?.Invoke(peer);
 
@@ -53,9 +40,7 @@ public sealed class PeerRegistry
 
     public bool Remove(PeerId id)
     {
-        if (!_peers.Remove(
-            id,
-            out NetworkPeer? peer))
+        if (!_peers.Remove(id, out NetworkPeer? peer))
         {
             return false;
         }
@@ -67,9 +52,7 @@ public sealed class PeerRegistry
 
     public NetworkPeer? Find(PeerId id)
     {
-        _peers.TryGetValue(
-            id,
-            out NetworkPeer? peer);
+        _peers.TryGetValue(id, out NetworkPeer? peer);
 
         return peer;
     }
@@ -81,8 +64,7 @@ public sealed class PeerRegistry
 
     public void Clear()
     {
-        NetworkPeer[] peers =
-            [.. _peers.Values];
+        NetworkPeer[] peers = [.. _peers.Values];
 
         _peers.Clear();
 

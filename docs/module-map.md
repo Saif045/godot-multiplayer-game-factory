@@ -1,22 +1,22 @@
 # Module Map
 
-This inventory describes Git-tracked paths and current responsibilities. Path casing follows Git, even when a case-insensitive Windows checkout displays a different form.
+This inventory describes Git-tracked paths and current responsibilities. Directories use lowercase or snake_case; C# filenames remain PascalCase.
 
 ## Repository configuration
 
 | Path | Responsibility | Status |
 |---|---|---|
-| `.editorconfig` | UTF-8 text convention | Implemented, minimal |
+| `.editorconfig` | UTF-8, LF, final-newline, and basic C# indentation conventions | Implemented |
 | `.gitattributes` | LF normalization for text | Implemented |
-| `.gitignore` | Ignores Godot cache, Android export output, and VS Code settings | Implemented |
-| `multiplayer-game-factory.csproj` | Godot .NET SDK and target-framework configuration | Implemented |
-| `multiplayer-game-factory.sln` | Single-project Visual Studio solution | Implemented |
+| `.gitignore` | Ignores Godot cache, Android and .NET build output, and VS Code settings | Implemented |
+| `GameFactory.csproj` | Godot .NET SDK, root namespace, and target-framework configuration | Implemented |
+| `GameFactory.sln` | Single-project Visual Studio solution | Implemented |
 | `project.godot` | Godot project settings and connection-probe main scene | Implemented |
 | `icon.svg` and `icon.svg.import` | Project icon and Godot import metadata | Implemented asset/configuration |
 
 The project file currently uses Godot.NET.Sdk 4.7.1, .NET 8, and a conditional .NET 9 target for Android. These are current settings, not compatibility or platform-support promises.
 
-## `factory/Core/`
+## `factory/core/`
 
 This module owns process-level runtime role and has no direct Godot dependency.
 
@@ -27,7 +27,7 @@ This module owns process-level runtime role and has no direct Godot dependency.
 
 Only assembly-internal methods mutate `RuntimeContext`; `NetworkSession` is its current coordinator.
 
-## `factory/networking/Core/`
+## `factory/networking/core/`
 
 | Type | Responsibility | Dependencies | Status |
 |---|---|---|---|
@@ -35,7 +35,7 @@ Only assembly-internal methods mutate `RuntimeContext`; `NetworkSession` is its 
 
 Persistent player and runtime object identities do not exist yet.
 
-## `factory/networking/Peers/`
+## `factory/networking/peers/`
 
 | Type | Responsibility | Dependencies | Status |
 |---|---|---|---|
@@ -44,7 +44,7 @@ Persistent player and runtime object identities do not exist yet.
 
 The registry rejects conflicting locality for a known ID but is not a player roster, authentication store, or persistence layer.
 
-## `factory/networking/Transport/`
+## `factory/networking/transport/`
 
 | Type | Responsibility | Dependencies | Status |
 |---|---|---|---|
@@ -54,7 +54,7 @@ The registry rejects conflicting locality for a known ID but is not a player ros
 
 The abstraction isolates session policy from ENet. Replacement feasibility has not yet been supported by an alternative or fake implementation.
 
-## `factory/networking/Sessions/`
+## `factory/networking/sessions/`
 
 | Type | Responsibility | Dependencies | Status |
 |---|---|---|---|
@@ -67,8 +67,6 @@ The abstraction isolates session policy from ENet. Replacement feasibility has n
 The session currently lacks disposal/unsubscription, explicit transport ownership, exception-safe cleanup, and a validated state-transition model.
 
 ## `factory/networking/objects/`
-
-The lowercase `objects` directory is the current Git-tracked spelling.
 
 | File/type | Responsibility | Dependencies | Status |
 |---|---|---|---|
@@ -117,12 +115,9 @@ Godot-generated `.uid` sidecars accompany all 18 tracked C# scripts. They are id
 
 ## Known structural debt
 
-- `RootNamespace` in the project file is misspelled `multiplatergamefactory`; source files explicitly use `GameFactory` namespaces.
-- Directory casing is mixed: Git tracks `factory/Core` and networking `Core`, `Peers`, `Sessions`, and `Transport`, but `factory/networking/objects` and `sandbox` are lowercase. Case-insensitive checkouts can conceal these distinctions.
-- C# formatting varies substantially, while `.editorconfig` defines no C# style.
 - Both probes duplicate composition and event-logging code.
 
-These observations are inputs to a later mechanical-normalization phase. This documentation phase does not change them.
+Project naming, tracked directory casing, and basic C# formatting were normalized mechanically without changing runtime behavior.
 
 ## Planned modules and capabilities
 

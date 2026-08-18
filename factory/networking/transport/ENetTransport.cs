@@ -12,8 +12,7 @@ public sealed class ENetTransport : INetworkTransport
 
     private bool _disposed;
 
-    public bool IsRunning =>
-        _peer is not null;
+    public bool IsRunning => _peer is not null;
 
     public event Action<PeerId>? PeerConnected;
     public event Action<PeerId>? PeerDisconnected;
@@ -22,25 +21,15 @@ public sealed class ENetTransport : INetworkTransport
     public event Action? ConnectionFailed;
     public event Action? ServerDisconnected;
 
-    public ENetTransport(
-        MultiplayerApi multiplayer)
+    public ENetTransport(MultiplayerApi multiplayer)
     {
         _multiplayer = multiplayer;
 
-        _multiplayer.PeerConnected +=
-            OnPeerConnected;
-
-        _multiplayer.PeerDisconnected +=
-            OnPeerDisconnected;
-
-        _multiplayer.ConnectedToServer +=
-            OnConnectedToServer;
-
-        _multiplayer.ConnectionFailed +=
-            OnConnectionFailed;
-
-        _multiplayer.ServerDisconnected +=
-            OnServerDisconnected;
+        _multiplayer.PeerConnected += OnPeerConnected;
+        _multiplayer.PeerDisconnected += OnPeerDisconnected;
+        _multiplayer.ConnectedToServer += OnConnectedToServer;
+        _multiplayer.ConnectionFailed += OnConnectionFailed;
+        _multiplayer.ServerDisconnected += OnServerDisconnected;
     }
 
     public TransportResult StartServer(
@@ -55,13 +44,9 @@ public sealed class ENetTransport : INetworkTransport
                 "Transport is already running.");
         }
 
-        var peer =
-            new ENetMultiplayerPeer();
+        var peer = new ENetMultiplayerPeer();
 
-        Error error =
-            peer.CreateServer(
-                port,
-                maxClients);
+        Error error = peer.CreateServer(port, maxClients);
 
         if (error != Error.Ok)
         {
@@ -73,8 +58,7 @@ public sealed class ENetTransport : INetworkTransport
 
         _peer = peer;
 
-        _multiplayer.MultiplayerPeer =
-            peer;
+        _multiplayer.MultiplayerPeer = peer;
 
         return TransportResult.Ok();
     }
@@ -91,13 +75,9 @@ public sealed class ENetTransport : INetworkTransport
                 "Transport is already running.");
         }
 
-        var peer =
-            new ENetMultiplayerPeer();
+        var peer = new ENetMultiplayerPeer();
 
-        Error error =
-            peer.CreateClient(
-                address,
-                port);
+        Error error = peer.CreateClient(address, port);
 
         if (error != Error.Ok)
         {
@@ -109,8 +89,7 @@ public sealed class ENetTransport : INetworkTransport
 
         _peer = peer;
 
-        _multiplayer.MultiplayerPeer =
-            peer;
+        _multiplayer.MultiplayerPeer = peer;
 
         return TransportResult.Ok();
     }
@@ -125,8 +104,7 @@ public sealed class ENetTransport : INetworkTransport
                 "Transport is not running.");
         }
 
-        return new PeerId(
-            _multiplayer.GetUniqueId());
+        return new PeerId(_multiplayer.GetUniqueId());
     }
 
     public void Close()
@@ -144,20 +122,11 @@ public sealed class ENetTransport : INetworkTransport
 
         _disposed = true;
 
-        _multiplayer.PeerConnected -=
-            OnPeerConnected;
-
-        _multiplayer.PeerDisconnected -=
-            OnPeerDisconnected;
-
-        _multiplayer.ConnectedToServer -=
-            OnConnectedToServer;
-
-        _multiplayer.ConnectionFailed -=
-            OnConnectionFailed;
-
-        _multiplayer.ServerDisconnected -=
-            OnServerDisconnected;
+        _multiplayer.PeerConnected -= OnPeerConnected;
+        _multiplayer.PeerDisconnected -= OnPeerDisconnected;
+        _multiplayer.ConnectedToServer -= OnConnectedToServer;
+        _multiplayer.ConnectionFailed -= OnConnectionFailed;
+        _multiplayer.ServerDisconnected -= OnServerDisconnected;
 
         ClosePeer();
 
@@ -171,8 +140,7 @@ public sealed class ENetTransport : INetworkTransport
 
         _peer.Close();
 
-        _multiplayer.MultiplayerPeer =
-            null;
+        _multiplayer.MultiplayerPeer = null;
 
         _peer.Dispose();
 
@@ -181,23 +149,17 @@ public sealed class ENetTransport : INetworkTransport
 
     private void ThrowIfDisposed()
     {
-        ObjectDisposedException.ThrowIf(
-            _disposed,
-            this);
+        ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
-    private void OnPeerConnected(
-        long peerId)
+    private void OnPeerConnected(long peerId)
     {
-        PeerConnected?.Invoke(
-            new PeerId(peerId));
+        PeerConnected?.Invoke(new PeerId(peerId));
     }
 
-    private void OnPeerDisconnected(
-        long peerId)
+    private void OnPeerDisconnected(long peerId)
     {
-        PeerDisconnected?.Invoke(
-            new PeerId(peerId));
+        PeerDisconnected?.Invoke(new PeerId(peerId));
     }
 
     private void OnConnectedToServer()

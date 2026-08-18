@@ -10,14 +10,11 @@ public partial class NetworkObject : Node
 
     public Node Host { get; private set; } = null!;
 
-    public int AuthorityPeerId =>
-        Host.GetMultiplayerAuthority();
+    public int AuthorityPeerId => Host.GetMultiplayerAuthority();
 
-    public bool HasAuthority =>
-        Host.IsMultiplayerAuthority();
+    public bool HasAuthority => Host.IsMultiplayerAuthority();
 
-    public MultiplayerSynchronizer Synchronizer =>
-        _synchronizer;
+    public MultiplayerSynchronizer Synchronizer => _synchronizer;
 
     public override void _EnterTree()
     {
@@ -25,9 +22,7 @@ public partial class NetworkObject : Node
             ?? throw new InvalidOperationException(
                 "NetworkObject must be a child of a host node.");
 
-        _synchronizer =
-            GetNode<MultiplayerSynchronizer>(
-                "MultiplayerSynchronizer");
+        _synchronizer = GetNode<MultiplayerSynchronizer>("MultiplayerSynchronizer");
 
         ConfigureReplication();
     }
@@ -36,16 +31,14 @@ public partial class NetworkObject : Node
     {
         SceneReplicationConfig config = new();
 
-        PropertyInfo[] properties =
-            Host.GetType().GetProperties(
-                BindingFlags.Instance |
-                BindingFlags.Public |
-                BindingFlags.NonPublic);
+        PropertyInfo[] properties = Host.GetType().GetProperties(
+            BindingFlags.Instance |
+            BindingFlags.Public |
+            BindingFlags.NonPublic);
 
         foreach (PropertyInfo property in properties)
         {
-            ReplicatedAttribute? replicated =
-                property.GetCustomAttribute<ReplicatedAttribute>();
+            ReplicatedAttribute? replicated = property.GetCustomAttribute<ReplicatedAttribute>();
 
             if (replicated is null)
                 continue;
@@ -57,8 +50,7 @@ public partial class NetworkObject : Node
                     "uses [Replicated] but is missing [Export].");
             }
 
-            NodePath propertyPath =
-                new($".:{property.Name}");
+            NodePath propertyPath = new($".:{property.Name}");
 
             config.AddProperty(propertyPath);
 
