@@ -10,6 +10,9 @@ internal sealed class FakeNetworkTransport : INetworkTransport
     public TransportResult StartServerResult { get; set; } = TransportResult.Ok();
     public TransportResult ConnectResult { get; set; } = TransportResult.Ok();
     public PeerId LocalPeerId { get; set; } = PeerId.Server;
+    public Exception? CloseException { get; set; }
+    public Action? OnConnect { get; set; }
+    public Action? OnClose { get; set; }
 
     public int StartServerCallCount { get; private set; }
     public int ConnectCallCount { get; private set; }
@@ -38,6 +41,7 @@ internal sealed class FakeNetworkTransport : INetworkTransport
         ConnectCallCount++;
         LastConnectArguments = (address, port);
         IsRunning = ConnectResult.Success;
+        OnConnect?.Invoke();
         return ConnectResult;
     }
 
@@ -50,6 +54,10 @@ internal sealed class FakeNetworkTransport : INetworkTransport
     {
         CloseCallCount++;
         IsRunning = false;
+        OnClose?.Invoke();
+
+        if (CloseException is not null)
+            throw CloseException;
     }
 
     public void Dispose()

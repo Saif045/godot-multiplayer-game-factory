@@ -11,11 +11,11 @@ The implemented source currently provides:
 - process roles for offline, client, listen-server, and dedicated-server execution;
 - a positive, typed `PeerId`, a `NetworkPeer` model, and an observable peer registry;
 - an `INetworkTransport` boundary and one ENet adapter over Godot's multiplayer API;
-- session startup, connection, intentional shutdown, failure, and reset behavior;
+- session startup, connection, intentional shutdown, failure/reset, validated transitions, and disposal behavior;
 - an experimental `NetworkObject` component that builds a Godot replication configuration from annotated host properties;
 - manual connection and replication probe scenes under `sandbox/`.
 
-The project now contains engine-independent automated baseline tests and a deterministic test-only fake transport. It does not yet contain Godot integration tests, a multiprocess scenario runner, a general network-world or spawn service, persistent player identity, a complete application shell, packaging, or CI evidence. These and other long-term capabilities are direction, not implemented features.
+The project now contains engine-independent automated lifecycle tests and a deterministic test-only fake transport. `NetworkSession` borrows its injected transport: it may close active session use but never disposes that transport; its caller remains responsible for disposal. The project does not yet contain Godot integration tests, a multiprocess scenario runner, a general network-world or spawn service, persistent player identity, a complete application shell, packaging, or CI evidence. These and other long-term capabilities are direction, not implemented features.
 
 ## Current repository configuration
 
@@ -85,9 +85,8 @@ The next work is planned in connected stages:
 1. establish the project documentation and engineering standards;
 2. normalize namespace spelling, path casing, project naming, and formatting without changing behavior;
 3. add engine-independent unit tests and a fake transport around the existing lifecycle contracts;
-4. harden lifecycle ownership, disposal, cleanup, transitions, and invariants;
-5. finish the replication abstraction with explicit automatic and manual paths, validation, diagnostics, tests, and dimension-independent composition;
-6. add reusable multiprocess scenario infrastructure;
-7. begin a network-world layer for stable spawn definitions and runtime spawn/despawn behavior.
+4. finish the replication abstraction with explicit automatic and manual paths, validation, diagnostics, tests, and dimension-independent composition;
+5. add reusable multiprocess scenario infrastructure;
+6. begin a network-world layer for stable spawn definitions and runtime spawn/despawn behavior.
 
-Everything after mechanical normalization is planned work. Names and contracts remain subject to architectural review until implemented and recorded.
+The implemented foundation remains subject to architectural review as contracts mature. Later planned work is not an implemented feature.

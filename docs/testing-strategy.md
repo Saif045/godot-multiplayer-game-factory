@@ -18,7 +18,7 @@ Use ordinary .NET tests for code whose contract does not require a running Godot
 - `NetworkPeer` locality and role semantics;
 - `PeerRegistry` idempotence, conflict detection, lookup, removal, clear behavior, and event ordering;
 - `RuntimeContext` mode projections as observed through session operations;
-- `NetworkSession` lifecycle, results, state events, failure reasons, cleanup, and invalid operations.
+- `NetworkSession` lifecycle, results, state events, failure reasons, cleanup, invalid operations, disposal, and stale-event handling.
 
 `FakeNetworkTransport` exposes deterministic operation results, local identity, operation tracking, and explicit event injection. It models only the existing transport contract and does not simulate ENet or network timing.
 
@@ -37,7 +37,7 @@ Priority session cases include:
 - repeated or invalid lifecycle calls;
 - reset and another start after failure.
 
-These baseline tests characterize current reviewed behavior. Disposal and event unsubscription, explicit transport ownership, exception-safe cleanup, validated transitions, and stale-event hardening remain lifecycle-hardening work; this baseline does not add failing tests that presume those future contracts.
+`NetworkSession` borrows its constructor-injected transport. Tests assert that disposal closes active session use, but does not close an offline or failed borrowed transport and never disposes it. Disposal also unsubscribes all transport handlers and makes later lifecycle operations throw `ObjectDisposedException`. They cover inactive/stale events, incompatible lifecycle calls, validated lifecycle paths, and cleanup exceptions. An operational close failure still attempts peer clearing and runtime reset, then leaves the session failed with observable error state; disposal retains its cleanup error while isolating the session offline. These tests remain engine-independent and do not verify ENet behavior.
 
 ### 2. Godot integration tests
 

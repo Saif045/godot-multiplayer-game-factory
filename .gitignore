@@ -6,3 +6,6 @@
 # .NET build output
 bin/
 obj/
+
+# Godot generates UID metadata for C# files it scans. Test-only source is not a Godot script surface.
+/tests/GameFactory.Tests/**/*.cs.uid

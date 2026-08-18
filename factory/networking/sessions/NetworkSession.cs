@@ -6,162 +6,122 @@ using GameFactory.Networking.Transport;
 
 namespace GameFactory.Networking.Sessions;
 
-public sealed class NetworkSession
+public sealed class NetworkSession : IDisposable
 {
     private readonly INetworkTransport _transport;
     private readonly RuntimeContext _runtime;
     private readonly PeerRegistry _peers;
-
     private bool _isEnding;
+    private bool _isDisposed;
 
     public SessionState State { get; private set; } = SessionState.Offline;
-
     public SessionEndReason LastEndReason { get; private set; } = SessionEndReason.None;
-
     public string? LastError { get; private set; }
-
     public event Action<SessionState, SessionState>? StateChanged;
 
-    public NetworkSession(
-        INetworkTransport transport,
-        RuntimeContext runtime,
-        PeerRegistry peers)
+    public NetworkSession(INetworkTransport transport, RuntimeContext runtime, PeerRegistry peers)
     {
         _transport = transport;
         _runtime = runtime;
         _peers = peers;
-
         SubscribeToTransport();
     }
 
-    public SessionResult Host(
-        int port,
-        int maxClients,
-        HostMode hostMode = HostMode.Listen)
+    public SessionResult Host(int port, int maxClients, HostMode hostMode = HostMode.Listen)
     {
+        ThrowIfDisposed();
         if (State != SessionState.Offline)
-        {
-            return SessionResult.Fail(
-                $"Cannot host while session is {State}.");
-        }
+            return SessionResult.Fail($"Cannot host while session is {State}.");
 
         ResetLastResult();
-
         TransitionTo(SessionState.Starting);
-
         TransportResult result = _transport.StartServer(port, maxClients);
-
         if (!result.Success)
-        {
-            string error = result.Error ?? "Failed to start server.";
+            return Fail(SessionEndReason.HostStartFailed, result.Error ?? "Failed to start server.");
 
-            Fail(SessionEndReason.HostStartFailed, error);
-
-            return SessionResult.Fail(error);
-        }
-
-        RuntimeMode runtimeMode = hostMode == HostMode.Dedicated
-            ? RuntimeMode.DedicatedServer
-            : RuntimeMode.ListenServer;
-
-        _runtime.SetMode(runtimeMode);
-
-        PeerId localPeerId = _transport.GetLocalPeerId();
-
-        _peers.Add(localPeerId, isLocal: true);
-
+        _runtime.SetMode(hostMode == HostMode.Dedicated ? RuntimeMode.DedicatedServer : RuntimeMode.ListenServer);
+        _peers.Add(_transport.GetLocalPeerId(), isLocal: true);
         TransitionTo(SessionState.Running);
-
         return SessionResult.Ok();
     }
 
-    public SessionResult Join(
-        string address,
-        int port)
+    public SessionResult Join(string address, int port)
     {
+        ThrowIfDisposed();
         if (State != SessionState.Offline)
-        {
-            return SessionResult.Fail(
-                $"Cannot join while session is {State}.");
-        }
+            return SessionResult.Fail($"Cannot join while session is {State}.");
 
         ResetLastResult();
-
         TransitionTo(SessionState.Connecting);
-
-        TransportResult result = _transport.Connect(address, port);
-
-        if (!result.Success)
-        {
-            Fail(
-                SessionEndReason.ConnectionFailed,
-                result.Error ?? "Failed to initialize connection.");
-
-            return SessionResult.Fail(result.Error ?? "Failed to initialize connection.");
-        }
-
         _runtime.SetMode(RuntimeMode.Client);
-
-        // Creating the client transport does not confirm the server connection.
-        // OnConnectedToServer moves the session from Connecting to Running.
+        TransportResult result = _transport.Connect(address, port);
+        if (!result.Success)
+            return Fail(SessionEndReason.ConnectionFailed, result.Error ?? "Failed to initialize connection.");
 
         return SessionResult.Ok();
     }
 
     public SessionResult Leave()
     {
+        ThrowIfDisposed();
         if (_runtime.Mode != RuntimeMode.Client)
-        {
-            return SessionResult.Fail(
-                "Leave() is only valid for a client.");
-        }
+            return SessionResult.Fail("Leave() is only valid for a client.");
+        if (State is not (SessionState.Running or SessionState.Connecting))
+            return SessionResult.Fail($"Cannot leave while session is {State}.");
 
-        if (State is not SessionState.Running
-            and not SessionState.Connecting)
-        {
-            return SessionResult.Fail(
-                $"Cannot leave while session is {State}.");
-        }
-
-        EndIntentionally(SessionEndReason.LocalLeave);
-
-        return SessionResult.Ok();
+        return EndIntentionally(SessionEndReason.LocalLeave);
     }
 
     public SessionResult ShutdownHost()
     {
+        ThrowIfDisposed();
         if (!_runtime.IsServer)
-        {
-            return SessionResult.Fail(
-                "ShutdownHost() requires a server runtime.");
-        }
+            return SessionResult.Fail("ShutdownHost() requires a server runtime.");
+        if (State is not (SessionState.Running or SessionState.Starting))
+            return SessionResult.Fail($"Cannot shut down host while session is {State}.");
 
-        if (State is not SessionState.Running
-            and not SessionState.Starting)
-        {
-            return SessionResult.Fail(
-                $"Cannot shut down host while session is {State}.");
-        }
-
-        EndIntentionally(SessionEndReason.HostShutdown);
-
-        return SessionResult.Ok();
+        return EndIntentionally(SessionEndReason.HostShutdown);
     }
 
     public SessionResult ResetFailure()
     {
+        ThrowIfDisposed();
         if (State != SessionState.Failed)
-        {
-            return SessionResult.Fail(
-                "Session is not in Failed state.");
-        }
+            return SessionResult.Fail("Session is not in Failed state.");
 
         LastError = null;
         LastEndReason = SessionEndReason.None;
-
         TransitionTo(SessionState.Offline);
-
         return SessionResult.Ok();
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+        UnsubscribeFromTransport();
+        try
+        {
+            bool hasActiveSessionUse = State is SessionState.Starting or SessionState.Connecting or SessionState.Running;
+            if (hasActiveSessionUse)
+                TransitionTo(SessionState.Stopping);
+
+            Exception? cleanupException = Cleanup(closeTransport: hasActiveSessionUse);
+            if (cleanupException is not null)
+            {
+                LastEndReason = SessionEndReason.CleanupFailed;
+                LastError = FormatCleanupError(cleanupException);
+            }
+
+            if (State is SessionState.Stopping or SessionState.Failed)
+                TransitionTo(SessionState.Offline);
+        }
+        finally
+        {
+            _isEnding = false;
+        }
     }
 
     private void SubscribeToTransport()
@@ -173,128 +133,154 @@ public sealed class NetworkSession
         _transport.ServerDisconnected += OnServerDisconnected;
     }
 
+    private void UnsubscribeFromTransport()
+    {
+        _transport.PeerConnected -= OnPeerConnected;
+        _transport.PeerDisconnected -= OnPeerDisconnected;
+        _transport.ConnectedToServer -= OnConnectedToServer;
+        _transport.ConnectionFailed -= OnConnectionFailed;
+        _transport.ServerDisconnected -= OnServerDisconnected;
+    }
+
     private void OnPeerConnected(PeerId peerId)
     {
-        if (_isEnding)
+        if (!CanAcceptTransportEvents() || State != SessionState.Running)
             return;
-
         _peers.Add(peerId, isLocal: false);
     }
 
     private void OnPeerDisconnected(PeerId peerId)
     {
-        if (_isEnding)
+        if (!CanAcceptTransportEvents() || State != SessionState.Running)
             return;
-
         _peers.Remove(peerId);
-
-        // ServerDisconnected handles the loss of a client's server. This event
-        // also fires normally when another client leaves a server session.
     }
 
     private void OnConnectedToServer()
     {
-        if (_isEnding)
+        if (!CanAcceptTransportEvents() || State != SessionState.Connecting || _runtime.Mode != RuntimeMode.Client)
             return;
-
-        if (State != SessionState.Connecting)
-            return;
-
-        PeerId localPeerId = _transport.GetLocalPeerId();
-
-        _peers.Add(localPeerId, isLocal: true);
-
+        _peers.Add(_transport.GetLocalPeerId(), isLocal: true);
         TransitionTo(SessionState.Running);
     }
 
     private void OnConnectionFailed()
     {
-        if (_isEnding)
+        if (!CanAcceptTransportEvents() || State != SessionState.Connecting || _runtime.Mode != RuntimeMode.Client)
             return;
-
-        if (State != SessionState.Connecting)
-            return;
-
-        Fail(
-            SessionEndReason.ConnectionFailed,
-            "Connection to server failed.");
+        Fail(SessionEndReason.ConnectionFailed, "Connection to server failed.");
     }
 
     private void OnServerDisconnected()
     {
-        if (_isEnding)
-            return;
-
-        if (State is SessionState.Offline
-            or SessionState.Failed)
+        if (!CanAcceptTransportEvents()
+            || State is not (SessionState.Connecting or SessionState.Running)
+            || _runtime.Mode != RuntimeMode.Client)
         {
             return;
         }
-
-        Fail(
-            SessionEndReason.ServerDisconnected,
-            "Server disconnected.");
+        Fail(SessionEndReason.ServerDisconnected, "Server disconnected.");
     }
 
-    private void EndIntentionally(SessionEndReason reason)
+    private SessionResult EndIntentionally(SessionEndReason reason)
     {
-        if (_isEnding)
-            return;
-
         _isEnding = true;
+        try
+        {
+            TransitionTo(SessionState.Stopping);
+            LastEndReason = reason;
+            LastError = null;
+            Exception? cleanupException = Cleanup();
+            if (cleanupException is null)
+            {
+                TransitionTo(SessionState.Offline);
+                return SessionResult.Ok();
+            }
 
-        TransitionTo(SessionState.Stopping);
-
-        LastEndReason = reason;
-        LastError = null;
-
-        Cleanup();
-
-        TransitionTo(SessionState.Offline);
-
-        _isEnding = false;
+            LastEndReason = SessionEndReason.CleanupFailed;
+            LastError = FormatCleanupError(cleanupException);
+            TransitionTo(SessionState.Failed);
+            return SessionResult.Fail(LastError);
+        }
+        finally
+        {
+            _isEnding = false;
+        }
     }
 
-    private void Fail(
-        SessionEndReason reason,
-        string error)
+    private SessionResult Fail(SessionEndReason reason, string error)
     {
-        if (_isEnding)
-            return;
-
         _isEnding = true;
+        try
+        {
+            LastEndReason = reason;
+            LastError = error;
+            Exception? cleanupException = Cleanup();
+            if (cleanupException is not null)
+                LastError = $"{error} Cleanup also failed: {FormatCleanupError(cleanupException)}";
 
-        LastEndReason = reason;
-        LastError = error;
-
-        Cleanup();
-
-        TransitionTo(
-            SessionState.Failed);
-
-        _isEnding = false;
+            TransitionTo(SessionState.Failed);
+            return SessionResult.Fail(LastError);
+        }
+        finally
+        {
+            _isEnding = false;
+        }
     }
 
-    private void Cleanup()
+    private Exception? Cleanup(bool closeTransport = true)
     {
-        _transport.Close();
-
-        _peers.Clear();
-
-        _runtime.Reset();
+        Exception? firstException = null;
+        if (closeTransport)
+            TryCleanupStep(_transport.Close, ref firstException);
+        TryCleanupStep(_peers.Clear, ref firstException);
+        TryCleanupStep(_runtime.Reset, ref firstException);
+        return firstException;
     }
+
+    private static void TryCleanupStep(Action action, ref Exception? firstException)
+    {
+        try { action(); }
+        catch (Exception exception) { firstException ??= exception; }
+    }
+
+    private bool CanAcceptTransportEvents() => !_isDisposed && !_isEnding;
 
     private void TransitionTo(SessionState next)
     {
         if (State == next)
             return;
+        if (!IsValidTransition(State, next))
+            throw new InvalidOperationException($"Invalid session transition: {State} -> {next}.");
 
         SessionState previous = State;
-
         State = next;
-
         StateChanged?.Invoke(previous, next);
     }
+
+    private static bool IsValidTransition(SessionState current, SessionState next)
+    {
+        return (current, next) switch
+        {
+            (SessionState.Offline, SessionState.Starting) or
+            (SessionState.Offline, SessionState.Connecting) or
+            (SessionState.Starting, SessionState.Running) or
+            (SessionState.Starting, SessionState.Failed) or
+            (SessionState.Starting, SessionState.Stopping) or
+            (SessionState.Connecting, SessionState.Running) or
+            (SessionState.Connecting, SessionState.Stopping) or
+            (SessionState.Connecting, SessionState.Failed) or
+            (SessionState.Running, SessionState.Stopping) or
+            (SessionState.Running, SessionState.Failed) or
+            (SessionState.Stopping, SessionState.Offline) or
+            (SessionState.Stopping, SessionState.Failed) or
+            (SessionState.Failed, SessionState.Offline) => true,
+            _ => false
+        };
+    }
+
+    private static string FormatCleanupError(Exception exception) => $"Session cleanup failed: {exception.Message}";
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_isDisposed, this);
 
     private void ResetLastResult()
     {

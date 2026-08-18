@@ -117,18 +117,7 @@ public partial class ReplicationProbe : Node
 
     public override void _ExitTree()
     {
-        if (_session is not null)
-        {
-            if (_runtime.Mode == RuntimeMode.Client)
-            {
-                _session.Leave();
-            }
-            else if (_runtime.IsServer)
-            {
-                _session.ShutdownHost();
-            }
-        }
-
+        _session?.Dispose();
         _transport?.Dispose();
     }
 

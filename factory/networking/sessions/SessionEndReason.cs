@@ -12,5 +12,7 @@ public enum SessionEndReason
 
     ConnectionFailed,
 
-    ServerDisconnected
+    ServerDisconnected,
+
+    CleanupFailed
 }

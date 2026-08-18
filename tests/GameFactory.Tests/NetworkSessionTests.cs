@@ -90,6 +90,20 @@ public sealed class NetworkSessionTests
     }
 
     [Fact]
+    public void Connection_confirmation_during_connect_is_accepted_for_client_session()
+    {
+        SessionFixture fixture = CreateFixture(localPeerId: 7);
+        fixture.Transport.OnConnect = fixture.Transport.RaiseConnectedToServer;
+
+        SessionResult result = fixture.Session.Join("127.0.0.1", 7000);
+
+        Assert.True(result.Success);
+        Assert.Equal(SessionState.Running, fixture.Session.State);
+        Assert.Equal(RuntimeMode.Client, fixture.Runtime.Mode);
+        Assert.Equal(new PeerId(7), Assert.Single(fixture.Peers.Peers).Id);
+    }
+
+    [Fact]
     public void Join_initialization_failure_uses_transport_error_and_cleans_up()
     {
         SessionFixture fixture = CreateFixture();
@@ -261,6 +275,193 @@ public sealed class NetworkSessionTests
         Assert.False(reset.Success);
         Assert.Equal(SessionState.Offline, fixture.Session.State);
         Assert.Equal(0, fixture.Transport.CloseCallCount);
+    }
+
+    [Fact]
+    public void Dispose_borrows_transport_cleans_active_session_and_unsubscribes_events()
+    {
+        SessionFixture fixture = CreateFixture(localPeerId: 7);
+        fixture.Session.Join("127.0.0.1", 7000);
+        fixture.Transport.RaiseConnectedToServer();
+
+        fixture.Session.Dispose();
+        fixture.Transport.RaiseConnectionFailed();
+        fixture.Transport.RaiseServerDisconnected();
+        fixture.Transport.RaisePeerConnected(new PeerId(12));
+
+        Assert.Equal(SessionState.Offline, fixture.Session.State);
+        Assert.Equal(RuntimeMode.Offline, fixture.Runtime.Mode);
+        Assert.Empty(fixture.Peers.Peers);
+        Assert.Equal(1, fixture.Transport.CloseCallCount);
+        Assert.Equal(0, fixture.Transport.DisposeCallCount);
+    }
+
+    [Fact]
+    public void Dispose_is_idempotent()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Host(7000, 8);
+
+        fixture.Session.Dispose();
+        fixture.Session.Dispose();
+
+        Assert.Equal(1, fixture.Transport.CloseCallCount);
+        Assert.Equal(0, fixture.Transport.DisposeCallCount);
+    }
+
+    [Fact]
+    public void Dispose_offline_session_does_not_close_or_dispose_borrowed_transport()
+    {
+        SessionFixture fixture = CreateFixture();
+
+        fixture.Session.Dispose();
+
+        Assert.Equal(0, fixture.Transport.CloseCallCount);
+        Assert.Equal(0, fixture.Transport.DisposeCallCount);
+    }
+
+    [Fact]
+    public void Public_lifecycle_operations_throw_after_dispose()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Host(7000, 8));
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Join("127.0.0.1", 7000));
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Leave());
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.ShutdownHost());
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.ResetFailure());
+    }
+
+    [Fact]
+    public void Leave_while_hosting_is_rejected_without_cleanup()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Host(7000, 8);
+
+        SessionResult result = fixture.Session.Leave();
+
+        Assert.False(result.Success);
+        Assert.Equal(SessionState.Running, fixture.Session.State);
+        Assert.Equal(0, fixture.Transport.CloseCallCount);
+    }
+
+    [Fact]
+    public void Shutdown_host_while_client_is_rejected_without_cleanup()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Join("127.0.0.1", 7000);
+
+        SessionResult result = fixture.Session.ShutdownHost();
+
+        Assert.False(result.Success);
+        Assert.Equal(SessionState.Connecting, fixture.Session.State);
+        Assert.Equal(0, fixture.Transport.CloseCallCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Host_and_join_are_rejected_while_connecting_or_running(bool running)
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Join("127.0.0.1", 7000);
+        if (running)
+            fixture.Transport.RaiseConnectedToServer();
+
+        Assert.False(fixture.Session.Host(8000, 4).Success);
+        Assert.False(fixture.Session.Join("127.0.0.1", 8000).Success);
+        Assert.Equal(1, fixture.Transport.ConnectCallCount);
+        Assert.Equal(0, fixture.Transport.StartServerCallCount);
+    }
+
+    [Theory]
+    [InlineData(SessionState.Offline)]
+    [InlineData(SessionState.Connecting)]
+    [InlineData(SessionState.Running)]
+    public void Reset_failure_is_rejected_outside_failed(SessionState state)
+    {
+        SessionFixture fixture = CreateFixture();
+        if (state is SessionState.Connecting or SessionState.Running)
+        {
+            fixture.Session.Join("127.0.0.1", 7000);
+            if (state == SessionState.Running)
+                fixture.Transport.RaiseConnectedToServer();
+        }
+
+        Assert.False(fixture.Session.ResetFailure().Success);
+        Assert.Equal(state, fixture.Session.State);
+    }
+
+    [Fact]
+    public void Inactive_or_irrelevant_transport_events_do_not_mutate_session()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Transport.RaisePeerConnected(new PeerId(12));
+        fixture.Transport.RaiseConnectedToServer();
+        fixture.Transport.RaiseConnectionFailed();
+        fixture.Transport.RaiseServerDisconnected();
+
+        Assert.Equal(SessionState.Offline, fixture.Session.State);
+        Assert.Empty(fixture.Peers.Peers);
+
+        fixture.Session.Host(7000, 8);
+        fixture.Transport.RaiseConnectedToServer();
+        fixture.Transport.RaiseConnectionFailed();
+        fixture.Transport.RaiseServerDisconnected();
+
+        Assert.Equal(SessionState.Running, fixture.Session.State);
+        Assert.Equal(RuntimeMode.ListenServer, fixture.Runtime.Mode);
+    }
+
+    [Fact]
+    public void Cleanup_exception_still_clears_runtime_and_peers_and_enters_failed()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Host(7000, 8);
+        fixture.Transport.CloseException = new InvalidOperationException("close exploded");
+
+        SessionResult result = fixture.Session.ShutdownHost();
+
+        Assert.False(result.Success);
+        Assert.Contains("close exploded", result.Error);
+        Assert.Equal(SessionState.Failed, fixture.Session.State);
+        Assert.Equal(SessionEndReason.CleanupFailed, fixture.Session.LastEndReason);
+        Assert.Equal(RuntimeMode.Offline, fixture.Runtime.Mode);
+        Assert.Empty(fixture.Peers.Peers);
+        Assert.Equal(1, fixture.Transport.CloseCallCount);
+    }
+
+    [Fact]
+    public void Close_triggered_server_disconnection_does_not_fail_intentional_leave()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Join("127.0.0.1", 7000);
+        fixture.Transport.RaiseConnectedToServer();
+        fixture.Transport.OnClose = fixture.Transport.RaiseServerDisconnected;
+
+        SessionResult result = fixture.Session.Leave();
+
+        Assert.True(result.Success);
+        Assert.Equal(SessionState.Offline, fixture.Session.State);
+        Assert.Equal(SessionEndReason.LocalLeave, fixture.Session.LastEndReason);
+        Assert.Null(fixture.Session.LastError);
+    }
+
+    [Fact]
+    public void Failed_session_ignores_later_transport_events()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.Join("127.0.0.1", 7000);
+        fixture.Transport.RaiseConnectionFailed();
+
+        fixture.Transport.RaiseConnectedToServer();
+        fixture.Transport.RaisePeerConnected(new PeerId(12));
+        fixture.Transport.RaiseServerDisconnected();
+
+        Assert.Equal(SessionState.Failed, fixture.Session.State);
+        Assert.Equal(SessionEndReason.ConnectionFailed, fixture.Session.LastEndReason);
+        Assert.Empty(fixture.Peers.Peers);
     }
 
     private static SessionFixture CreateFixture(long localPeerId = PeerId.ServerValue)

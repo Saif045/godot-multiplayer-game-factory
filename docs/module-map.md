@@ -62,9 +62,9 @@ The abstraction isolates session policy from ENet. An engine-independent fake im
 | `SessionState` | Names session lifecycle states | None | Implemented |
 | `SessionEndReason` | Names current intentional and failure outcomes | None | Implemented |
 | `SessionResult` | Success plus optional string error | .NET | Implemented |
-| `NetworkSession` | Coordinates transport, runtime role, peers, transitions, and cleanup | Runtime, peers, transport contracts | Implemented foundation; hardening needed |
+| `NetworkSession` | Coordinates transport, runtime role, peers, validated transitions, cleanup, and transport-event subscriptions | Runtime, peers, transport contracts | Implemented foundation |
 
-The session currently lacks disposal/unsubscription, explicit transport ownership, exception-safe cleanup, and a validated state-transition model.
+`NetworkSession` borrows its constructor-injected `INetworkTransport`. It calls `Close()` only to terminate active session use, but never calls `Dispose()`; the composition root owns transport disposal. Disposal of an offline or failed session does not issue an extra close. Session disposal is idempotent, unsubscribes all transport events, clears peers, resets the runtime, and rejects later public lifecycle operations. Cleanup attempts its applicable steps even when an earlier step throws. Operational cleanup failure leads to `Failed` with `LastEndReason` and `LastError`; disposal cleanup failure ends offline while retaining `CleanupFailed` and `LastError` for inspection. The only extra disposal transition beyond ordinary lifecycle paths is `Starting -> Stopping -> Offline`, for disposal reentrancy during synchronous startup.
 
 ## `factory/networking/objects/`
 
