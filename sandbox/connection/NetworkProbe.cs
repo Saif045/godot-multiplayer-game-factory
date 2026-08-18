@@ -5,7 +5,7 @@ using GameFactory.Networking.Transport;
 using GameFactory.Networking.Sessions;
 using GameFactory.Networking.Peers;
 
-namespace GameFactory.Sandbox;
+namespace GameFactory.Sandbox.Connection;
 
 public partial class NetworkProbe : Node
 {

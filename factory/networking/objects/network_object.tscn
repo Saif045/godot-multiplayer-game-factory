@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://hons87n7eb"]
+
+[ext_resource type="Script" uid="uid://wqsibm3y1s4h" path="res://factory/networking/objects/NetworkObject.cs" id="1_aavg1"]
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_6lxj0"]
+
+[node name="NetworkObject" type="Node3D" unique_id=1985479742]
+script = ExtResource("1_aavg1")
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=492149677]
+root_path = NodePath("../..")
+replication_config = SubResource("SceneReplicationConfig_6lxj0")
