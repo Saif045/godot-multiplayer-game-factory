@@ -111,7 +111,7 @@ The sandbox demonstrates code paths but contains no assertions or automation. An
 | `docs/coding-standards.md` | Engineering rules for subsequent work |
 | `docs/testing-strategy.md` | Planned evidence layers and test priorities |
 | `docs/networking-foundation.md` | Earlier focused networking principles |
-| `docs/decisions/` | ADR process and template; no accepted ADRs yet |
+| `docs/decisions/` | ADR process, template, and accepted foundational decisions |
 
 Godot-generated `.uid` sidecars accompany all 18 tracked C# scripts. They are identity metadata, not separate implementation modules.
 

@@ -2,7 +2,7 @@
 
 ## Mission
 
-Multiplayer Game Factory is a professional-grade personal framework for creating Godot C# multiplayer games without rebuilding standard infrastructure for every project. It also serves as a deliberate environment for developing durable networking and software-architecture expertise.
+GameFactory is a professional-grade personal framework for creating Godot C# multiplayer games without rebuilding standard infrastructure for every project. It also serves as a deliberate environment for developing durable networking and software-architecture expertise.
 
 The framework should make ordinary multiplayer behavior safe and extremely easy, make uncommon behavior explicit, and leave advanced users able to replace factory behavior or work directly with Godot.
 

@@ -1,6 +1,6 @@
-# Multiplayer Game Factory
+# GameFactory
 
-Multiplayer Game Factory is a Godot C# project for building reusable multiplayer and application infrastructure. Its goal is to make common player-hosted and dedicated-server flows safe and inexpensive to adopt while keeping unusual behavior explicit and raw Godot APIs available.
+GameFactory is a Godot C# project for building reusable multiplayer and application infrastructure. Its goal is to make common player-hosted and dedicated-server flows safe and inexpensive to adopt while keeping unusual behavior explicit and raw Godot APIs available.
 
 The repository is at an early foundation stage. It is not presented as production-ready, and it does not yet define platform-support, compatibility, release, or licensing guarantees.
 

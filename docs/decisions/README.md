@@ -4,9 +4,15 @@ Architecture decision records capture durable choices that materially constrain 
 
 ## Current index
 
-No architecture decision records have been accepted yet.
+| ADR | Decision | Status |
+|---|---|---|
+| [0001](0001-godot-native-framework.md) | Use Godot-native framework boundaries | Accepted |
+| [0002](0002-convention-configuration-replacement.md) | Provide convention, configuration, and replacement paths | Accepted |
+| [0003](0003-composition-over-required-inheritance.md) | Prefer composition over required inheritance | Accepted |
+| [0004](0004-separate-peer-player-network-object-identities.md) | Keep peer, player, and network-object identities separate | Accepted |
+| [0005](0005-one-assembly-until-boundaries-justify-packaging.md) | Keep one assembly until boundaries justify packaging | Accepted |
 
-The charter and architecture documentation contain project principles and current observations. They are not substitutes for a reviewed ADR when a concrete design choice becomes durable.
+The charter and architecture documentation contain project principles and current observations. ADRs record the durable decisions that constrain that direction.
 
 ## Status vocabulary
 
