@@ -2,17 +2,17 @@
 
 ## Current baseline
 
-The repository currently has no test project, test framework dependency, fake transport, CI workflow, structured scenario runner, or automated assertions. The two sandbox probes produce logs and accept manual input; they are exploratory aids, not regression tests.
+The repository has a separate xUnit project under `tests/GameFactory.Tests/`. Its engine-independent tests cover current `PeerId`, `NetworkPeer`, `PeerRegistry`, and `NetworkSession` behavior through a deterministic fake implementation of `INetworkTransport`.
 
-Earlier conversation context reports manual connection and replication experiments, but Phase 0 did not rerun them. Those reports are not fresh verification.
+The baseline tests do not launch Godot, create a scene tree, open sockets, or depend on timing. They do not cover `ENetTransport`, Godot node integration, replication, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or structured scenario runner.
 
-This strategy is deliberately framework-neutral until a test framework and Godot test integration are reviewed.
+The two sandbox probes remain exploratory aids rather than regression tests. Earlier conversation context reports manual connection and replication experiments, but those reports are not fresh automated verification.
 
 ## Evidence layers
 
 ### 1. Engine-independent unit tests
 
-Use ordinary .NET tests for code whose contract does not require a running Godot scene tree. Initial targets are:
+Use ordinary .NET tests for code whose contract does not require a running Godot scene tree. Current coverage includes:
 
 - `PeerId` validation, equality, and server semantics;
 - `NetworkPeer` locality and role semantics;
@@ -20,7 +20,7 @@ Use ordinary .NET tests for code whose contract does not require a running Godot
 - `RuntimeContext` mode projections as observed through session operations;
 - `NetworkSession` lifecycle, results, state events, failure reasons, cleanup, and invalid operations.
 
-A future fake implementation of `INetworkTransport` should expose deterministic operations and event injection. It should model only the transport contract, not copy ENet internals.
+`FakeNetworkTransport` exposes deterministic operation results, local identity, operation tracking, and explicit event injection. It models only the existing transport contract and does not simulate ENet or network timing.
 
 Priority session cases include:
 
@@ -35,10 +35,9 @@ Priority session cases include:
 - peer add/remove/clear invariants;
 - reset after failure;
 - repeated or invalid lifecycle calls;
-- stale events during or after cleanup;
-- exceptions raised during cleanup or event callbacks.
+- reset and another start after failure.
 
-Some cases will expose weaknesses in the current implementation. Tests should state the desired reviewed contract rather than preserve accidental behavior.
+These baseline tests characterize current reviewed behavior. Disposal and event unsubscription, explicit transport ownership, exception-safe cleanup, validated transitions, and stale-event hardening remain lifecycle-hardening work; this baseline does not add failing tests that presume those future contracts.
 
 ### 2. Godot integration tests
 

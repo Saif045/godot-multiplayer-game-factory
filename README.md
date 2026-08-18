@@ -15,7 +15,7 @@ The implemented source currently provides:
 - an experimental `NetworkObject` component that builds a Godot replication configuration from annotated host properties;
 - manual connection and replication probe scenes under `sandbox/`.
 
-The project does not yet contain automated tests, a fake transport, a multiprocess scenario runner, a general network-world or spawn service, persistent player identity, a complete application shell, packaging, or CI evidence. These and other long-term capabilities are direction, not implemented features.
+The project now contains engine-independent automated baseline tests and a deterministic test-only fake transport. It does not yet contain Godot integration tests, a multiprocess scenario runner, a general network-world or spawn service, persistent player identity, a complete application shell, packaging, or CI evidence. These and other long-term capabilities are direction, not implemented features.
 
 ## Current repository configuration
 

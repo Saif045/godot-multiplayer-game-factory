@@ -10,7 +10,7 @@ This inventory describes Git-tracked paths and current responsibilities. Directo
 | `.gitattributes` | LF normalization for text | Implemented |
 | `.gitignore` | Ignores Godot cache, Android and .NET build output, and VS Code settings | Implemented |
 | `GameFactory.csproj` | Godot .NET SDK, root namespace, and target-framework configuration | Implemented |
-| `GameFactory.sln` | Single-project Visual Studio solution | Implemented |
+| `GameFactory.sln` | Solution containing the Godot project and engine-independent test project | Implemented |
 | `project.godot` | Godot project settings and connection-probe main scene | Implemented |
 | `icon.svg` and `icon.svg.import` | Project icon and Godot import metadata | Implemented asset/configuration |
 
@@ -52,7 +52,7 @@ The registry rejects conflicting locality for a known ID but is not a player ros
 | `INetworkTransport` | Transport lifecycle and normalized connection-event contract | `PeerId`, `IDisposable` | Implemented boundary |
 | `ENetTransport` | Godot ENet implementation of the transport boundary | Godot multiplayer API | Implemented, only adapter |
 
-The abstraction isolates session policy from ENet. Replacement feasibility has not yet been supported by an alternative or fake implementation.
+The abstraction isolates session policy from ENet. An engine-independent fake implements the same contract for deterministic session tests; it is a test double rather than another production adapter.
 
 ## `factory/networking/sessions/`
 
@@ -96,6 +96,17 @@ The probe uses UDP port 7000, up to eight clients, and loopback for client conne
 | `objects/raw_door.tscn` | Composes `RawDoor` with `NetworkObject` | Probe-specific example |
 
 The sandbox demonstrates code paths but contains no assertions or automation. Any observations from earlier manual runs are historical conversation context, not newly verified results.
+
+## `tests/GameFactory.Tests/`
+
+| File/module | Responsibility | Status |
+|---|---|---|
+| `GameFactory.Tests.csproj` | .NET 8 xUnit test project referencing `GameFactory.csproj` | Implemented |
+| `TestDoubles/FakeNetworkTransport.cs` | Deterministic `INetworkTransport` results, call tracking, local identity, and event injection | Implemented test double |
+| Peer and registry tests | Current identity, locality, registry, lookup, conflict, removal, clear, and event behavior | Automated engine-independent tests |
+| Session tests | Current host, join, peer-event, intentional-end, failure/reset, invalid-operation, cleanup, and state-event behavior | Automated engine-independent tests |
+
+These tests do not exercise Godot runtime integration, ENet, scenes, replication, sockets, or multiple processes.
 
 ## Documentation
 
