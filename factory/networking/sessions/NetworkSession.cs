@@ -35,7 +35,9 @@ public sealed class NetworkSession : IDisposable
 
         ResetLastResult();
         TransitionTo(SessionState.Starting);
+        ThrowIfDisposed();
         TransportResult result = _transport.StartServer(port, maxClients);
+        ThrowIfDisposed();
         if (!result.Success)
             return Fail(SessionEndReason.HostStartFailed, result.Error ?? "Failed to start server.");
 
@@ -53,8 +55,12 @@ public sealed class NetworkSession : IDisposable
 
         ResetLastResult();
         TransitionTo(SessionState.Connecting);
+        ThrowIfDisposed();
         _runtime.SetMode(RuntimeMode.Client);
         TransportResult result = _transport.Connect(address, port);
+        ThrowIfDisposed();
+        if (State == SessionState.Failed)
+            return SessionResult.Fail(LastError ?? "Connection to server failed.");
         if (!result.Success)
             return Fail(SessionEndReason.ConnectionFailed, result.Error ?? "Failed to initialize connection.");
 

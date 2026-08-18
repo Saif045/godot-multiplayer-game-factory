@@ -104,6 +104,22 @@ public sealed class NetworkSessionTests
     }
 
     [Fact]
+    public void Synchronous_connection_failure_during_connect_returns_failure()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Transport.OnConnect = fixture.Transport.RaiseConnectionFailed;
+
+        SessionResult result = fixture.Session.Join("127.0.0.1", 7000);
+
+        Assert.False(result.Success);
+        Assert.Equal(SessionState.Failed, fixture.Session.State);
+        Assert.Equal(SessionEndReason.ConnectionFailed, fixture.Session.LastEndReason);
+        Assert.Equal(RuntimeMode.Offline, fixture.Runtime.Mode);
+        Assert.Empty(fixture.Peers.Peers);
+        Assert.Equal(1, fixture.Transport.CloseCallCount);
+    }
+
+    [Fact]
     public void Join_initialization_failure_uses_transport_error_and_cleans_up()
     {
         SessionFixture fixture = CreateFixture();
@@ -318,6 +334,60 @@ public sealed class NetworkSessionTests
 
         Assert.Equal(0, fixture.Transport.CloseCallCount);
         Assert.Equal(0, fixture.Transport.DisposeCallCount);
+    }
+
+    [Fact]
+    public void Disposing_from_starting_transition_prevents_host_transport_use()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.StateChanged += (_, next) =>
+        {
+            if (next == SessionState.Starting)
+                fixture.Session.Dispose();
+        };
+
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Host(7000, 8));
+
+        Assert.Equal(0, fixture.Transport.StartServerCallCount);
+        Assert.Equal(RuntimeMode.Offline, fixture.Runtime.Mode);
+        Assert.Empty(fixture.Peers.Peers);
+        Assert.Equal(SessionState.Offline, fixture.Session.State);
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Join("127.0.0.1", 7000));
+    }
+
+    [Fact]
+    public void Disposing_from_connecting_transition_prevents_join_transport_use()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Session.StateChanged += (_, next) =>
+        {
+            if (next == SessionState.Connecting)
+                fixture.Session.Dispose();
+        };
+
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Join("127.0.0.1", 7000));
+
+        Assert.Equal(0, fixture.Transport.ConnectCallCount);
+        Assert.Equal(RuntimeMode.Offline, fixture.Runtime.Mode);
+        Assert.Empty(fixture.Peers.Peers);
+        Assert.Equal(SessionState.Offline, fixture.Session.State);
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Host(7000, 8));
+    }
+
+    [Fact]
+    public void Disposing_synchronously_during_connect_prevents_later_session_mutation()
+    {
+        SessionFixture fixture = CreateFixture();
+        fixture.Transport.OnConnect = fixture.Session.Dispose;
+
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Join("127.0.0.1", 7000));
+
+        Assert.Equal(1, fixture.Transport.ConnectCallCount);
+        Assert.Equal(1, fixture.Transport.CloseCallCount);
+        Assert.Equal(RuntimeMode.Offline, fixture.Runtime.Mode);
+        Assert.Empty(fixture.Peers.Peers);
+        Assert.Equal(SessionState.Offline, fixture.Session.State);
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session.Leave());
     }
 
     [Fact]
