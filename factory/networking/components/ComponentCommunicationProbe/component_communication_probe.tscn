@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://did37oq646nm3"]
+
+[ext_resource type="Script" uid="uid://dd7vnias5uh8k" path="res://factory/networking/components/ComponentCommunicationProbe/ComponentCommunicationProbe.cs" id="1_atcaj"]
+
+[node name="ComponentCommunicationProbe" type="Node" unique_id=1150556955]
+script = ExtResource("1_atcaj")

@@ -1,95 +1,95 @@
 using System;
-using System.Reflection;
+using System.Collections.Generic;
 using Godot;
 
 namespace GameFactory.Networking.Objects;
 
 public partial class NetworkObject : Node
 {
-    private MultiplayerSynchronizer _synchronizer = null!;
+    private readonly List<NetworkObjectComponent> _components = [];
 
     public Node Host { get; private set; } = null!;
 
-    public int AuthorityPeerId => Host.GetMultiplayerAuthority();
+    public override void _Ready()
+    {
+        foreach (NetworkObjectComponent component in _components)
+            component.Initialize();
+    }
 
-    public bool HasAuthority => Host.IsMultiplayerAuthority();
-
-    public MultiplayerSynchronizer Synchronizer => _synchronizer;
 
     public override void _EnterTree()
     {
         Host = GetParent()
             ?? throw new InvalidOperationException(
                 "NetworkObject must be a child of a host node.");
-
-        _synchronizer = GetNode<MultiplayerSynchronizer>("MultiplayerSynchronizer");
-
-        ConfigureReplication();
     }
 
-    private void ConfigureReplication()
+    internal void RegisterComponent(NetworkObjectComponent component)
     {
-        SceneReplicationConfig config = new();
+        _components.Add(component);
+    }
 
-        PropertyInfo[] properties = Host.GetType().GetProperties(
-            BindingFlags.Instance |
-            BindingFlags.Public |
-            BindingFlags.NonPublic);
+    internal void UnregisterComponent(NetworkObjectComponent component)
+    {
+        _components.Remove(component);
+    }
 
-        foreach (PropertyInfo property in properties)
+    public T GetComponent<T>()
+     where T : class
+    {
+        T? result = null;
+
+        foreach (NetworkObjectComponent component in _components)
         {
-            ReplicatedAttribute? replicated = property.GetCustomAttribute<ReplicatedAttribute>();
-
-            if (replicated is null)
+            if (component is not T match)
                 continue;
 
-            if (property.GetCustomAttribute<ExportAttribute>() is null)
+            if (result is not null)
             {
                 throw new InvalidOperationException(
-                    $"{Host.GetType().Name}.{property.Name} " +
-                    "uses [Replicated] but is missing [Export].");
+                    $"{nameof(NetworkObject)} contains multiple components " +
+                    $"providing {typeof(T).Name}.");
             }
 
-            NodePath propertyPath = new($".:{property.Name}");
-
-            config.AddProperty(propertyPath);
-
-            config.PropertySetSpawn(
-                propertyPath,
-                replicated.Spawn);
-
-            config.PropertySetReplicationMode(
-                propertyPath,
-                ToGodotMode(replicated.Mode));
-
-            GD.Print(
-                $"[network][replication] " +
-                $"{Host.Name}.{property.Name}: " +
-                $"mode={replicated.Mode}, " +
-                $"spawn={replicated.Spawn}");
+            result = match;
         }
 
-        _synchronizer.ReplicationConfig = config;
+        return result
+            ?? throw new InvalidOperationException(
+                $"{nameof(NetworkObject)} does not contain a component " +
+                $"providing {typeof(T).Name}.");
     }
 
-    private static SceneReplicationConfig.ReplicationMode ToGodotMode(
-        ReplicationMode mode)
+    public bool TryGetComponent<T>(out T? result)
+      where T : class
     {
-        return mode switch
+        result = null;
+
+        foreach (NetworkObjectComponent component in _components)
         {
-            ReplicationMode.Never =>
-                SceneReplicationConfig.ReplicationMode.Never,
+            if (component is not T match)
+                continue;
 
-            ReplicationMode.Always =>
-                SceneReplicationConfig.ReplicationMode.Always,
+            if (result is not null)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(NetworkObject)} contains multiple components " +
+                    $"providing {typeof(T).Name}.");
+            }
 
-            ReplicationMode.OnChange =>
-                SceneReplicationConfig.ReplicationMode.OnChange,
+            result = match;
+        }
 
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(mode),
-                mode,
-                null)
-        };
+        return result is not null;
+    }
+
+    public IEnumerable<T> GetComponents<T>()
+    where T : class
+    {
+        foreach (NetworkObjectComponent component in _components)
+        {
+            if (component is T match)
+                yield return match;
+        }
     }
 }

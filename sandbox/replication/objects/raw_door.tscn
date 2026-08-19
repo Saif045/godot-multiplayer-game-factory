@@ -9,3 +9,5 @@ script = ExtResource("1_i7nvg")
 [node name="NetworkObject" parent="." unique_id=1985479742 instance=ExtResource("2_87fh2")]
 
 [editable path="NetworkObject"]
+[editable path="NetworkObject/ReplicationComponent"]
+[editable path="NetworkObject/AuthorityComponent"]

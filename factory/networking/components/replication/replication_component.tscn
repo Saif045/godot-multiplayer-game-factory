@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://bnfuoejg0kect"]
+
+[ext_resource type="Script" uid="uid://cd733flbbmpiw" path="res://factory/networking/components/replication/ReplicationComponent.cs" id="1_c7blw"]
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_c7blw"]
+
+[node name="ReplicationComponent" type="Node" unique_id=1647424924]
+script = ExtResource("1_c7blw")
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=977597708]
+replication_config = SubResource("SceneReplicationConfig_c7blw")

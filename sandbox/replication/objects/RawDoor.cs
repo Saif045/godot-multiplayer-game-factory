@@ -3,16 +3,21 @@ using GameFactory.Networking.Objects;
 
 namespace GameFactory.Sandbox.Replication;
 
+using GameFactory.Networking.Components.Authority;
+using GameFactory.Networking.Components.Replication;
+
+
 public partial class RawDoor : Node3D
 {
-    [Export]
+
     [Replicated(
         ReplicationMode.OnChange,
         Spawn = true)]
     public bool IsOpen { get; set; }
 
     private NetworkObject _network = null!;
-    private MultiplayerSynchronizer _synchronizer = null!;
+    private INetworkReplication _replication = null!;
+    private INetworkAuthority _authority = null!;
 
     public override void _UnhandledInput(
         InputEvent inputEvent)
@@ -39,7 +44,7 @@ public partial class RawDoor : Node3D
         // client -> server
         //
         // The host-side player case comes later.
-        if (_network.HasAuthority)
+        if (_authority.HasAuthority)
         {
             GD.Print(
                 "[door][server] E pressed locally; " +
@@ -70,7 +75,7 @@ public partial class RawDoor : Node3D
             $"[door][server] RequestOpen received " +
             $"from peer {senderId}");
 
-        if (!_network.HasAuthority)
+        if (!_authority.HasAuthority)
         {
             GD.PushWarning(
                 "[door] RequestOpen executed " +
@@ -103,20 +108,26 @@ public partial class RawDoor : Node3D
     {
         _network = GetNode<NetworkObject>("NetworkObject");
 
-        _synchronizer = _network.Synchronizer;
+        _replication =
+            _network.GetComponent<INetworkReplication>();
+
+        _authority =
+            _network.GetComponent<INetworkAuthority>();
+
+
 
         GD.Print(
-            $"[door][network] authority peer = {_network.AuthorityPeerId}, " +
-            $"has authority = {_network.HasAuthority}");
+            $"[door][network] authority peer = {_authority.AuthorityPeerId}, " +
+            $"has authority = {_authority.HasAuthority}");
 
-        _synchronizer.Synchronized += () =>
+        _replication.Synchronized += () =>
         {
             GD.Print(
                 $"[door][sync] full sync received; " +
                 $"IsOpen = {IsOpen}");
         };
 
-        _synchronizer.DeltaSynchronized += () =>
+        _replication.DeltaSynchronized += () =>
         {
             GD.Print(
                 $"[door][sync] delta received; " +
