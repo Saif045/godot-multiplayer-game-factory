@@ -4,6 +4,8 @@ using GameFactory.Runtime;
 using GameFactory.Networking.Peers;
 using GameFactory.Networking.Sessions;
 using GameFactory.Networking.Transport;
+using GameFactory.Networking.Objects;
+using GameFactory.Networking.World;
 
 namespace GameFactory.Sandbox.Replication;
 
@@ -13,61 +15,18 @@ public partial class ReplicationProbe : Node
     private const int MaxClients = 8;
     private const string DefaultAddress = "127.0.0.1";
 
-    private readonly PackedScene _doorScene = GD.Load<PackedScene>(
-        "res://sandbox/replication/objects/raw_door.tscn");
     private readonly PeerRegistry _peers = new();
     private readonly RuntimeContext _runtime = new();
 
     private INetworkTransport? _transport;
     private NetworkSession? _session;
-    private Node? _runtimeDoor;
 
-    private MultiplayerSpawner _spawner = null!;
+    private NetworkWorld _world = null!;
+    private NetworkObjectId? _doorId;
+    private NetworkSpawnGroup _worldObjects = null!;
 
-    private void SpawnDoor()
-    {
-        if (!Multiplayer.IsServer())
-            return;
-
-        _runtimeDoor = _doorScene.Instantiate();
-
-        _runtimeDoor.Name = "RuntimeDoor";
-
-        GetNode<Node>("SpawnRoot").AddChild(_runtimeDoor);
-
-        GD.Print(
-            "[spawn][server] spawned RuntimeDoor");
-    }
-
-    private void DespawnDoor()
-    {
-        if (!Multiplayer.IsServer())
-            return;
-
-        if (_runtimeDoor is null)
-            return;
-
-        GD.Print(
-            "[spawn][server] despawning RuntimeDoor");
-
-        _runtimeDoor.QueueFree();
-        _runtimeDoor = null;
-    }
-
-    public override void _UnhandledInput(
-        InputEvent inputEvent)
-    {
-        if (inputEvent is not InputEventKey key)
-            return;
-
-        if (!key.Pressed || key.Echo)
-            return;
-
-        if (key.Keycode == Key.Delete)
-        {
-            DespawnDoor();
-        }
-    }
+    [Export]
+    public PackedScene DoorScene { get; set; } = null!;
 
     public override void _Ready()
     {
@@ -78,15 +37,15 @@ public partial class ReplicationProbe : Node
             _runtime,
             _peers);
 
+        _world =
+            GetNode<NetworkWorld>("NetworkWorld");
+
+        _worldObjects =
+            GetNode<NetworkSpawnGroup>(
+                "NetworkWorld/WorldObjects");
+
         SubscribeToSessionEvents();
         SubscribeToPeerEvents();
-        // SubscribeToTransportDebugEvents();
-        _spawner = GetNode<MultiplayerSpawner>("MultiplayerSpawner");
-
-        _spawner.Despawned += node =>
-        {
-            GD.Print($"[spawn][remote] despawned {node.Name}");
-        };
 
         string[] args = OS.GetCmdlineUserArgs();
 
@@ -113,6 +72,21 @@ public partial class ReplicationProbe : Node
         GD.Print(
             "[probe] No runtime mode selected. " +
             "Use --server or --client.");
+    }
+
+    public override void _UnhandledInput(
+        InputEvent inputEvent)
+    {
+        if (inputEvent is not InputEventKey key)
+            return;
+
+        if (!key.Pressed || key.Echo)
+            return;
+
+        if (key.Keycode == Key.Delete)
+        {
+            DespawnDoor();
+        }
     }
 
     public override void _ExitTree()
@@ -217,5 +191,34 @@ public partial class ReplicationProbe : Node
                 $"[transport] peer disconnected: " +
                 $"{peerId}");
         };
+    }
+
+    private void SpawnDoor()
+    {
+        if (!Multiplayer.IsServer())
+            return;
+
+        NetworkObject networkObject =
+            _world.Spawn(
+                _worldObjects,
+                DoorScene);
+
+        _doorId = networkObject.Id;
+
+        GD.Print(
+            $"[probe] spawned network object {_doorId}");
+    }
+
+    private void DespawnDoor()
+    {
+        if (!Multiplayer.IsServer())
+            return;
+
+        if (_doorId is not NetworkObjectId id)
+            return;
+
+        _world.Despawn(id);
+
+        _doorId = null;
     }
 }

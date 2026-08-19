@@ -18,7 +18,7 @@ Terms marked **implemented** appear in current source; **planned** terms guide f
 
 **Player ID** — **Planned.** Persistent player identity; it must not be substituted with `PeerId`.
 
-**Runtime network-object identity** — **Planned.** Stable identity for an object instance. `NetworkObject` does not provide one.
+**Network-object ID** — **Implemented experimental runtime identity.** `NetworkObjectId` is a positive server-allocated ID for a dynamic object in a `NetworkWorld`. It is not a persistent player identity.
 
 **Multiplayer authority** — **Godot capability used today.** `AuthorityComponent` exposes a host node's Godot authority through `INetworkAuthority`; it does not create a new authority model.
 
@@ -38,9 +38,9 @@ Terms marked **implemented** appear in current source; **planned** terms guide f
 
 **Replication notification** — **Implemented.** `INetworkReplication.Synchronized` and `DeltaSynchronized` events report synchronizer notifications; they are not general component messaging.
 
-**Replicated existence** — **Manual sandbox evidence only.** The replication probe uses raw `MultiplayerSpawner`; there is no generalized factory spawning service.
+**Replicated existence** — **Implemented experimental dynamic path.** `NetworkSpawnGroup` owns a `MultiplayerSpawner`; its current resource-path payload is temporary. Manual sandbox evidence covers spawning, despawning, and late joining only.
 
-**Network world** — **Planned.** Future coordination for spawn definitions, runtime objects, joining peers, and cleanup. Its API is not defined.
+**Network world** — **Implemented experimental dynamic runtime layer.** `NetworkWorld` allocates IDs, registers dynamic `NetworkObject` instances, looks them up, and coordinates spawn/despawn through direct-child `NetworkSpawnGroup` nodes. It does not define player spawning, persistence, authored/static objects, initial spawn data, or stable prefab definitions.
 
 ## Evidence
 

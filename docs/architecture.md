@@ -35,10 +35,18 @@ Concrete component scenes are replaceable defaults. Components and host code com
 
 The `RawDoor` sandbox uses only `INetworkAuthority` and `INetworkReplication`, while retaining direct Godot RPC use for its probe-specific request path. Manual sandbox runs exercised ordinary state change and late joining. There is no automated Godot integration test for this component lifecycle or replication behavior yet.
 
+## Network world and dynamic spawning
+
+`NetworkWorld` coordinates the current collection-level runtime concerns: it allocates positive `NetworkObjectId` values from one server-owned sequence, registers bound objects, looks them up, and requests despawn. `NetworkSpawnGroup` is a direct `NetworkWorld` child that owns one `MultiplayerSpawner` and acts as that spawner's spawn root. A world can contain multiple groups while sharing one global object-ID sequence.
+
+The server calls `NetworkWorld.Spawn(group, scene)`. The group passes the ID and the scene resource path through Godot's spawn data, instantiates the scene, finds its required `NetworkObject` child, and binds the world and ID before the host enters the tree. The object then registers during `_EnterTree`, and its components initialize afterward. Remote spawn uses the same group-local spawner and payload.
+
+Resource paths are the current temporary prefab identity mechanism. Spawn initialization data, authored/static objects, persistent identity, player spawning, and a stable prefab-definition contract are not implemented. Manual sandbox runs exercised multiple groups, globally unique IDs, spawn/despawn, late joining, replication, and authority. There is no automated Godot or multiprocess evidence for this layer.
+
 ## Current composition roots
 
 `NetworkProbe` and `ReplicationProbe` each construct runtime, peer registry, ENet transport, and session in `_Ready`, and release the session before the caller-owned transport in `_ExitTree`. This duplication is exploratory; a reusable composition-root form remains open.
 
 ## Planned direction
 
-The next major problem is a network-world layer for stable spawn definitions and runtime spawn/despawn behavior. It must not be inferred from the current object component host. Godot integration tests, multiprocess scenarios, persistent player/object identity, structured diagnostics, application shell, packaging, and CI are also not implemented.
+The next major design problem is generic spawn initialization and prefab identity. It must not be inferred from the current object component host or temporary resource-path payload. Godot integration tests, multiprocess scenarios, persistent player identity, structured diagnostics, application shell, packaging, and CI are also not implemented.

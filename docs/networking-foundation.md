@@ -28,6 +28,12 @@ Default authority and replication scenes implement `INetworkAuthority` and `INet
 
 The replication sandbox retains raw Godot RPC and spawning access. It was manually exercised for normal state change and late join, but component/replication behavior has no automated Godot evidence yet.
 
+## Dynamic world and spawning
+
+`NetworkWorld` now coordinates dynamic object identity, registry, lookup, spawn, and despawn. The server allocates positive `NetworkObjectId` values globally within the world. A direct-child `NetworkSpawnGroup` owns one `MultiplayerSpawner` and serves as its spawn root; multiple groups share the world's ID sequence.
+
+The current spawn payload carries the ID and a scene resource path. The path is temporary prefab identity, not a stable definition contract. The spawned host is bound to its world and ID before entering the tree, then its `NetworkObject` registers. Manual sandbox runs exercised multi-group global IDs, spawn/despawn, and late join; automated Godot and multiprocess coverage does not exist.
+
 ## Future work
 
-`NetworkWorld`, stable spawn definitions, runtime object identity, persistent players, general spawn/despawn, Godot integration tests, and multiprocess scenarios remain future work. Do not infer them from the current component host.
+Stable prefab definitions, spawn initialization data, persistent players, authored/static objects, Godot integration tests, and multiprocess scenarios remain future work. Do not infer them from the current dynamic path.

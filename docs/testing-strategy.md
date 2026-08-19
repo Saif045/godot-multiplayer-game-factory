@@ -2,9 +2,9 @@
 
 ## Current automated baseline
 
-`tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, and `NetworkSession` using deterministic `FakeNetworkTransport`. They cover lifecycle results, transitions, cleanup, disposal, borrowed-transport ownership, stale events, and startup reentrancy. They do not launch Godot, create a scene tree, open sockets, or validate ENet.
+`tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, `NetworkObjectId`, and `NetworkSession` using deterministic `FakeNetworkTransport`. They cover lifecycle results, transitions, cleanup, disposal, borrowed-transport ownership, stale events, startup reentrancy, and positive runtime-object ID validation. They do not launch Godot, create a scene tree, open sockets, or validate ENet.
 
-The tests do not cover `NetworkObject`, `NetworkObjectComponent`, authority, replication, Godot scene loading, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner.
+The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `NetworkObjectComponent`, authority, replication, Godot scene loading, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner.
 
 ## Evidence layers
 
@@ -24,7 +24,7 @@ The replication sandbox was manually exercised for normal state change and late 
 - host/synchronizer root targeting and lifecycle cleanup;
 - authority/non-authority mutation, initial/delta state, spawn/despawn, and late joining.
 
-Manual configuration, custom replacement paths, and `NetworkWorld` are not implemented contracts and should not be tested as though they exist.
+Manual configuration, custom replacement paths, spawn initialization data, and stable prefab definitions are not implemented contracts and should not be tested as though they exist.
 
 ## Test qualities
 

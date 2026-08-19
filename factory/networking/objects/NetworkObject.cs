@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using GameFactory.Networking.World;
 
 namespace GameFactory.Networking.Objects;
 
@@ -10,11 +11,71 @@ public partial class NetworkObject : Node
 
     public Node Host { get; private set; } = null!;
 
+    private NetworkWorld? _world;
+    private NetworkObjectId _id;
+
+    public bool IsBound => _world is not null;
+
+    public NetworkWorld World =>
+        _world
+        ?? throw new InvalidOperationException(
+            "NetworkObject is not bound to a NetworkWorld.");
+
+    public NetworkObjectId Id
+    {
+        get
+        {
+            if (!IsBound)
+            {
+                throw new InvalidOperationException(
+                    "NetworkObject does not have an ID before binding.");
+            }
+
+            return _id;
+        }
+    }
+
+    internal void Bind(
+        NetworkWorld world,
+        NetworkObjectId id)
+    {
+        if (IsBound)
+        {
+            throw new InvalidOperationException(
+                "NetworkObject is already bound.");
+        }
+
+        if (IsInsideTree())
+        {
+            throw new InvalidOperationException(
+                "NetworkObject must be bound before entering the scene tree.");
+        }
+
+        _world = world;
+        _id = id;
+    }
+
     public override void _EnterTree()
     {
         Host = GetParent()
             ?? throw new InvalidOperationException(
                 "NetworkObject must be a child of a host node.");
+
+        if (!IsBound)
+        {
+            throw new InvalidOperationException(
+                "NetworkObject entered the tree before being bound.");
+        }
+
+        World.Register(this);
+    }
+
+    public override void _ExitTree()
+    {
+        if (IsBound)
+        {
+            World.Unregister(this);
+        }
     }
 
     public override void _Ready()

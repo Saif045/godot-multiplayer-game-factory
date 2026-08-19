@@ -9,13 +9,13 @@
 
 Multiplayer systems refer to several entities whose lifetimes differ. A transport peer identifies one live connection. A player may need continuity across reconnects or sessions. A runtime network object needs identity for creation, lookup, replication, and removal independent of either a connection or a player.
 
-Only `PeerId` is implemented today. It validates a positive transport identifier and treats value `1` as the server in the current Godot model. `NetworkPeer` adds process-local connection information. There is no persistent player identifier, runtime network-object identifier, spawn-definition identifier, or generalized world/spawn service in the repository.
+At acceptance, only `PeerId` was implemented. It validates a positive transport identifier and treats value `1` as the server in the current Godot model. `NetworkPeer` adds process-local connection information. The implementation update records the later runtime-object and dynamic-world work without treating it as a persistent player or prefab-definition contract.
 
 ## Decision
 
 GameFactory will model transport peer identity, persistent player identity, and runtime network-object identity as separate concepts with separate lifetimes and contracts.
 
-Code must not use `PeerId` as a durable player or object identifier. Associations between identities must be explicit at the subsystem that owns the relationship. The shapes, storage, allocation, and persistence rules for player and network-object identities remain future design work and are not established by this ADR.
+Code must not use `PeerId` as a durable player or object identifier. Associations between identities must be explicit at the subsystem that owns the relationship. Persistent player identity, stable prefab-definition identity, and persistence rules remain future design work. The current dynamic `NetworkObjectId` implementation is recorded below.
 
 ## Rationale
 
@@ -55,12 +55,12 @@ Predefining player and object identity contracts could appear comprehensive, but
 
 ### Neutral or operational
 
-- `PeerId` remains the only implemented identity in the present source.
-- This decision does not promise reconnect support, persistent players, object identity, or network-world behavior.
+- `PeerId` and the experimental dynamic `NetworkObjectId` are implemented identity types with distinct lifetimes.
+- This decision does not promise reconnect support, persistent players, stable prefab definitions, or persistence behavior.
 
 ## Validation and evidence
 
-Current source validates only the peer-identity boundary. Engine-independent tests cover `PeerId`, `NetworkPeer`, and `PeerRegistry`; persistent player and runtime-object identity still have no implementation. Future identity types should be tested for domain separation, lifetime, equality, invalid values, mapping cleanup, and relevant reconnect or late-join scenarios.
+Current source validates peer identity and the positive-value boundary for `NetworkObjectId`. Engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, and `NetworkObjectId`; persistent player identity has no implementation. Automated Godot and multiprocess evidence for dynamic object registration, spawning, and late joining does not exist. Future identity types should be tested for domain separation, lifetime, equality, invalid values, mapping cleanup, and relevant reconnect or late-join scenarios.
 
 ## Compatibility and migration
 
@@ -69,15 +69,19 @@ There is no current player or network-object identity API to migrate. Existing c
 ## Open questions
 
 - Player identity authority, persistence, and authentication are undecided.
-- Runtime network-object identity allocation and lifetime are undecided.
+- Persistent or cross-world network-object identity and retention are undecided; the current dynamic world allocates positive IDs on the server.
 - Spawn-definition identity is related to creation metadata but must not be assumed to be the same as runtime object identity.
 
 ## Follow-up work
 
 - Preserve peer-only semantics while adding baseline tests for `PeerId`, `NetworkPeer`, and `PeerRegistry`.
 - Design persistent player identity only with concrete reconnect or persistence requirements.
-- Design runtime object and spawn-definition identities with the future network-world work, not during the current documentation phase.
+- Evolve runtime-object and spawn-definition identities only when concrete persistence, cross-world, or prefab-definition requirements appear.
 
 ## Supersession
 
 None.
+
+## Implementation update (2026-08-19)
+
+`NetworkObjectId` now provides a positive, server-allocated runtime identity for dynamic objects in `NetworkWorld`. It remains separate from `PeerId` and does not establish persistent player identity, reconnect identity, or stable spawn-definition identity. `NetworkSpawnGroup` uses temporary scene resource paths for dynamic spawning; that mechanism is not an accepted prefab-identity design.

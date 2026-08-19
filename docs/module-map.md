@@ -48,6 +48,7 @@ Persistent player and runtime-object identities do not exist.
 |---|---|
 | `NetworkObject` | Open component host for one gameplay parent node. |
 | `NetworkObjectComponent` | Direct-child registration and two-phase initialization base. |
+| `NetworkObjectId` | Positive runtime identity for a dynamic object in a world. |
 | `network_object.tscn` | Replaceable default composition of authority and replication component scenes. |
 | `components/authority/INetworkAuthority` | Authority capability contract. |
 | `components/authority/AuthorityComponent` | Default Godot-authority capability implementation. |
@@ -57,17 +58,28 @@ Persistent player and runtime-object identities do not exist.
 | `components/replication/ReplicatedAttribute` | Metadata selecting replication mode and spawn behavior. |
 | `components/replication/replication_component.tscn` | Default replication component scene. |
 
-The default component scenes are implementations, not mandatory or exclusive component lists. `ReplicationComponent` recognizes `[Replicated]` properties without requiring `[Export]`; defaults are `OnChange` and spawn enabled. It replaces its synchronizer configuration as part of the current automatic path. Manual configuration and a general spawn/world service do not exist.
+The default component scenes are implementations, not mandatory or exclusive component lists. `ReplicationComponent` recognizes `[Replicated]` properties without requiring `[Export]`; defaults are `OnChange` and spawn enabled. It replaces its synchronizer configuration as part of the current automatic path. Manual replication configuration does not exist.
+
+## `factory/networking/world/`
+
+| Type/path | Responsibility |
+|---|---|
+| `NetworkWorld` | Server-owned runtime ID allocation, dynamic object registry, lookup, and spawn/despawn coordination. |
+| `NetworkSpawnGroup` | Direct world child, one `MultiplayerSpawner`, spawn root, and scene-instantiation boundary. |
+| `network_world.tscn` | Default world with one `WorldObjects` group. |
+| `network_spawn_group.tscn` | Default group scene with its spawner. |
+
+`NetworkWorld` binds a world and `NetworkObjectId` before a spawned host enters the tree. Spawn groups use the scene resource path as temporary prefab identity. Initial spawn data, authored/static objects, player spawning, persistence, and stable prefab definitions do not exist.
 
 ## Sandboxes and tests
 
 | Path | Responsibility | Evidence |
 |---|---|---|
 | `sandbox/connection/` | Manual session/ENet lifecycle probe | Exploratory only |
-| `sandbox/replication/` | Manual raw RPC, spawning, and property-replication probe | Earlier manual state-change and late-join exercise; not automated |
-| `tests/GameFactory.Tests/` | xUnit tests for peers and sessions, with `FakeNetworkTransport` | Automated engine-independent baseline |
+| `sandbox/replication/` | Manual raw RPC, spawning, and property-replication probe | Manual state-change, late-join, dynamic spawn/despawn, and multi-group exercise; not automated |
+| `tests/GameFactory.Tests/` | xUnit tests for peers, sessions, and `NetworkObjectId`, with `FakeNetworkTransport` | Automated engine-independent baseline |
 
-The repository has no Godot integration test harness, multiprocess runner, `NetworkWorld`, persistence, platform, tooling, or testing module under `factory/`. Speculative empty source folders are intentionally absent.
+The repository has no Godot integration test harness, multiprocess runner, persistence, platform, tooling, or testing module under `factory/`. Speculative empty source folders are intentionally absent.
 
 ## Documentation
 
