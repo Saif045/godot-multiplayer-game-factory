@@ -3,7 +3,7 @@ using System.Reflection;
 using Godot;
 using GameFactory.Networking.Objects;
 
-namespace GameFactory.Networking.Components.Replication;
+namespace GameFactory.Networking.Objects.Components.Replication;
 
 public partial class ReplicationComponent
     : NetworkObjectComponent, INetworkReplication
@@ -59,13 +59,6 @@ public partial class ReplicationComponent
 
       if (replicated is null)
         continue;
-
-      // if (property.GetCustomAttribute<ExportAttribute>() is null)
-      // {
-      //   throw new InvalidOperationException(
-      //       $"{Host.GetType().Name}.{property.Name} " +
-      //       "uses [Replicated] but is missing [Export].");
-      // }
 
       NodePath propertyPath = new($".:{property.Name}");
 

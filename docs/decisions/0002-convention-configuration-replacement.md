@@ -80,3 +80,7 @@ This ADR records a design constraint and introduces no API migration. The projec
 ## Supersession
 
 None.
+
+## Implementation update (2026-08-19)
+
+The network-object replication path currently supplies an automatic convention through replaceable default component scenes, while the sandbox retains raw Godot access. A separate manual-configuration API is not implemented and must not be inferred from this record.

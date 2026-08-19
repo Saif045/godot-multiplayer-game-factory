@@ -1,4 +1,4 @@
-namespace GameFactory.Networking.Components.Authority;
+namespace GameFactory.Networking.Objects.Components.Authority;
 
 public interface INetworkAuthority
 {

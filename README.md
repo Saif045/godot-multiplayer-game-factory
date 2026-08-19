@@ -1,92 +1,53 @@
 # GameFactory
 
-GameFactory is a Godot C# project for building reusable multiplayer and application infrastructure. Its goal is to make common player-hosted and dedicated-server flows safe and inexpensive to adopt while keeping unusual behavior explicit and raw Godot APIs available.
+GameFactory is a Godot C# project for reusable multiplayer and application infrastructure. It aims to make ordinary player-hosted and dedicated-server flows safe to adopt, while leaving unusual behavior explicit and raw Godot APIs available.
 
-The repository is at an early foundation stage. It is not presented as production-ready, and it does not yet define platform-support, compatibility, release, or licensing guarantees.
+The repository is an early foundation, not a production-ready framework. It has no platform-support, compatibility, release, or licensing guarantee.
 
 ## What exists today
 
-The implemented source currently provides:
+- process roles, typed transient `PeerId`, peer registry, session lifecycle, and an ENet transport adapter;
+- engine-independent xUnit coverage for the peer and session foundation through a deterministic test-only fake transport;
+- a compositional `NetworkObject` host with replaceable authority and replication component scenes;
+- `[Replicated]` metadata that configures a component-owned `MultiplayerSynchronizer` for host properties; and
+- manual connection and replication sandbox probes.
 
-- process roles for offline, client, listen-server, and dedicated-server execution;
-- a positive, typed `PeerId`, a `NetworkPeer` model, and an observable peer registry;
-- an `INetworkTransport` boundary and one ENet adapter over Godot's multiplayer API;
-- session startup, connection, intentional shutdown, failure/reset, validated transitions, and disposal behavior;
-- an experimental `NetworkObject` component that builds a Godot replication configuration from annotated host properties;
-- manual connection and replication probe scenes under `sandbox/`.
+`NetworkSession` borrows its injected transport: it can close active session use, but its caller owns transport disposal. `NetworkObject` is not a network identity, spawn system, or universal gameplay base class. Player identity, runtime object identity, `NetworkWorld`, general spawning, Godot integration tests, multiprocess scenarios, CI, packaging, and an application shell remain planned.
 
-The project now contains engine-independent automated lifecycle tests and a deterministic test-only fake transport. `NetworkSession` borrows its injected transport: it may close active session use but never disposes that transport; its caller remains responsible for disposal. The project does not yet contain Godot integration tests, a multiprocess scenario runner, a general network-world or spawn service, persistent player identity, a complete application shell, packaging, or CI evidence. These and other long-term capabilities are direction, not implemented features.
+The replication sandbox has been manually exercised for normal state change and late joining. That is exploratory evidence, not automated Godot test coverage.
 
-## Current repository configuration
+## Current configuration
 
-The project file currently selects Godot .NET SDK 4.7.1 and targets .NET 8, with a conditional .NET 9 target when `GodotTargetPlatform` is `android`. The Godot project currently enables C#, Forward Plus rendering, Jolt Physics, and Windows D3D12. These facts describe the checked-in configuration; they are not a support matrix.
-
-The configured main scene is the connection probe:
-
-`res://sandbox/connection/network_probe.tscn`
-
-Both probes inspect Godot user arguments and recognize:
-
-- `--server` for a listen server;
-- `--dedicated-server` for a dedicated-server runtime role;
-- `--client` for a client connecting to `127.0.0.1:7000`.
-
-The replication probe is `res://sandbox/replication/replication_probe.tscn`, but it is not the configured main scene. The repository contains no checked-in runner that selects scenes or launches multiple processes, so this document does not prescribe an unverified command line. The probes are exploratory tools rather than automated tests.
+The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for Android. The configured main scene is `res://sandbox/connection/network_probe.tscn`. Both probes recognize `--server`, `--dedicated-server`, and `--client`; the replication probe is not the configured main scene and no checked-in multiprocess runner prescribes a command line.
 
 ## Design philosophy
 
-The framework follows a three-level customization model:
+1. **Convention** for common, low-boilerplate behavior.
+2. **Explicit configuration** for recognized variations.
+3. **Replacement or raw Godot access** for advanced behavior.
 
-1. **Convention:** common multiplayer behavior should have safe, low-boilerplate defaults.
-2. **Explicit configuration:** recognized uncommon behavior should remain visible and configurable.
-3. **Full replacement or raw access:** advanced systems must be able to bypass or replace a factory layer and use Godot directly.
-
-Other governing principles are:
-
-- prefer composition over a required gameplay inheritance hierarchy;
-- isolate session policy from concrete transport technology;
-- keep transient peer identity distinct from persistent player identity and runtime object identity;
-- use server-authoritative shared state as the intended default, without preventing deliberately different designs;
-- keep automatic decisions inspectable;
-- build tests, diagnostics, validation, and documentation as parts of a subsystem rather than later polish;
-- keep game-specific mechanics, balance, content, progression, and presentation outside the factory.
-
-These are project commitments. Not all are implemented yet.
+The project prefers composition over a required gameplay hierarchy, keeps peer/player/object identities separate, treats server-authoritative shared state as the default direction, and keeps game-specific mechanics outside the factory.
 
 ## Repository map
 
-- `factory/core/` — process role and runtime context.
-- `factory/networking/core/` — networking value types.
-- `factory/networking/peers/` — peer model and registry.
+- `factory/runtime/` — process role and runtime context.
+- `factory/networking/peers/` — peer value and peer registry.
 - `factory/networking/sessions/` — session lifecycle policy.
 - `factory/networking/transport/` — transport contract and ENet adapter.
-- `factory/networking/objects/` — early replication component and annotation.
-- `sandbox/connection/` — manual connection lifecycle probe.
-- `sandbox/replication/` — manual spawn, RPC, and property-replication probe.
-- `docs/` — project policy and architecture documentation.
+- `factory/networking/objects/` — generic component host and default object components.
+- `sandbox/` — manual connection and replication probes.
+- `tests/GameFactory.Tests/` — engine-independent xUnit tests and fake transport.
+- `docs/` — architecture and engineering records.
 
-Directory names use lowercase or snake_case, while C# namespaces, types, and filenames use PascalCase.
+Directories, scenes, resources, and assets use lowercase or snake_case. C# namespaces, types, and filenames use PascalCase.
 
 ## Documentation
 
 - [Project charter](docs/project-charter.md)
-- [Architecture](docs/architecture.md) — canonical architectural overview
+- [Architecture](docs/architecture.md)
 - [Terminology](docs/terminology.md)
 - [Module map](docs/module-map.md)
 - [Coding standards](docs/coding-standards.md)
 - [Testing strategy](docs/testing-strategy.md)
 - [Architecture decision records](docs/decisions/README.md)
-- [Networking foundation](docs/networking-foundation.md) — the earlier focused networking note, retained as supporting context
-
-## Immediate refit direction
-
-The next work is planned in connected stages:
-
-1. establish the project documentation and engineering standards;
-2. normalize namespace spelling, path casing, project naming, and formatting without changing behavior;
-3. add engine-independent unit tests and a fake transport around the existing lifecycle contracts;
-4. finish the replication abstraction with explicit automatic and manual paths, validation, diagnostics, tests, and dimension-independent composition;
-5. add reusable multiprocess scenario infrastructure;
-6. begin a network-world layer for stable spawn definitions and runtime spawn/despawn behavior.
-
-The implemented foundation remains subject to architectural review as contracts mature. Later planned work is not an implemented feature.
+- [Networking foundation](docs/networking-foundation.md)

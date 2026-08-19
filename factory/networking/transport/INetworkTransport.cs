@@ -1,5 +1,5 @@
 using System;
-using GameFactory.Networking.Core;
+using GameFactory.Networking.Peers;
 
 namespace GameFactory.Networking.Transport;
 

@@ -58,7 +58,7 @@ This minimizes framework code, but leaves session policy, failure handling, reus
 
 ## Validation and evidence
 
-Current evidence is limited to repository structure and manual sandbox probes: session policy depends on `INetworkTransport`, the ENet adapter owns Godot-specific transport work, and replication composes native Godot multiplayer nodes. There are no automated tests or multiprocess scenarios yet.
+Current evidence includes repository structure, engine-independent tests for peer/session policy, and manual sandbox probes: session policy depends on `INetworkTransport`, the ENet adapter owns Godot-specific transport work, and object components compose native Godot multiplayer nodes. There are no automated Godot integration tests or multiprocess scenarios yet.
 
 Future changes should be checked for continued raw Godot access, focused abstraction responsibilities, and executable integration evidence where engine behavior is involved.
 

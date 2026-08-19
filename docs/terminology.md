@@ -1,73 +1,53 @@
 # Terminology
 
-Terms are marked **implemented** when represented in current source, **conceptual** when they guide architecture but lack a current type, and **planned** when they describe future work.
+Terms marked **implemented** appear in current source; **planned** terms guide future design.
 
 ## Runtime and lifecycle
 
-**Runtime mode** — **Implemented.** The role of the current process, represented by `RuntimeMode`: `Offline`, `Client`, `ListenServer`, or `DedicatedServer`.
+**Runtime mode** — **Implemented.** `Offline`, `Client`, `ListenServer`, or `DedicatedServer`.
 
-**Listen server** — **Implemented role.** A process that is authoritative and also client-capable. This does not by itself provide a complete local-player system.
+**Session** — **Implemented.** `NetworkSession` coordinates transport facts, runtime role, and local peers.
 
-**Dedicated server** — **Implemented role.** An authoritative process with no implied local player. Headless packaging, hosting operations, and a dedicated application shell are not implemented.
+**Transport** — **Implemented boundary.** `INetworkTransport` starts/joins, exposes local identity, closes active use, and reports normalized facts. `ENetTransport` is the only production adapter.
 
-**Session** — **Implemented.** The coordinated lifecycle spanning transport state, runtime role, and the local peer registry, currently owned by `NetworkSession`.
-
-**Session state** — **Implemented.** One of `Offline`, `Starting`, `Connecting`, `Running`, `Stopping`, or `Failed`.
-
-**Session end reason** — **Implemented.** A coarse reason retained after an intentional end or failure: local leave, host shutdown, host-start failure, connection failure, or server disconnection.
-
-**Transport** — **Implemented boundary.** The mechanism that starts a server, connects a client, exposes the local peer ID, closes, and reports connection facts. `ENetTransport` is the only current adapter.
+**Borrowed transport** — **Implemented ownership rule.** `NetworkSession` never disposes its injected transport; its caller owns disposal.
 
 ## Identity and authority
 
-**Peer ID** — **Implemented.** A positive, transient transport identifier represented by `PeerId`. In the current Godot model, value `1` denotes the server.
+**Peer ID** — **Implemented.** Positive transient transport ID, represented by `PeerId`; `1` is the server in the current Godot model.
 
-**Peer** — **Implemented.** A process-visible connection represented by `NetworkPeer`, combining a peer ID with whether it is local.
+**Player ID** — **Planned.** Persistent player identity; it must not be substituted with `PeerId`.
 
-**Local peer** — **Implemented property.** The peer representing the current process. Locality does not imply server status.
+**Runtime network-object identity** — **Planned.** Stable identity for an object instance. `NetworkObject` does not provide one.
 
-**Server peer** — **Implemented property.** The peer whose ID is `1`. Server status does not imply locality; it is remote to an ordinary client.
-
-**Player ID** — **Conceptual, not implemented.** A persistent identity for a player across transient connections. It must not be substituted with `PeerId`.
-
-**Runtime network-object identity** — **Conceptual, not implemented.** Stable identity for a replicated object instance. The current `NetworkObject` does not supply such an identifier.
-
-**Multiplayer authority** — **Godot capability used today.** The peer permitted to act as authority for a node. `NetworkObject` reports the host node's Godot authority; it does not define a separate authority system.
-
-**Server-authoritative state** — **Architectural direction with one probe example.** Shared state is intended to be changed by server authority by default. The `RawDoor` probe sends a request to peer `1` and changes its property on the authority. The factory does not yet enforce this policy generally.
+**Multiplayer authority** — **Godot capability used today.** `AuthorityComponent` exposes a host node's Godot authority through `INetworkAuthority`; it does not create a new authority model.
 
 ## Objects and replication
 
-**Network object** — **Experimental implementation.** A compositional child node that reflects annotated properties on its parent and configures a Godot `MultiplayerSynchronizer`. It is not a universal base type or a stable network identity.
+**Network object** — **Implemented experimental composition.** `NetworkObject` is an open component host under a gameplay node. It is not a fixed component bundle, universal base class, or network identity.
 
-**Host node** — **Implemented relation.** In `NetworkObject`, the direct parent gameplay node whose properties and multiplayer authority are used. This term does not mean network server.
+**Network-object component** — **Implemented.** A direct `NetworkObjectComponent` child. It registers in `_EnterTree`; the host initializes registered siblings in `_Ready`.
 
-**Replication** — The distribution of shared object state. The current implementation configures Godot replication for annotated exported properties.
+**Capability interface** — **Implemented pattern.** A contract such as `INetworkAuthority` or `INetworkReplication`, used for host/component lookup instead of concrete component dependencies.
 
-**Spawn replication** — Godot synchronization of a property's initial value when an object is spawned, controlled per current annotation by `Spawn`. This is distinct from replicating the object's existence.
+**Host node** — **Implemented relation.** The direct gameplay-node parent of a `NetworkObject`; it is unrelated to a network server.
 
-**Replicated existence** — **Demonstrated through raw Godot sandbox configuration, not generalized by the factory.** `MultiplayerSpawner` creates and removes the sample door across peers.
+**Replication** — **Implemented experimental configuration.** `ReplicationComponent` owns a `MultiplayerSynchronizer` and derives its configuration from `[Replicated]` properties on the host.
 
-**Spawn definition** — **Planned concept.** A stable description used to create a known runtime object. No factory registry or stable ID exists yet.
+**`[Replicated]`** — **Implemented metadata.** Marks a host property. Its default mode is `OnChange` and spawn behavior is enabled. `[Export]` is not required.
 
-**Network world** — **Planned concept.** A future coordination layer for spawn definitions, runtime creation/removal, joining peers, and cleanup. Its API is not defined.
+**Replication notification** — **Implemented.** `INetworkReplication.Synchronized` and `DeltaSynchronized` events report synchronizer notifications; they are not general component messaging.
 
-## Project structure and evidence
+**Replicated existence** — **Manual sandbox evidence only.** The replication probe uses raw `MultiplayerSpawner`; there is no generalized factory spawning service.
 
-**Factory** — Reusable infrastructure under `factory/`. It is intended for use by multiple games and must avoid game-specific policy.
+**Network world** — **Planned.** Future coordination for spawn definitions, runtime objects, joining peers, and cleanup. Its API is not defined.
 
-**Sandbox** — Exploratory scenes and scripts under `sandbox/` used to exercise current behavior. A sandbox probe is not an automated test or a compatibility guarantee.
+## Evidence
 
-**Probe** — A manually launched executable example that logs events and permits direct interaction. Current probes do not make automated assertions.
+**Unit test** — **Implemented baseline.** Engine-independent xUnit tests cover peers and sessions through a deterministic fake transport.
 
-**Unit test** — **Planned.** An automated, engine-independent check of a small contract. No test project currently exists.
+**Godot integration test** — **Planned.** Automated scene-tree/engine checks do not exist.
 
-**Integration test** — **Planned.** An automated check involving Godot or an adapter boundary.
+**Probe** — **Implemented manual tool.** A sandbox scene for direct exploration, not automated regression evidence.
 
-**Multiprocess scenario** — **Planned.** An automated orchestration of multiple Godot roles with structured checkpoints and cleanup. The repository has no scenario runner today.
-
-**Convention** — A safe, low-boilerplate default.
-
-**Explicit configuration** — A visible choice for supported non-default behavior.
-
-**Full replacement or raw access** — A way to substitute a factory layer or use the underlying Godot capability directly.
+**Multiprocess scenario** — **Planned.** Automated multi-process orchestration; no runner exists.

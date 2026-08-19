@@ -1,6 +1,6 @@
 using System;
 
-namespace GameFactory.Networking.Core;
+namespace GameFactory.Networking.Peers;
 
 public readonly record struct PeerId
 {

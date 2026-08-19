@@ -1,10 +1,9 @@
 using Godot;
 using GameFactory.Networking.Objects;
+using GameFactory.Networking.Objects.Components.Authority;
+using GameFactory.Networking.Objects.Components.Replication;
 
 namespace GameFactory.Sandbox.Replication;
-
-using GameFactory.Networking.Components.Authority;
-using GameFactory.Networking.Components.Replication;
 
 
 public partial class RawDoor : Node3D

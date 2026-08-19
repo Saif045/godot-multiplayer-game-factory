@@ -1,6 +1,6 @@
 using System;
 using Godot;
-using GameFactory.Networking.Core;
+using GameFactory.Networking.Peers;
 
 namespace GameFactory.Networking.Transport;
 

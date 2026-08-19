@@ -56,7 +56,7 @@ Early packages could exercise consumption workflows, but they would require vers
 
 ## Validation and evidence
 
-The checked-in solution and project file confirm the current single-assembly structure. There is no package metadata, test project, or consumer evidence demonstrating a necessary production split. Validation for a future change should include dependency analysis, build/test impact, and at least one concrete consumption or isolation requirement.
+The checked-in solution and project file confirm the current single production assembly plus a separate engine-independent test project. There is no package metadata or consumer evidence demonstrating a necessary production split. Validation for a future change should include dependency analysis, build/test impact, and at least one concrete consumption or isolation requirement.
 
 ## Compatibility and migration
 

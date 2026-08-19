@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bnfuoejg0kect"]
 
-[ext_resource type="Script" uid="uid://cd733flbbmpiw" path="res://factory/networking/components/replication/ReplicationComponent.cs" id="1_c7blw"]
+[ext_resource type="Script" uid="uid://cd733flbbmpiw" path="res://factory/networking/objects/components/replication/ReplicationComponent.cs" id="1_c7blw"]
 
 [sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_c7blw"]
 

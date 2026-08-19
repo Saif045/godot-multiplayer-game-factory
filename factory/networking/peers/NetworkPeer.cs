@@ -1,5 +1,3 @@
-using GameFactory.Networking.Core;
-
 namespace GameFactory.Networking.Peers;
 
 public sealed class NetworkPeer

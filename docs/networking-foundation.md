@@ -2,92 +2,32 @@
 
 ## Layering
 
-Game
-→ Factory gameplay networking
-→ NetworkSession
-→ INetworkTransport
-→ Godot MultiplayerAPI
-→ MultiplayerPeer
-→ transport
+```text
+Game / sandbox
+-> GameFactory object components and NetworkSession
+-> INetworkTransport
+-> Godot Multiplayer API / MultiplayerPeer
+-> transport
+```
 
-Higher layers must not depend directly on ENet.
+Higher session policy does not depend on ENet. `ENetTransport` is the current adapter. `NetworkSession` borrows its transport and never disposes it.
 
-## Runtime
+## Runtime and peers
 
-A process is one of:
-
-- Offline
-- Client
-- ListenServer
-- DedicatedServer
-
-ListenServer is both server-capable and client-capable.
-
-DedicatedServer has no implied local player.
-
-Peer identity and player identity are separate concepts.
-
-## Peer identity
-
-Raw Godot peer IDs become PeerId at the transport boundary.
-
-Peer 1 is the server.
-
-PeerRegistry represents peers visible to this process.
-
-IsLocal means "this peer is this process."
-
-IsServer means "this peer is the server."
-
-They are independent properties.
+A process is offline, client, listen server, or dedicated server. `PeerId` is a positive transport ID; `1` is the server. `PeerRegistry` records process-visible peers. Locality and server status are separate, and peer identity is not player identity.
 
 ## Session lifecycle
 
-Transport events describe networking facts.
+Transport events are facts; `NetworkSession` supplies lifecycle meaning. Remote client disconnect does not fail a server session, client server loss does fail the client session, and local cleanup does not depend on a remote disconnect. Session transitions, cleanup, disposal, and stale-event guards have engine-independent automated coverage via a fake transport.
 
-NetworkSession converts them into lifecycle meaning.
+## Object composition and replication
 
-A remote client disconnecting does not fail a server session.
+Gameplay nodes retain their own inheritance. A direct-child `NetworkObject` hosts an open set of `NetworkObjectComponent` children. Components register in `_EnterTree` and initialize after sibling registration in `NetworkObject._Ready`.
 
-A client losing its server ends that client's session.
+Default authority and replication scenes implement `INetworkAuthority` and `INetworkReplication`. Those interfaces are the capability-facing communication contracts; concrete default components can be replaced. `ReplicationComponent` owns the `MultiplayerSynchronizer` and configures host properties marked `[Replicated]`. The metadata defaults to `OnChange` and spawn enabled; `[Export]` is not required.
 
-Intentional leave and unexpected connection loss are different.
+The replication sandbox retains raw Godot RPC and spawning access. It was manually exercised for normal state change and late join, but component/replication behavior has no automated Godot evidence yet.
 
-Local cleanup must not depend on remote disconnect events.
+## Future work
 
-## Transport
-
-NetworkSession does not know ENet.
-
-ENetTransport is currently the transport adapter.
-
-Future transports must be replaceable without rewriting session logic.
-
-## Future gameplay networking
-
-Do not assume all Nodes are networked.
-
-Static authored content generally requires no networking.
-
-Dynamic shared objects may require:
-
-- replicated existence
-- replicated state
-- network events
-- continuous state
-- custom behavior
-
-Default networking should require almost zero gameplay boilerplate.
-
-Special networking must remain deeply customizable.
-
-Networking mechanics should be hidden from normal gameplay code.
-
-Networking behavior must remain observable through diagnostics.
-
-Composition is preferred for networking capabilities:
-
-Game Object
-└── NetworkObject
-
-Networking must not force game objects into a NetworkEntity inheritance hierarchy.
+`NetworkWorld`, stable spawn definitions, runtime object identity, persistent players, general spawn/despawn, Godot integration tests, and multiprocess scenarios remain future work. Do not infer them from the current component host.

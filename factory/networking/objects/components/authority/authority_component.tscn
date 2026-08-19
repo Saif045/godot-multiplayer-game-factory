@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://40xmmybncovl"]
+
+[ext_resource type="Script" uid="uid://q8gqd216oats" path="res://factory/networking/objects/components/authority/AuthorityComponent.cs" id="1_g6new"]
+
+[node name="AuthorityComponent" type="Node" unique_id=277780886]
+script = ExtResource("1_g6new")

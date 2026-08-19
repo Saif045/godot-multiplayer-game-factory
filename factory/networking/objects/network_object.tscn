@@ -1,14 +1,11 @@
 [gd_scene format=3 uid="uid://hons87n7eb"]
 
 [ext_resource type="Script" uid="uid://wqsibm3y1s4h" path="res://factory/networking/objects/NetworkObject.cs" id="1_aavg1"]
-[ext_resource type="PackedScene" uid="uid://bnfuoejg0kect" path="res://factory/networking/components/replication/replication_component.tscn" id="2_6lxj0"]
-[ext_resource type="PackedScene" uid="uid://did37oq646nm3" path="res://factory/networking/components/ComponentCommunicationProbe/component_communication_probe.tscn" id="2_18i1t"]
-[ext_resource type="PackedScene" uid="uid://40xmmybncovl" path="res://factory/networking/components/authority/authority_component.tscn" id="3_bueii"]
+[ext_resource type="PackedScene" uid="uid://bnfuoejg0kect" path="res://factory/networking/objects/components/replication/replication_component.tscn" id="2_6lxj0"]
+[ext_resource type="PackedScene" uid="uid://40xmmybncovl" path="res://factory/networking/objects/components/authority/authority_component.tscn" id="3_bueii"]
 
 [node name="NetworkObject" type="Node" unique_id=1056914521]
 script = ExtResource("1_aavg1")
-
-[node name="ComponentCommunicationProbe" parent="." unique_id=1150556955 instance=ExtResource("2_18i1t")]
 
 [node name="ReplicationComponent" parent="." unique_id=1647424924 instance=ExtResource("2_6lxj0")]
 

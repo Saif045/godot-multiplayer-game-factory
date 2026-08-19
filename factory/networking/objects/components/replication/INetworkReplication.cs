@@ -1,6 +1,6 @@
 using System;
 
-namespace GameFactory.Networking.Components.Replication;
+namespace GameFactory.Networking.Objects.Components.Replication;
 
 public interface INetworkReplication
 {

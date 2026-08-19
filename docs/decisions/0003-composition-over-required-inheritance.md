@@ -9,7 +9,7 @@
 
 Gameplay nodes already participate in Godot's type and scene hierarchies. Requiring every networked gameplay type to inherit from a GameFactory base class would consume its available C# base class, couple domain code to framework lifecycle decisions, and make incremental adoption harder.
 
-The current replication experiment demonstrates composition: a `NetworkObject` child reflects properties on its parent gameplay node and owns a child `MultiplayerSynchronizer`. This implementation is experimental and currently assumes a fixed hierarchy and a `Node3D` scene root. It does not establish a finished component contract.
+At acceptance, the replication experiment demonstrated composition through a `NetworkObject` child reflecting properties on its parent gameplay node. The subsequent implementation is recorded below; this historical context does not establish a finished component contract.
 
 ## Decision
 
@@ -77,3 +77,7 @@ No migration is required. This ADR avoids imposing a new base class. The project
 ## Supersession
 
 None.
+
+## Implementation update (2026-08-19)
+
+The decision is now represented by an open `NetworkObject` component host rather than a fixed replication component. Direct-child components register in `_EnterTree` and are initialized after sibling registration in `_Ready`. Default authority and replication scenes communicate through capability interfaces and may be replaced. This update records current implementation; it does not change the accepted decision.

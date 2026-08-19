@@ -1,4 +1,4 @@
-namespace GameFactory.Core;
+namespace GameFactory.Runtime;
 
 public enum RuntimeMode
 {

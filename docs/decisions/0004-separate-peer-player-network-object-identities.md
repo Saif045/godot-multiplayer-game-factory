@@ -60,7 +60,7 @@ Predefining player and object identity contracts could appear comprehensive, but
 
 ## Validation and evidence
 
-Current source validates only the peer-identity boundary. Repository documentation explicitly distinguishes the three domains, but no automated tests currently exist. Future identity types should be tested for domain separation, lifetime, equality, invalid values, mapping cleanup, and relevant reconnect or late-join scenarios.
+Current source validates only the peer-identity boundary. Engine-independent tests cover `PeerId`, `NetworkPeer`, and `PeerRegistry`; persistent player and runtime-object identity still have no implementation. Future identity types should be tested for domain separation, lifetime, equality, invalid values, mapping cleanup, and relevant reconnect or late-join scenarios.
 
 ## Compatibility and migration
 

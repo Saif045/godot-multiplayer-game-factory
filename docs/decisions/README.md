@@ -38,7 +38,6 @@ The charter and architecture documentation contain project principles and curren
 The following topics may deserve ADRs after design work. Listing them here does not accept a decision:
 
 - composition-root form and lifetime;
-- ownership between `NetworkSession` and `INetworkTransport`;
 - structured error-code boundaries;
 - replication automatic/manual/replacement modes;
 - persistent player identity;

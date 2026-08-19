@@ -1,6 +1,5 @@
-using GameFactory.Core;
-using GameFactory.Networking.Core;
 using GameFactory.Networking.Peers;
+using GameFactory.Runtime;
 using GameFactory.Networking.Sessions;
 using GameFactory.Networking.Transport;
 using GameFactory.Tests.TestDoubles;

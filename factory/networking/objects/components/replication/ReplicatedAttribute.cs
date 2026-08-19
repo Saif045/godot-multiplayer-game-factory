@@ -1,6 +1,6 @@
 using System;
 
-namespace GameFactory.Networking.Objects;
+namespace GameFactory.Networking.Objects.Components.Replication;
 
 public enum ReplicationMode
 {

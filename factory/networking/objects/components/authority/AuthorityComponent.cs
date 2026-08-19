@@ -1,6 +1,6 @@
 using GameFactory.Networking.Objects;
 
-namespace GameFactory.Networking.Components.Authority;
+namespace GameFactory.Networking.Objects.Components.Authority;
 
 public partial class AuthorityComponent
     : NetworkObjectComponent, INetworkAuthority

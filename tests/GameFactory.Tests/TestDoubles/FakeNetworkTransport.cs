@@ -1,4 +1,4 @@
-using GameFactory.Networking.Core;
+using GameFactory.Networking.Peers;
 using GameFactory.Networking.Transport;
 
 namespace GameFactory.Tests.TestDoubles;

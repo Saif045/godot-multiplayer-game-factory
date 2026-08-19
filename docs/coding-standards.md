@@ -57,7 +57,7 @@ Until an automated formatter is adopted, avoid large formatting-only changes alo
 - Define and test legal state transitions rather than relying only on call order.
 - Do not assume a remote disconnect event will perform required local cleanup.
 
-Ownership between `NetworkSession` and its injected transport is unresolved. New code must not silently decide it without architectural review.
+`NetworkSession` borrows its injected transport. Its caller owns disposal; the session may close active session use but never disposes the transport.
 
 ## Identity and authority
 
@@ -72,10 +72,11 @@ Ownership between `NetworkSession` and its injected transport is unresolved. New
 - Prefer composition for reusable node capabilities.
 - Do not require gameplay objects to inherit from a factory networking base class without a reviewed need.
 - Resolve required scene relationships early and fail with actionable messages.
-- Keep `_EnterTree`, `_Ready`, and `_ExitTree` responsibilities intentional; document dependencies on node ordering.
+- Register `NetworkObjectComponent` direct children in `_EnterTree`; initialize them only after sibling registration in the host's `_Ready`.
+- Communicate component capabilities through interfaces, host generic behavior, and events where appropriate; attributes describe metadata and are not a messaging channel.
+- Treat shipped component scenes as replaceable defaults rather than a fixed mandatory component list.
 - Preserve direct access to Godot APIs for advanced or incomplete cases.
-- Treat reflection and automatic scene configuration as cached, validated infrastructure once used beyond a probe.
-- Do not overwrite authored configuration unless the selected mode explicitly promises that behavior.
+- Treat reflection and automatic scene configuration as validated infrastructure once used beyond a probe.
 
 ## Diagnostics
 
@@ -101,7 +102,7 @@ See [testing-strategy.md](testing-strategy.md) for the planned test layers.
 - Update the module map when responsibilities or maturity change.
 - Mark planned capabilities as planned; do not document proposed APIs as present.
 - Record durable architectural choices through the ADR process.
-- Keep unresolved choices explicit. Current examples are composition-root form, session/transport ownership, and structured error codes.
+- Keep unresolved choices explicit. Current examples are composition-root form and structured error codes.
 - Preserve raw-access and replacement guidance whenever a convenience layer is documented.
 
 ## Change discipline

@@ -109,6 +109,6 @@ Shipping a particular game quickly is not the sole metric. Neither architectural
 
 ## Decision discipline
 
-Architectural decisions belong in reviewed architecture decision records when they become durable. Open questions must remain visibly open rather than being smuggled into documentation as settled design. Current open questions include the eventual composition-root form, ownership between `NetworkSession` and its transport, and the shape and maturity of structured error codes.
+Architectural decisions belong in reviewed architecture decision records when they become durable. Open questions must remain visibly open rather than being smuggled into documentation as settled design. Current open questions include the eventual composition-root form and the shape and maturity of structured error codes. `NetworkSession` transport ownership is settled: the session borrows the injected transport and its caller disposes it.
 
 See [decisions/README.md](decisions/README.md) for the ADR process.
