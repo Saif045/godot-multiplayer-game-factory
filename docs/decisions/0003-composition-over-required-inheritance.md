@@ -58,7 +58,7 @@ Standardizing today's experimental `NetworkObject` hierarchy would create a prem
 
 The `NetworkObject` and `RawDoor` sandbox composition is current implementation evidence, but only as an experimental probe. It shows that a gameplay node can use replication support without inheriting from a factory base. Automated tests and generalized scene validation do not exist yet.
 
-Future component work should verify host compatibility, lifecycle ordering, clear failure diagnostics, and use from more than one Godot spatial dimension where relevant.
+Future component work should add automated Godot evidence for host compatibility, lifecycle behavior, and clear failure diagnostics.
 
 ## Compatibility and migration
 
@@ -66,11 +66,10 @@ No migration is required. This ADR avoids imposing a new base class. The project
 
 ## Open questions
 
-- The final reusable composition-root and component initialization forms remain undecided.
+- The final reusable composition-root form remains undecided.
 
 ## Follow-up work
 
-- Make the replication component dimension-independent.
 - Validate its required host and synchronizer relationships.
 - Add tests and executable scenarios for component lifecycle and replication behavior.
 
@@ -80,4 +79,4 @@ None.
 
 ## Implementation update (2026-08-19)
 
-The decision is now represented by an open `NetworkObject` component host rather than a fixed replication component. Direct-child components register in `_EnterTree` and are initialized after sibling registration in `_Ready`. Default authority and replication scenes communicate through capability interfaces and may be replaced. This update records current implementation; it does not change the accepted decision.
+The decision is now represented by an open `NetworkObject` component host rather than a fixed replication component. Direct-child components register in `_EnterTree` and are initialized after sibling registration in `_Ready`. The plain-`Node` host is independent of gameplay-node shape. Default authority and replication scenes communicate through capability interfaces and may be replaced. Automated Godot lifecycle and replication evidence remains future work. This update records current implementation; it does not change the accepted decision.

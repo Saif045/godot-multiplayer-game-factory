@@ -10,18 +10,19 @@ public partial class NetworkObject : Node
 
     public Node Host { get; private set; } = null!;
 
-    public override void _Ready()
-    {
-        foreach (NetworkObjectComponent component in _components)
-            component.Initialize();
-    }
-
-
     public override void _EnterTree()
     {
         Host = GetParent()
             ?? throw new InvalidOperationException(
                 "NetworkObject must be a child of a host node.");
+    }
+
+    public override void _Ready()
+    {
+        foreach (NetworkObjectComponent component in _components)
+        {
+            component.Initialize();
+        }
     }
 
     internal void RegisterComponent(NetworkObjectComponent component)
@@ -35,7 +36,7 @@ public partial class NetworkObject : Node
     }
 
     public T GetComponent<T>()
-     where T : class
+        where T : class
     {
         T? result = null;
 
@@ -61,7 +62,7 @@ public partial class NetworkObject : Node
     }
 
     public bool TryGetComponent<T>(out T? result)
-      where T : class
+        where T : class
     {
         result = null;
 
@@ -84,7 +85,7 @@ public partial class NetworkObject : Node
     }
 
     public IEnumerable<T> GetComponents<T>()
-    where T : class
+        where T : class
     {
         foreach (NetworkObjectComponent component in _components)
         {

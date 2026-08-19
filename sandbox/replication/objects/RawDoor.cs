@@ -5,13 +5,9 @@ using GameFactory.Networking.Objects.Components.Replication;
 
 namespace GameFactory.Sandbox.Replication;
 
-
 public partial class RawDoor : Node3D
 {
-
-    [Replicated(
-        ReplicationMode.OnChange,
-        Spawn = true)]
+    [Replicated]
     public bool IsOpen { get; set; }
 
     private NetworkObject _network = null!;
@@ -112,8 +108,6 @@ public partial class RawDoor : Node3D
 
         _authority =
             _network.GetComponent<INetworkAuthority>();
-
-
 
         GD.Print(
             $"[door][network] authority peer = {_authority.AuthorityPeerId}, " +

@@ -44,7 +44,7 @@ Runtime role, session lifecycle, and transport facts should each have an identif
 
 ### Make automation observable
 
-Defaults and reflection-driven behavior must expose enough validation and diagnostics to explain what was selected, rejected, or changed. The current replication component emits basic text logs; structured diagnostics are planned.
+Defaults and reflection-driven behavior must expose enough validation and diagnostics to explain what was selected, rejected, or changed. The exploratory replication sandbox emits basic text logs; structured diagnostics are planned.
 
 ### Finish subsystems professionally
 
