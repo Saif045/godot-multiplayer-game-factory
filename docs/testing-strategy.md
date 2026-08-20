@@ -2,7 +2,7 @@
 
 ## Current automated baseline
 
-`tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, `NetworkObjectId`, and `NetworkSession` using deterministic `FakeNetworkTransport`. They cover lifecycle results, transitions, cleanup, disposal, borrowed-transport ownership, stale events, startup reentrancy, and positive runtime-object ID validation. They do not launch Godot, create a scene tree, open sockets, or validate ENet.
+`tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, `NetworkObjectId`, `NetworkSpawnGroupKind`, and `NetworkSession` using deterministic `FakeNetworkTransport`. They cover lifecycle results, transitions, cleanup, disposal, borrowed-transport ownership, stale events, startup reentrancy, positive runtime-object ID validation, and serialized spawn-group enum values. They do not launch Godot, create a scene tree, open sockets, or validate ENet.
 
 The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `NetworkObjectComponent`, authority, replication, Godot scene loading, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner.
 

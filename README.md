@@ -10,7 +10,7 @@ The repository is an early foundation, not a production-ready framework. It has 
 - engine-independent xUnit coverage for the peer and session foundation through a deterministic test-only fake transport;
 - a compositional `NetworkObject` host with replaceable authority and replication component scenes;
 - `[Replicated]` metadata that configures a component-owned `MultiplayerSynchronizer` for host properties; and
-- a server-allocated `NetworkObjectId` plus `NetworkWorld` registry and `NetworkSpawnGroup` spawning foundation; and
+- server-allocated `NetworkObjectId` plus automatic `NetworkWorld` spawn routing; and
 - manual connection and replication sandbox probes.
 
 `NetworkSession` borrows its injected transport: it can close active session use, but its caller owns transport disposal. `NetworkObject` is not a universal gameplay base class, and `NetworkObjectId` is runtime identity rather than player identity. `NetworkWorld` currently covers dynamic runtime spawning only. Persistent player identity, authored/static network objects, spawn initialization data, Godot integration tests, multiprocess scenarios, CI, packaging, and an application shell remain planned.
@@ -36,7 +36,7 @@ The project prefers composition over a required gameplay hierarchy, keeps peer/p
 - `factory/networking/sessions/` — session lifecycle policy.
 - `factory/networking/transport/` — transport contract and ENet adapter.
 - `factory/networking/objects/` — generic component host and default object components.
-- `factory/networking/world/` — runtime object registry and spawn groups.
+- `factory/networking/world/` — runtime object registry and automatic spawn routing.
 - `sandbox/` — manual connection and replication probes.
 - `tests/GameFactory.Tests/` — engine-independent xUnit tests and fake transport.
 - `docs/` — architecture and engineering records.

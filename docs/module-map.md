@@ -28,7 +28,7 @@ The project currently uses Godot .NET SDK 4.7.1, .NET 8, and conditional .NET 9 
 | `NetworkPeer` | Immutable peer ID and locality model. |
 | `PeerRegistry` | Process-local peer collection with add/remove events. |
 
-Persistent player and runtime-object identities do not exist.
+Persistent player identity does not exist. Dynamic runtime-object identity is provided by `NetworkObjectId` in the world layer.
 
 ## `factory/networking/transport/`
 
@@ -64,12 +64,12 @@ The default component scenes are implementations, not mandatory or exclusive com
 
 | Type/path | Responsibility |
 |---|---|
-| `NetworkWorld` | Server-owned runtime ID allocation, dynamic object registry, lookup, and spawn/despawn coordination. |
-| `NetworkSpawnGroup` | Direct world child, one `MultiplayerSpawner`, spawn root, and scene-instantiation boundary. |
-| `network_world.tscn` | Default world with one `WorldObjects` group. |
-| `network_spawn_group.tscn` | Default group scene with its spawner. |
+| `NetworkSpawnGroupKind` | Single serialized definition of generated spawn groups; `WorldObjects` is the default. |
+| `NetworkWorld` | Server-owned runtime ID allocation, dynamic object registry, lookup, spawn/despawn, and automatic group creation/routing. |
+| `NetworkSpawnGroup` | Runtime-generated direct world child that owns one `MultiplayerSpawner`, spawn root, and scene-instantiation boundary. |
+| `network_world.tscn` | Empty authored world; groups and spawners are generated at runtime. |
 
-`NetworkWorld` binds a world and `NetworkObjectId` before a spawned host enters the tree. Spawn groups use the scene resource path as temporary prefab identity. Initial spawn data, authored/static objects, player spawning, persistence, and stable prefab definitions do not exist.
+`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group. `NetworkWorld` binds a world and `NetworkObjectId` before the host enters the tree. Spawn groups use the scene resource path as temporary prefab identity. Initial spawn data, authored/static objects, player spawning, persistence, and stable prefab definitions do not exist.
 
 ## Sandboxes and tests
 
@@ -77,7 +77,7 @@ The default component scenes are implementations, not mandatory or exclusive com
 |---|---|---|
 | `sandbox/connection/` | Manual session/ENet lifecycle probe | Exploratory only |
 | `sandbox/replication/` | Manual raw RPC, spawning, and property-replication probe | Manual state-change, late-join, dynamic spawn/despawn, and multi-group exercise; not automated |
-| `tests/GameFactory.Tests/` | xUnit tests for peers, sessions, and `NetworkObjectId`, with `FakeNetworkTransport` | Automated engine-independent baseline |
+| `tests/GameFactory.Tests/` | xUnit tests for peers, sessions, `NetworkObjectId`, and spawn-group enum contracts, with `FakeNetworkTransport` | Automated engine-independent baseline |
 
 The repository has no Godot integration test harness, multiprocess runner, persistence, platform, tooling, or testing module under `factory/`. Speculative empty source folders are intentionally absent.
 

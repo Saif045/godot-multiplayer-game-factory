@@ -1,11 +1,6 @@
 [gd_scene format=3 uid="uid://brrhc3dm3hjau"]
 
 [ext_resource type="Script" uid="uid://csb3i5ho8rjk2" path="res://factory/networking/world/NetworkWorld.cs" id="1_jx5ip"]
-[ext_resource type="PackedScene" uid="uid://ffewtfsn5dx3" path="res://factory/networking/world/network_spawn_group.tscn" id="3_ptrcr"]
 
 [node name="NetworkWorld" type="Node" unique_id=920235093]
 script = ExtResource("1_jx5ip")
-
-[node name="WorldObjects" parent="." unique_id=1308889983 instance=ExtResource("3_ptrcr")]
-
-[editable path="WorldObjects"]

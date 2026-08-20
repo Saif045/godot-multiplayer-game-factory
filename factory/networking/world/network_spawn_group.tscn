@@ -1,9 +1,0 @@
-[gd_scene format=3 uid="uid://ffewtfsn5dx3"]
-
-[ext_resource type="Script" uid="uid://dfk7821i1kie8" path="res://factory/networking/world/NetworkSpawnGroup.cs" id="1_dx440"]
-
-[node name="NetworkSpawnGroup" type="Node" unique_id=1308889983]
-script = ExtResource("1_dx440")
-
-[node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="." unique_id=449707332]
-spawn_path = NodePath("..")

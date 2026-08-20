@@ -11,6 +11,10 @@ public partial class NetworkObject : Node
 
     public Node Host { get; private set; } = null!;
 
+    [Export]
+    public NetworkSpawnGroupKind SpawnGroup { get; set; } =
+        NetworkSpawnGroupKind.WorldObjects;
+
     private NetworkWorld? _world;
     private NetworkObjectId _id;
 

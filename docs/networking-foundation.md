@@ -30,9 +30,9 @@ The replication sandbox retains raw Godot RPC and spawning access. It was manual
 
 ## Dynamic world and spawning
 
-`NetworkWorld` now coordinates dynamic object identity, registry, lookup, spawn, and despawn. The server allocates positive `NetworkObjectId` values globally within the world. A direct-child `NetworkSpawnGroup` owns one `MultiplayerSpawner` and serves as its spawn root; multiple groups share the world's ID sequence.
+`NetworkWorld` now coordinates dynamic object identity, registry, lookup, spawn, and despawn. The server allocates positive `NetworkObjectId` values globally within the world. `NetworkSpawnGroupKind` is the single list of groups; the world creates a direct-child `NetworkSpawnGroup` and its `MultiplayerSpawner` for each kind. The groups share the world's ID sequence.
 
-The current spawn payload carries the ID and a scene resource path. The path is temporary prefab identity, not a stable definition contract. The spawned host is bound to its world and ID before entering the tree, then its `NetworkObject` registers. Manual sandbox runs exercised multi-group global IDs, spawn/despawn, and late join; automated Godot and multiprocess coverage does not exist.
+`NetworkObject` exposes exported `SpawnGroup` metadata, defaulting to `WorldObjects`, so gameplay calls `NetworkWorld.Spawn(scene)` without selecting a group. The authoritative server host is instantiated off tree and reused by its local spawner path; remote peers instantiate their own copies. The current payload carries the ID and a scene resource path. The path is temporary prefab identity, not a stable definition contract. The spawned host is bound to its world and ID before entering the tree, then its `NetworkObject` registers. Manual sandbox runs exercised automatic multi-group routing, global IDs, spawn/despawn, and late join; automated Godot and multiprocess coverage does not exist.
 
 ## Future work
 

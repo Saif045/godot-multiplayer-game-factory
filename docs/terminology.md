@@ -42,6 +42,8 @@ Terms marked **implemented** appear in current source; **planned** terms guide f
 
 **Network world** — **Implemented experimental dynamic runtime layer.** `NetworkWorld` allocates IDs, registers dynamic `NetworkObject` instances, looks them up, and coordinates spawn/despawn through direct-child `NetworkSpawnGroup` nodes. It does not define player spawning, persistence, authored/static objects, initial spawn data, or stable prefab definitions.
 
+**Network spawn-group kind** — **Implemented experimental routing metadata.** `NetworkSpawnGroupKind` is the single list of runtime spawn categories. `WorldObjects` is its default value. A `NetworkObject` prefab selects one through its exported `SpawnGroup` property, while `NetworkWorld` generates one matching runtime group and spawner per enum value.
+
 ## Evidence
 
 **Unit test** — **Implemented baseline.** Engine-independent xUnit tests cover peers and sessions through a deterministic fake transport.

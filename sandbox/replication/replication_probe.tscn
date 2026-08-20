@@ -11,4 +11,3 @@ DoorScene = ExtResource("2_yfnql")
 [node name="NetworkWorld" parent="." unique_id=920235093 instance=ExtResource("2_lo53f")]
 
 [editable path="NetworkWorld"]
-[editable path="NetworkWorld/WorldObjects"]

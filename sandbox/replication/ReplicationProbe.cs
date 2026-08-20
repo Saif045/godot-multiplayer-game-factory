@@ -23,7 +23,6 @@ public partial class ReplicationProbe : Node
 
     private NetworkWorld _world = null!;
     private NetworkObjectId? _doorId;
-    private NetworkSpawnGroup _worldObjects = null!;
 
     [Export]
     public PackedScene DoorScene { get; set; } = null!;
@@ -39,10 +38,6 @@ public partial class ReplicationProbe : Node
 
         _world =
             GetNode<NetworkWorld>("NetworkWorld");
-
-        _worldObjects =
-            GetNode<NetworkSpawnGroup>(
-                "NetworkWorld/WorldObjects");
 
         SubscribeToSessionEvents();
         SubscribeToPeerEvents();
@@ -199,9 +194,7 @@ public partial class ReplicationProbe : Node
             return;
 
         NetworkObject networkObject =
-            _world.Spawn(
-                _worldObjects,
-                DoorScene);
+            _world.Spawn(DoorScene);
 
         _doorId = networkObject.Id;
 

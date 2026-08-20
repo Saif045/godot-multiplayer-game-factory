@@ -19,7 +19,7 @@ Sandbox probes
 
 ## Runtime, peers, transport, and sessions
 
-`RuntimeContext` owns `Offline`, `Client`, `ListenServer`, and `DedicatedServer` role state. `PeerId` is a positive, transient transport ID; `1` is the current Godot server peer. `NetworkPeer` adds locality, and `PeerRegistry` is the process-local known-peer view. Persistent player and runtime object identity do not exist.
+`RuntimeContext` owns `Offline`, `Client`, `ListenServer`, and `DedicatedServer` role state. `PeerId` is a positive, transient transport ID; `1` is the current Godot server peer. `NetworkPeer` adds locality, and `PeerRegistry` is the process-local known-peer view. Persistent player identity does not exist; dynamic runtime object identity is provided by `NetworkObjectId` in the world layer.
 
 `INetworkTransport` exposes lifecycle operations and normalized connection events. `ENetTransport` creates and assigns Godot ENet peers, translates IDs, forwards events, and cleans up its Godot subscriptions when its owner disposes it.
 
@@ -37,11 +37,11 @@ The `RawDoor` sandbox uses only `INetworkAuthority` and `INetworkReplication`, w
 
 ## Network world and dynamic spawning
 
-`NetworkWorld` coordinates the current collection-level runtime concerns: it allocates positive `NetworkObjectId` values from one server-owned sequence, registers bound objects, looks them up, and requests despawn. `NetworkSpawnGroup` is a direct `NetworkWorld` child that owns one `MultiplayerSpawner` and acts as that spawner's spawn root. A world can contain multiple groups while sharing one global object-ID sequence.
+`NetworkWorld` coordinates the current collection-level runtime concerns: it allocates positive `NetworkObjectId` values from one server-owned sequence, registers bound objects, looks them up, and requests despawn. `NetworkSpawnGroupKind` is the single definition of available groups; on entry, `NetworkWorld` creates one deterministically named direct-child `NetworkSpawnGroup` per enum value. Each generated group owns one `MultiplayerSpawner` and acts as that spawner's spawn root.
 
-The server calls `NetworkWorld.Spawn(group, scene)`. The group passes the ID and the scene resource path through Godot's spawn data, instantiates the scene, finds its required `NetworkObject` child, and binds the world and ID before the host enters the tree. The object then registers during `_EnterTree`, and its components initialize afterward. Remote spawn uses the same group-local spawner and payload.
+`NetworkObject.SpawnGroup` is exported prefab metadata and defaults to `WorldObjects`. The server calls `NetworkWorld.Spawn(scene)` without selecting a group: it instantiates the authoritative host off tree, validates and reads that metadata, allocates an ID, and routes through the generated matching group. The local `MultiplayerSpawner` spawn path reuses that exact host; remote peers instantiate their own scene copies from the same group-local spawn payload. Each host is bound to its world and ID before entering the tree, then registers during `_EnterTree`, and its components initialize afterward.
 
-Resource paths are the current temporary prefab identity mechanism. Spawn initialization data, authored/static objects, persistent identity, player spawning, and a stable prefab-definition contract are not implemented. Manual sandbox runs exercised multiple groups, globally unique IDs, spawn/despawn, late joining, replication, and authority. There is no automated Godot or multiprocess evidence for this layer.
+Resource paths are the current temporary prefab identity mechanism. Spawn initialization data, authored/static objects, persistent identity, player spawning, and a stable prefab-definition contract are not implemented. Manual sandbox runs exercised automatic routing, globally unique IDs across groups, spawn/despawn, late joining, replication, and authority. There is no automated Godot or multiprocess evidence for this layer.
 
 ## Current composition roots
 
