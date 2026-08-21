@@ -19,6 +19,43 @@ public partial class NetworkWorld : Node
 
     public NetworkObject Spawn(PackedScene scene)
     {
+        return SpawnCore(scene);
+    }
+
+    public T Spawn<T>(
+        PackedScene scene,
+        Action<T> configure)
+        where T : Node
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        T? typedHost = null;
+
+        SpawnCore(
+            scene,
+            host =>
+            {
+                if (host is not T match)
+                {
+                    throw new InvalidOperationException(
+                        $"Scene '{scene.ResourcePath}' has root type " +
+                        $"'{host.GetType().Name}', but spawn expected " +
+                        $"'{typeof(T).Name}'.");
+                }
+
+                typedHost = match;
+                configure(match);
+            });
+
+        return typedHost
+            ?? throw new InvalidOperationException(
+                "Spawn did not return the configured host.");
+    }
+
+    private NetworkObject SpawnCore(
+        PackedScene scene,
+        Action<Node>? configure = null)
+    {
         if (!Multiplayer.IsServer())
         {
             throw new InvalidOperationException(
@@ -31,14 +68,21 @@ public partial class NetworkWorld : Node
                 "The network scene must be a saved PackedScene.");
         }
 
-        // This is the real authoritative instance.
-        // It is still completely outside the scene tree.
+        long prefabUid =
+            ResourceLoader.GetResourceUid(scene.ResourcePath);
+
+        if (prefabUid == ResourceUid.InvalidId)
+        {
+            throw new InvalidOperationException(
+                $"Scene '{scene.ResourcePath}' has no valid resource UID.");
+        }
+
         Node host = scene.Instantiate();
 
         try
         {
             NetworkObject networkObject =
-                FindNetworkObject(host);
+                NetworkObject.RequireFromHost(host);
 
             NetworkSpawnGroupKind kind =
                 networkObject.SpawnGroup;
@@ -51,11 +95,38 @@ public partial class NetworkWorld : Node
                     $"NetworkWorld does not contain spawn group '{kind}'.");
             }
 
+            configure?.Invoke(host);
+
+            if (!GodotObject.IsInstanceValid(host))
+            {
+                throw new InvalidOperationException(
+                    "Spawn configuration freed the network object.");
+            }
+
+            if (host.IsInsideTree())
+            {
+                host.QueueFree();
+
+                throw new InvalidOperationException(
+                    "Spawn configuration cannot add the network object " +
+                    "to the scene tree.");
+            }
+
+            networkObject =
+                NetworkObject.RequireFromHost(host);
+
+            if (networkObject.SpawnGroup != kind)
+            {
+                throw new InvalidOperationException(
+                    $"Spawn configuration changed the object's spawn group " +
+                    $"from '{kind}' to '{networkObject.SpawnGroup}'.");
+            }
+
             NetworkObjectId id = AllocateId();
 
             NetworkObject spawned =
                 group.Spawn(
-                    scene,
+                    prefabUid,
                     id,
                     host);
 
@@ -67,10 +138,8 @@ public partial class NetworkWorld : Node
         }
         catch
         {
-            // If ownership never reached MultiplayerSpawner,
-            // clean up our off-tree instance.
-            if (!host.IsInsideTree() &&
-                GodotObject.IsInstanceValid(host))
+            if (GodotObject.IsInstanceValid(host) &&
+                !host.IsInsideTree())
             {
                 host.Free();
             }
@@ -171,18 +240,5 @@ public partial class NetworkWorld : Node
     private NetworkObjectId AllocateId()
     {
         return new NetworkObjectId(_nextId++);
-    }
-
-    private static NetworkObject FindNetworkObject(
-        Node host)
-    {
-        NetworkObject? networkObject =
-            host.GetNodeOrNull<NetworkObject>(
-                "NetworkObject");
-
-        return networkObject
-            ?? throw new InvalidOperationException(
-                $"Scene '{host.Name}' is not networkable. " +
-                "It must contain a NetworkObject child.");
     }
 }

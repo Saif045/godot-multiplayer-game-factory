@@ -84,4 +84,4 @@ None.
 
 ## Implementation update (2026-08-19)
 
-`NetworkObjectId` now provides a positive, server-allocated runtime identity for dynamic objects in `NetworkWorld`. It remains separate from `PeerId` and does not establish persistent player identity, reconnect identity, or stable spawn-definition identity. `NetworkSpawnGroup` uses temporary scene resource paths for dynamic spawning; that mechanism is not an accepted prefab-identity design.
+`NetworkObjectId` now provides a positive, server-allocated runtime identity for dynamic objects in `NetworkWorld`. It remains separate from `PeerId` and does not establish persistent player identity, reconnect identity, or stable spawn-definition identity. Dynamic spawning uses Godot resource UIDs as the prefab identifier; that local-project mechanism is not an accepted stable cross-project prefab-definition design.

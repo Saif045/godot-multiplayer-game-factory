@@ -69,7 +69,7 @@ The default component scenes are implementations, not mandatory or exclusive com
 | `NetworkSpawnGroup` | Runtime-generated direct world child that owns one `MultiplayerSpawner`, spawn root, and scene-instantiation boundary. |
 | `network_world.tscn` | Empty authored world; groups and spawners are generated at runtime. |
 
-`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group. `NetworkWorld` binds a world and `NetworkObjectId` before the host enters the tree. Spawn groups use the scene resource path as temporary prefab identity. Initial spawn data, authored/static objects, player spawning, persistence, and stable prefab definitions do not exist.
+`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group or `NetworkWorld.Spawn<T>(scene, configure)` for off-tree server initialization. `NetworkWorld` binds a world and `NetworkObjectId` before the host enters the tree. Spawn payloads carry the prefab's Godot resource UID rather than a resource path. Initial spawn-data contracts, authored/static objects, player spawning, persistence, and stable cross-project prefab definitions do not exist.
 
 ## Sandboxes and tests
 

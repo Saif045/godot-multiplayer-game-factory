@@ -38,11 +38,13 @@ Terms marked **implemented** appear in current source; **planned** terms guide f
 
 **Replication notification** — **Implemented.** `INetworkReplication.Synchronized` and `DeltaSynchronized` events report synchronizer notifications; they are not general component messaging.
 
-**Replicated existence** — **Implemented experimental dynamic path.** `NetworkSpawnGroup` owns a `MultiplayerSpawner`; its current resource-path payload is temporary. Manual sandbox evidence covers spawning, despawning, and late joining only.
+**Replicated existence** — **Implemented experimental dynamic path.** `NetworkSpawnGroup` owns a `MultiplayerSpawner`. Its payload carries runtime object identity and the prefab's Godot resource UID. Manual sandbox evidence covers spawning, despawning, late joining, and off-tree server configuration only.
 
 **Network world** — **Implemented experimental dynamic runtime layer.** `NetworkWorld` allocates IDs, registers dynamic `NetworkObject` instances, looks them up, and coordinates spawn/despawn through direct-child `NetworkSpawnGroup` nodes. It does not define player spawning, persistence, authored/static objects, initial spawn data, or stable prefab definitions.
 
 **Network spawn-group kind** — **Implemented experimental routing metadata.** `NetworkSpawnGroupKind` is the single list of runtime spawn categories. `WorldObjects` is its default value. A `NetworkObject` prefab selects one through its exported `SpawnGroup` property, while `NetworkWorld` generates one matching runtime group and spawner per enum value.
+
+**Spawn configuration callback** — **Implemented experimental server-side initialization.** `NetworkWorld.Spawn<T>(PackedScene, Action<T>)` gives gameplay the actual off-tree authoritative host before binding and tree entry. Callback code does not run remotely; client-visible state must be replicated or supplied by a future explicit spawn-data contract.
 
 ## Evidence
 

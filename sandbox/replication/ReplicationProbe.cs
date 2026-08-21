@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Godot;
 using GameFactory.Runtime;
@@ -193,8 +194,25 @@ public partial class ReplicationProbe : Node
         if (!Multiplayer.IsServer())
             return;
 
+        RawDoor door =
+            _world.Spawn<RawDoor>(
+                DoorScene,
+                door =>
+                {
+                    if (door.IsInsideTree())
+                    {
+                        throw new InvalidOperationException(
+                            "Spawn configuration ran after tree entry.");
+                    }
+
+                    door.IsOpen = true;
+
+                    GD.Print(
+                        "[probe][configure] prepared initial IsOpen=true off-tree");
+                });
+
         NetworkObject networkObject =
-            _world.Spawn(DoorScene);
+            door.GetNode<NetworkObject>("NetworkObject");
 
         _doorId = networkObject.Id;
 

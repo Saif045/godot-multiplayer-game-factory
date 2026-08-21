@@ -158,4 +158,12 @@ public partial class NetworkObject : Node
                 yield return match;
         }
     }
+
+    internal static NetworkObject RequireFromHost(Node host)
+    {
+        return host.GetNodeOrNull<NetworkObject>("NetworkObject")
+            ?? throw new InvalidOperationException(
+                $"Scene '{host.Name}' is not networkable. " +
+                "It must contain a NetworkObject child.");
+    }
 }

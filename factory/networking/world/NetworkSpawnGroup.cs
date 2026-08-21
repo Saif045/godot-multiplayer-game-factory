@@ -62,7 +62,7 @@ public partial class NetworkSpawnGroup : Node
     }
 
     internal NetworkObject Spawn(
-        PackedScene scene,
+        long prefabUid,
         NetworkObjectId id,
         Node localHost)
     {
@@ -75,61 +75,43 @@ public partial class NetworkSpawnGroup : Node
         if (localHost.IsInsideTree())
         {
             throw new InvalidOperationException(
-                "Network spawn host must still be " +
-                "outside the scene tree.");
-        }
-
-        if (string.IsNullOrWhiteSpace(scene.ResourcePath))
-        {
-            throw new InvalidOperationException(
-                "The network scene must be a saved PackedScene.");
+                "Network spawn host must be outside the scene tree.");
         }
 
         NetworkObject networkObject =
-            FindNetworkObject(localHost);
+            NetworkObject.RequireFromHost(localHost);
 
         if (networkObject.SpawnGroup != Kind)
         {
             throw new InvalidOperationException(
-                $"Network object declares spawn group " +
-                $"'{networkObject.SpawnGroup}', but was routed " +
-                $"through '{Kind}'.");
+                $"Network object declares '{networkObject.SpawnGroup}' " +
+                $"but was routed through '{Kind}'.");
         }
 
-        if (!_pendingLocalSpawns.TryAdd(
-                id,
-                localHost))
+        if (!_pendingLocalSpawns.TryAdd(id, localHost))
         {
             throw new InvalidOperationException(
-                $"A pending spawn already exists for ID {id}.");
+                $"Pending spawn already exists for {id}.");
         }
 
         Godot.Collections.Dictionary data = new()
         {
             ["id"] = id.Value,
-
-            // Still temporary.
-            // We haven't solved stable prefab identity yet.
-            ["scene"] = scene.ResourcePath
+            ["prefab_uid"] = prefabUid
         };
 
         try
         {
-            Node host =
-                _spawner.Spawn(data);
-
-            return FindNetworkObject(host);
+            Node host = _spawner.Spawn(data);
+            return NetworkObject.RequireFromHost(host);
         }
         finally
         {
-            // Normally CreateSpawnedObject removes this.
-            // This also protects us if spawning throws early.
             _pendingLocalSpawns.Remove(id);
         }
     }
 
-    private Node CreateSpawnedObject(
-        Variant data)
+    private Node CreateSpawnedObject(Variant data)
     {
         Godot.Collections.Dictionary spawnData =
             data.AsGodotDictionary();
@@ -137,70 +119,82 @@ public partial class NetworkSpawnGroup : Node
         NetworkObjectId id =
             new((long)spawnData["id"]);
 
-        string scenePath =
-            (string)spawnData["scene"];
+        long prefabUid =
+            (long)spawnData["prefab_uid"];
 
-        Node host;
+        Node? host = null;
 
-        // Server:
-        // reuse the exact instance NetworkWorld already created.
-        if (_pendingLocalSpawns.Remove(
-                id,
-                out Node? pendingHost))
+        try
         {
-            host = pendingHost;
-        }
-        else
-        {
-            // Remote peer:
-            // construct its local copy from the network payload.
-            PackedScene? scene =
-                GD.Load<PackedScene>(scenePath);
-
-            if (scene is null)
+            if (_pendingLocalSpawns.Remove(
+                    id,
+                    out Node? pendingHost))
             {
-                throw new InvalidOperationException(
-                    $"Unable to load network scene " +
-                    $"'{scenePath}'.");
+                host = pendingHost
+                    ?? throw new InvalidOperationException(
+                        $"Pending spawn {id} has no host node.");
+            }
+            else
+            {
+                if (!ResourceUid.HasId(prefabUid))
+                {
+                    throw new InvalidOperationException(
+                        $"Unknown network prefab UID '{prefabUid}'.");
+                }
+
+                string? scenePath =
+                    ResourceUid.GetIdPath(prefabUid);
+
+                if (string.IsNullOrWhiteSpace(scenePath))
+                {
+                    throw new InvalidOperationException(
+                        $"Network prefab UID '{prefabUid}' has no resource path.");
+                }
+
+                PackedScene? scene =
+                    ResourceLoader.Load<PackedScene>(scenePath);
+
+                if (scene is null)
+                {
+                    throw new InvalidOperationException(
+                        $"Network prefab UID '{prefabUid}' " +
+                        $"resolved to '{scenePath}', but it is not a PackedScene.");
+                }
+
+                host = scene.Instantiate();
             }
 
-            host = scene.Instantiate();
+            if (host is null)
+            {
+                throw new InvalidOperationException(
+                    "Network spawn did not produce a host node.");
+            }
+
+            NetworkObject networkObject =
+                NetworkObject.RequireFromHost(host);
+
+            if (networkObject.SpawnGroup != Kind)
+            {
+                throw new InvalidOperationException(
+                    $"Network prefab UID '{prefabUid}' declares group " +
+                    $"'{networkObject.SpawnGroup}', but arrived through '{Kind}'.");
+            }
+
+            host.Name = $"NetworkObject_{id.Value}";
+
+            networkObject.Bind(World, id);
+
+            return host;
         }
-
-        NetworkObject networkObject =
-            FindNetworkObject(host);
-
-        // Very useful sanity check on every peer.
-        if (networkObject.SpawnGroup != Kind)
+        catch
         {
-            host.Free();
+            if (GodotObject.IsInstanceValid(host) &&
+                !host.IsInsideTree())
+            {
+                host.Free();
+            }
 
-            throw new InvalidOperationException(
-                $"Network object declares spawn group " +
-                $"'{networkObject.SpawnGroup}', but was spawned " +
-                $"through '{Kind}'.");
+            throw;
         }
-
-        host.Name =
-            $"NetworkObject_{id.Value}";
-
-        networkObject.Bind(
-            World,
-            id);
-
-        return host;
-    }
-
-    private static NetworkObject FindNetworkObject(
-        Node host)
-    {
-        NetworkObject? networkObject =
-            host.GetNodeOrNull<NetworkObject>(
-                "NetworkObject");
-
-        return networkObject
-            ?? throw new InvalidOperationException(
-                $"Scene '{host.Name}' is not networkable. " +
-                "It must contain a NetworkObject child.");
     }
 }
