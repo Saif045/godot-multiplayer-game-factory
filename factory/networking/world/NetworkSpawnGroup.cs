@@ -8,7 +8,7 @@ namespace GameFactory.Networking.World;
 
 public partial class NetworkSpawnGroup : Node
 {
-    private readonly Dictionary<NetworkObjectId, Node> _pendingLocalSpawns = [];
+    private readonly Dictionary<NetworkObjectId, PendingLocalSpawn> _pendingLocalSpawns = [];
 
     private MultiplayerSpawner _spawner = null!;
 
@@ -66,7 +66,9 @@ public partial class NetworkSpawnGroup : Node
         long prefabUid,
         NetworkObjectId id,
         PeerId ownerPeerId,
-        Node localHost)
+        Variant spawnData,
+        Node localHost,
+        Action<Node>? configure)
     {
         if (!Multiplayer.IsServer())
         {
@@ -90,7 +92,11 @@ public partial class NetworkSpawnGroup : Node
                 $"but was routed through '{Kind}'.");
         }
 
-        if (!_pendingLocalSpawns.TryAdd(id, localHost))
+        var pending = new PendingLocalSpawn(
+            localHost,
+            configure);
+
+        if (!_pendingLocalSpawns.TryAdd(id, pending))
         {
             throw new InvalidOperationException(
                 $"Pending spawn already exists for {id}.");
@@ -100,7 +106,8 @@ public partial class NetworkSpawnGroup : Node
         {
             ["id"] = id.Value,
             ["prefab_uid"] = prefabUid,
-            ["owner_peer_id"] = ownerPeerId.Value
+            ["owner_peer_id"] = ownerPeerId.Value,
+            ["spawn_data"] = spawnData
         };
 
         try
@@ -128,17 +135,23 @@ public partial class NetworkSpawnGroup : Node
         PeerId ownerPeerId =
             new((long)spawnData["owner_peer_id"]);
 
+        Variant initialData =
+            spawnData["spawn_data"];
+
         Node? host = null;
+        Action<Node>? configure = null;
 
         try
         {
             if (_pendingLocalSpawns.Remove(
                     id,
-                    out Node? pendingHost))
+                    out PendingLocalSpawn? pending))
             {
-                host = pendingHost
+                host = pending.Host
                     ?? throw new InvalidOperationException(
                         $"Pending spawn {id} has no host node.");
+
+                configure = pending.Configure;
             }
             else
             {
@@ -190,6 +203,12 @@ public partial class NetworkSpawnGroup : Node
 
             networkObject.Bind(World, id, ownerPeerId);
 
+            ApplySpawnData(host, initialData);
+            ValidateHost(host, prefabUid, Kind, "Spawn-data application");
+
+            configure?.Invoke(host);
+            ValidateHost(host, prefabUid, Kind, "Spawn configuration");
+
             return host;
         }
         catch
@@ -203,4 +222,59 @@ public partial class NetworkSpawnGroup : Node
             throw;
         }
     }
+
+    private static void ApplySpawnData(
+        Node host,
+        Variant data)
+    {
+        if (data.VariantType == Variant.Type.Nil)
+        {
+            return;
+        }
+
+        if (host is not INetworkSpawnInitializable initializable)
+        {
+            throw new InvalidOperationException(
+                $"Network spawn host '{host.GetType().Name}' received " +
+                "spawn data but does not implement " +
+                $"{nameof(INetworkSpawnInitializable)}.");
+        }
+
+        initializable.ApplyNetworkSpawnData(data);
+    }
+
+    private static void ValidateHost(
+        Node host,
+        long prefabUid,
+        NetworkSpawnGroupKind kind,
+        string operation)
+    {
+        if (!GodotObject.IsInstanceValid(host))
+        {
+            throw new InvalidOperationException(
+                $"{operation} freed the network object.");
+        }
+
+        if (host.IsInsideTree())
+        {
+            host.QueueFree();
+
+            throw new InvalidOperationException(
+                $"{operation} cannot add the network object to the scene tree.");
+        }
+
+        NetworkObject networkObject =
+            NetworkObject.RequireFromHost(host);
+
+        if (networkObject.SpawnGroup != kind)
+        {
+            throw new InvalidOperationException(
+                $"{operation} changed network prefab UID '{prefabUid}' " +
+                $"from group '{kind}' to '{networkObject.SpawnGroup}'.");
+        }
+    }
+
+    private sealed record PendingLocalSpawn(
+        Node Host,
+        Action<Node>? Configure);
 }

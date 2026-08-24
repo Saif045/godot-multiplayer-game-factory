@@ -27,7 +27,7 @@ public partial class NetworkWorld : Node
         PackedScene scene,
         PeerId ownerPeerId)
     {
-        return SpawnCore(scene, ownerPeerId);
+        return SpawnCore(scene, ownerPeerId, default);
     }
 
     public T Spawn<T>(
@@ -44,13 +44,22 @@ public partial class NetworkWorld : Node
         Action<T> configure)
         where T : Node
     {
-        ArgumentNullException.ThrowIfNull(configure);
+        return Spawn(scene, ownerPeerId, default, configure);
+    }
 
+    public T Spawn<T>(
+        PackedScene scene,
+        PeerId ownerPeerId,
+        Variant spawnData,
+        Action<T>? configure = null)
+        where T : Node
+    {
         T? typedHost = null;
 
         SpawnCore(
             scene,
             ownerPeerId,
+            spawnData,
             host =>
             {
                 if (host is not T match)
@@ -62,7 +71,7 @@ public partial class NetworkWorld : Node
                 }
 
                 typedHost = match;
-                configure(match);
+                configure?.Invoke(match);
             });
 
         return typedHost
@@ -73,6 +82,7 @@ public partial class NetworkWorld : Node
     private NetworkObject SpawnCore(
         PackedScene scene,
         PeerId ownerPeerId,
+        Variant spawnData,
         Action<Node>? configure = null)
     {
         if (!Multiplayer.IsServer())
@@ -114,33 +124,6 @@ public partial class NetworkWorld : Node
                     $"NetworkWorld does not contain spawn group '{kind}'.");
             }
 
-            configure?.Invoke(host);
-
-            if (!GodotObject.IsInstanceValid(host))
-            {
-                throw new InvalidOperationException(
-                    "Spawn configuration freed the network object.");
-            }
-
-            if (host.IsInsideTree())
-            {
-                host.QueueFree();
-
-                throw new InvalidOperationException(
-                    "Spawn configuration cannot add the network object " +
-                    "to the scene tree.");
-            }
-
-            networkObject =
-                NetworkObject.RequireFromHost(host);
-
-            if (networkObject.SpawnGroup != kind)
-            {
-                throw new InvalidOperationException(
-                    $"Spawn configuration changed the object's spawn group " +
-                    $"from '{kind}' to '{networkObject.SpawnGroup}'.");
-            }
-
             NetworkObjectId id = AllocateId();
 
             NetworkObject spawned =
@@ -148,7 +131,9 @@ public partial class NetworkWorld : Node
                     prefabUid,
                     id,
                     ownerPeerId,
-                    host);
+                    spawnData,
+                    host,
+                    configure);
 
             GD.Print(
                 $"[world][spawn] {id} -> {spawned.Host.Name} " +

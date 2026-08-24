@@ -58,6 +58,7 @@ This layer does not define persistent/account identity, Steam identity, player m
 | Path/type | Responsibility |
 |---|---|
 | `NetworkObject` | Open component host for one gameplay parent node, including runtime ID and owner-peer metadata after binding. |
+| `INetworkSpawnInitializable` | Gameplay-root contract for shared `Variant` data applied before tree entry. |
 | `NetworkObjectComponent` | Direct-child registration and two-phase initialization base. |
 | `NetworkObjectId` | Positive runtime identity for a dynamic object in a world. |
 | `network_object.tscn` | Replaceable default composition of authority and replication component scenes. |
@@ -80,7 +81,7 @@ The default component scenes are implementations, not mandatory or exclusive com
 | `NetworkSpawnGroup` | Runtime-generated direct world child that owns one `MultiplayerSpawner`, spawn root, and scene-instantiation boundary. |
 | `network_world.tscn` | Empty authored world; groups and spawners are generated at runtime. |
 
-`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group or `NetworkWorld.Spawn<T>(scene, configure)` for off-tree server initialization. Ownership-aware overloads accept `PeerId`; existing overloads default it to `PeerId.Server`. `NetworkWorld` binds a world, `NetworkObjectId`, and `OwnerPeerId` before the host enters the tree. Spawn payloads carry the prefab's Godot resource UID and owner peer rather than a resource path. The owner peer identifies the represented peer and does not change Godot multiplayer authority. Initial general spawn-data contracts, authored/static objects, persistence, and stable cross-project prefab definitions do not exist.
+`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group. Ownership-aware overloads accept `PeerId`; existing overloads default it to `PeerId.Server`. The typed spawn-data overload accepts shared `Variant` data and an optional server-only configure callback. `NetworkWorld` binds a world, `NetworkObjectId`, and `OwnerPeerId` before the host enters the tree. Spawn payloads carry the prefab's Godot resource UID, owner peer, and shared spawn data rather than a resource path. Non-nil data requires the gameplay root to implement `INetworkSpawnInitializable`; it is applied before the host enters the tree. The owner peer identifies the represented peer and does not change Godot multiplayer authority. Authored/static objects, persistence, and stable cross-project prefab definitions do not exist.
 
 ## Sandboxes and tests
 

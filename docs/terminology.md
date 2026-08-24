@@ -44,11 +44,13 @@ Terms marked **implemented** appear in current source; **planned** terms guide f
 
 **Replicated existence** — **Implemented experimental dynamic path.** `NetworkSpawnGroup` owns a `MultiplayerSpawner`. Its payload carries runtime object identity, the prefab's Godot resource UID, and owner peer ID. Manual sandbox evidence covers spawning, despawning, late joining, and off-tree server configuration only.
 
-**Network world** — **Implemented experimental dynamic runtime layer.** `NetworkWorld` allocates IDs, registers dynamic `NetworkObject` instances, looks them up, and coordinates generic spawn/despawn through direct-child `NetworkSpawnGroup` nodes. `PlayerLifecycle` supplies player-specific spawn policy; the world itself does not define persistence, authored/static objects, initial general spawn data, or stable prefab definitions.
+**Network world** — **Implemented experimental dynamic runtime layer.** `NetworkWorld` allocates IDs, registers dynamic `NetworkObject` instances, looks them up, and coordinates generic spawn/despawn through direct-child `NetworkSpawnGroup` nodes. `PlayerLifecycle` supplies player-specific spawn policy; the world itself does not define persistence, authored/static objects, or stable prefab definitions.
 
 **Network spawn-group kind** — **Implemented experimental routing metadata.** `NetworkSpawnGroupKind` is the single list of runtime spawn categories. `WorldObjects` is its default value. A `NetworkObject` prefab selects one through its exported `SpawnGroup` property, while `NetworkWorld` generates one matching runtime group and spawner per enum value.
 
-**Spawn configuration callback** — **Implemented experimental server-side initialization.** `NetworkWorld.Spawn<T>(PackedScene, Action<T>)` gives gameplay the actual off-tree authoritative host before binding and tree entry. Callback code does not run remotely; client-visible state must be replicated or supplied by a future explicit spawn-data contract.
+**Shared spawn data** — **Implemented experimental pre-tree initialization.** The typed `NetworkWorld.Spawn` overload accepts arbitrary Godot `Variant` data. A gameplay root that implements `INetworkSpawnInitializable` receives non-nil data after its network identity is bound and before tree entry on every peer. The gameplay root owns interpretation and validation.
+
+**Spawn configuration callback** — **Implemented experimental server-only initialization.** The typed `NetworkWorld.Spawn` overload can run arbitrary local C# configuration against the bound authoritative host after shared spawn data and before tree entry. Callback code never runs remotely.
 
 ## Evidence
 

@@ -256,6 +256,10 @@ public partial class ReplicationProbe : Node
             _world.Spawn<RawPlayer>(
                 PlayerScene,
                 peer.Id,
+                new Godot.Collections.Dictionary
+                {
+                    ["player_id"] = playerId.Value
+                },
                 rawPlayer =>
                 {
                     if (rawPlayer.IsInsideTree())
@@ -263,8 +267,6 @@ public partial class ReplicationProbe : Node
                         throw new InvalidOperationException(
                             "Player spawn configuration ran after tree entry.");
                     }
-
-                    rawPlayer.PlayerId = playerId.Value;
                 });
 
         NetworkObject networkObject =

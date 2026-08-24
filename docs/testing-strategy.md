@@ -4,7 +4,7 @@
 
 `tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, `PlayerId`, `PlayerRegistry`, `PlayerLifecycle`, `NetworkObjectId`, `NetworkSpawnGroupKind`, and `NetworkSession` using deterministic `FakeNetworkTransport`. They cover lifecycle results, transitions, cleanup, disposal, borrowed-transport ownership, stale events, startup reentrancy, positive ID validation, registry behavior, server/client player-lifecycle policy, and serialized spawn-group enum values. They do not launch Godot, create a scene tree, open sockets, or validate ENet.
 
-The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `NetworkObjectComponent`, owner-peer spawn payloads, authority, replication, Godot resource-UID resolution, Godot scene loading, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner.
+The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `NetworkObjectComponent`, owner-peer or shared spawn-data payloads, authority, replication, Godot resource-UID resolution, Godot scene loading, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner.
 
 ## Evidence layers
 
@@ -26,7 +26,7 @@ The replication sandbox was manually exercised for normal state change and late 
 - host/synchronizer root targeting and lifecycle cleanup;
 - authority/non-authority mutation, initial/delta state, spawn/despawn, and late joining.
 
-Manual replacement paths, explicit spawn-data contracts, and stable cross-project prefab definitions are not implemented contracts and should not be tested as though they exist.
+Manual replacement paths and stable cross-project prefab definitions are not implemented contracts and should not be tested as though they exist. Godot integration coverage should eventually validate pre-tree shared spawn-data application, receiver validation, and server-only configuration ordering.
 
 ## Test qualities
 
