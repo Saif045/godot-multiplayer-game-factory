@@ -12,10 +12,11 @@ The repository is an early foundation, not a production-ready framework. It has 
 - engine-independent xUnit coverage for the peer and session foundation through a deterministic test-only fake transport;
 - a compositional `NetworkObject` host with replaceable authority and replication component scenes;
 - `[Replicated]` metadata that configures a component-owned `MultiplayerSynchronizer` for host properties; and
-- server-allocated `NetworkObjectId` plus automatic `NetworkWorld` spawn routing; and
+- server-allocated `NetworkObjectId`, owner-peer metadata, and automatic `NetworkWorld` spawn routing;
+- session-scoped `PlayerId`, player registry, and server-side player lifecycle orchestration; and
 - manual connection and replication sandbox probes.
 
-`NetworkSession` borrows its injected transport: it can close active session use, but its caller owns transport disposal. `NetworkObject` is not a universal gameplay base class, and `NetworkObjectId` is runtime identity rather than player identity. `NetworkWorld` currently covers dynamic runtime spawning only. Persistent player identity, authored/static network objects, spawn initialization data, Steam integration, player lifecycle, menus, settings, loading, Godot integration tests, multiprocess scenarios, CI, packaging, and an application shell remain planned.
+`NetworkSession` borrows its injected transport: it can close active session use, but its caller owns transport disposal. `NetworkObject` is not a universal gameplay base class. `NetworkObjectId` is runtime object identity, while `PlayerId` is session-scoped player identity rather than persistent account or Steam identity. `OwnerPeerId` identifies the peer a spawned object represents; it does not transfer Godot multiplayer authority from the server. `NetworkWorld` currently covers dynamic runtime spawning only, including authoritative off-tree configuration through `Spawn<T>(scene, configure)`. Persistent/account identity, authored/static network objects, explicit general spawn-data contracts, Steam integration, menus, settings, loading, Godot integration tests, multiprocess scenarios, CI, packaging, and an application shell remain planned.
 
 The replication sandbox has been manually exercised for normal state change and late joining. That is exploratory evidence, not automated Godot test coverage.
 

@@ -28,7 +28,18 @@ The project currently uses Godot .NET SDK 4.7.1, .NET 8, and conditional .NET 9 
 | `NetworkPeer` | Immutable peer ID and locality model. |
 | `PeerRegistry` | Process-local peer collection with add/remove events. |
 
-Persistent player identity does not exist. Dynamic runtime-object identity is provided by `NetworkObjectId` in the world layer.
+`PlayerId` is session-scoped and is provided by the player layer; it is not persistent account or platform identity. Dynamic runtime-object identity is provided by `NetworkObjectId` in the world layer.
+
+## `factory/networking/players/`
+
+| Type | Responsibility |
+|---|---|
+| `PlayerId` | Positive session-scoped player identity. |
+| `NetworkPlayer` | Immutable `PlayerId`, `PeerId`, and `NetworkObjectId` association. |
+| `PlayerRegistry` | Engine-independent player lookup by player and peer identity. |
+| `PlayerLifecycle` | Server-side peer-to-player spawn/despawn orchestration through gameplay delegates. |
+
+This layer does not define persistent/account identity, Steam identity, player movement, input, or a concrete player scene.
 
 ## `factory/networking/transport/`
 
@@ -46,7 +57,7 @@ Persistent player identity does not exist. Dynamic runtime-object identity is pr
 
 | Path/type | Responsibility |
 |---|---|
-| `NetworkObject` | Open component host for one gameplay parent node. |
+| `NetworkObject` | Open component host for one gameplay parent node, including runtime ID and owner-peer metadata after binding. |
 | `NetworkObjectComponent` | Direct-child registration and two-phase initialization base. |
 | `NetworkObjectId` | Positive runtime identity for a dynamic object in a world. |
 | `network_object.tscn` | Replaceable default composition of authority and replication component scenes. |
@@ -69,17 +80,17 @@ The default component scenes are implementations, not mandatory or exclusive com
 | `NetworkSpawnGroup` | Runtime-generated direct world child that owns one `MultiplayerSpawner`, spawn root, and scene-instantiation boundary. |
 | `network_world.tscn` | Empty authored world; groups and spawners are generated at runtime. |
 
-`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group or `NetworkWorld.Spawn<T>(scene, configure)` for off-tree server initialization. `NetworkWorld` binds a world and `NetworkObjectId` before the host enters the tree. Spawn payloads carry the prefab's Godot resource UID rather than a resource path. Initial spawn-data contracts, authored/static objects, player spawning, persistence, and stable cross-project prefab definitions do not exist.
+`NetworkObject.SpawnGroup` selects a generated runtime group, so gameplay calls `NetworkWorld.Spawn(scene)` without passing a group or `NetworkWorld.Spawn<T>(scene, configure)` for off-tree server initialization. Ownership-aware overloads accept `PeerId`; existing overloads default it to `PeerId.Server`. `NetworkWorld` binds a world, `NetworkObjectId`, and `OwnerPeerId` before the host enters the tree. Spawn payloads carry the prefab's Godot resource UID and owner peer rather than a resource path. The owner peer identifies the represented peer and does not change Godot multiplayer authority. Initial general spawn-data contracts, authored/static objects, persistence, and stable cross-project prefab definitions do not exist.
 
 ## Sandboxes and tests
 
 | Path | Responsibility | Evidence |
 |---|---|---|
 | `sandbox/connection/` | Manual session/ENet lifecycle probe | Exploratory only |
-| `sandbox/replication/` | Manual raw RPC, spawning, and property-replication probe | Manual state-change, late-join, dynamic spawn/despawn, and multi-group exercise; not automated |
-| `tests/GameFactory.Tests/` | xUnit tests for peers, sessions, `NetworkObjectId`, and spawn-group enum contracts, with `FakeNetworkTransport` | Automated engine-independent baseline |
+| `sandbox/replication/` | Manual raw RPC, spawning, property-replication, and minimal player-lifecycle probe | Manual state-change, late-join, dynamic spawn/despawn, multi-group, and player-ownership exercise; not automated |
+| `tests/GameFactory.Tests/` | xUnit tests for peer/session/player policy, value types, registry, and spawn-group enum contracts, with `FakeNetworkTransport` | Automated engine-independent baseline |
 
-The repository has no Godot integration test harness, multiprocess runner, persistence, Steam/platform integration, game-shell, player-lifecycle, or general tooling module under `factory/`. Speculative empty source folders are intentionally absent.
+The repository has no Godot integration test harness, multiprocess runner, persistence, Steam/platform integration, game-shell, or general tooling module under `factory/`. Speculative empty source folders are intentionally absent.
 
 ## Documentation
 

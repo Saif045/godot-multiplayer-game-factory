@@ -3,6 +3,7 @@ using System.Linq;
 using Godot;
 using GameFactory.Runtime;
 using GameFactory.Networking.Peers;
+using GameFactory.Networking.Players;
 using GameFactory.Networking.Sessions;
 using GameFactory.Networking.Transport;
 using GameFactory.Networking.Objects;
@@ -17,16 +18,21 @@ public partial class ReplicationProbe : Node
     private const string DefaultAddress = "127.0.0.1";
 
     private readonly PeerRegistry _peers = new();
+    private readonly PlayerRegistry _players = new();
     private readonly RuntimeContext _runtime = new();
 
     private INetworkTransport? _transport;
     private NetworkSession? _session;
+    private PlayerLifecycle? _playerLifecycle;
 
     private NetworkWorld _world = null!;
     private NetworkObjectId? _doorId;
 
     [Export]
     public PackedScene DoorScene { get; set; } = null!;
+
+    [Export]
+    public PackedScene PlayerScene { get; set; } = null!;
 
     public override void _Ready()
     {
@@ -42,6 +48,13 @@ public partial class ReplicationProbe : Node
 
         SubscribeToSessionEvents();
         SubscribeToPeerEvents();
+
+        _playerLifecycle = new PlayerLifecycle(
+            _peers,
+            _players,
+            _runtime,
+            SpawnPlayer,
+            _world.Despawn);
 
         string[] args = OS.GetCmdlineUserArgs();
 
@@ -87,6 +100,7 @@ public partial class ReplicationProbe : Node
 
     public override void _ExitTree()
     {
+        _playerLifecycle?.Dispose();
         _session?.Dispose();
         _transport?.Dispose();
     }
@@ -170,6 +184,20 @@ public partial class ReplicationProbe : Node
             GD.Print(
                 $"[peers] removed: {peer}");
         };
+
+        _players.PlayerAdded += player =>
+        {
+            GD.Print(
+                $"[players] added: player={player.Id} " +
+                $"peer={player.PeerId} object={player.ObjectId}");
+        };
+
+        _players.PlayerRemoved += player =>
+        {
+            GD.Print(
+                $"[players] removed: player={player.Id} " +
+                $"peer={player.PeerId} object={player.ObjectId}");
+        };
     }
 
     private void SubscribeToTransportDebugEvents()
@@ -218,6 +246,31 @@ public partial class ReplicationProbe : Node
 
         GD.Print(
             $"[probe] spawned network object {_doorId}");
+    }
+
+    private NetworkObjectId SpawnPlayer(
+        NetworkPeer peer,
+        PlayerId playerId)
+    {
+        RawPlayer player =
+            _world.Spawn<RawPlayer>(
+                PlayerScene,
+                peer.Id,
+                rawPlayer =>
+                {
+                    if (rawPlayer.IsInsideTree())
+                    {
+                        throw new InvalidOperationException(
+                            "Player spawn configuration ran after tree entry.");
+                    }
+
+                    rawPlayer.PlayerId = playerId.Value;
+                });
+
+        NetworkObject networkObject =
+            player.GetNode<NetworkObject>("NetworkObject");
+
+        return networkObject.Id;
     }
 
     private void DespawnDoor()

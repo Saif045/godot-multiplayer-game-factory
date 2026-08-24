@@ -32,7 +32,7 @@ Gameplay types should acquire networking capabilities through components and col
 
 ### Separate identities
 
-Transient transport peer identity, persistent player identity, and runtime network-object identity solve different problems. They must not be treated as interchangeable. Only transient `PeerId` exists in the current source; the other identity models remain future design work.
+Transient transport peer identity, session-scoped player identity, and runtime network-object identity solve different problems. They must not be treated as interchangeable. `PeerId`, `PlayerId`, and `NetworkObjectId` exist in the current source; persistent account or platform identity remains future design work.
 
 ### Make authority deliberate
 

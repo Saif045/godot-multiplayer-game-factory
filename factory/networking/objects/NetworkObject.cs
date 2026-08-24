@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using GameFactory.Networking.Peers;
 using GameFactory.Networking.World;
 
 namespace GameFactory.Networking.Objects;
@@ -17,6 +18,7 @@ public partial class NetworkObject : Node
 
     private NetworkWorld? _world;
     private NetworkObjectId _id;
+    private PeerId _ownerPeerId;
 
     public bool IsBound => _world is not null;
 
@@ -39,9 +41,24 @@ public partial class NetworkObject : Node
         }
     }
 
+    public PeerId OwnerPeerId
+    {
+        get
+        {
+            if (!IsBound)
+            {
+                throw new InvalidOperationException(
+                    "NetworkObject does not have an owner before binding.");
+            }
+
+            return _ownerPeerId;
+        }
+    }
+
     internal void Bind(
         NetworkWorld world,
-        NetworkObjectId id)
+        NetworkObjectId id,
+        PeerId ownerPeerId)
     {
         if (IsBound)
         {
@@ -57,6 +74,7 @@ public partial class NetworkObject : Node
 
         _world = world;
         _id = id;
+        _ownerPeerId = ownerPeerId;
     }
 
     public override void _EnterTree()

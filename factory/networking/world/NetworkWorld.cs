@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using GameFactory.Networking.Objects;
+using GameFactory.Networking.Peers;
 
 namespace GameFactory.Networking.World;
 
@@ -19,11 +20,27 @@ public partial class NetworkWorld : Node
 
     public NetworkObject Spawn(PackedScene scene)
     {
-        return SpawnCore(scene);
+        return Spawn(scene, PeerId.Server);
+    }
+
+    public NetworkObject Spawn(
+        PackedScene scene,
+        PeerId ownerPeerId)
+    {
+        return SpawnCore(scene, ownerPeerId);
     }
 
     public T Spawn<T>(
         PackedScene scene,
+        Action<T> configure)
+        where T : Node
+    {
+        return Spawn(scene, PeerId.Server, configure);
+    }
+
+    public T Spawn<T>(
+        PackedScene scene,
+        PeerId ownerPeerId,
         Action<T> configure)
         where T : Node
     {
@@ -33,6 +50,7 @@ public partial class NetworkWorld : Node
 
         SpawnCore(
             scene,
+            ownerPeerId,
             host =>
             {
                 if (host is not T match)
@@ -54,6 +72,7 @@ public partial class NetworkWorld : Node
 
     private NetworkObject SpawnCore(
         PackedScene scene,
+        PeerId ownerPeerId,
         Action<Node>? configure = null)
     {
         if (!Multiplayer.IsServer())
@@ -128,11 +147,12 @@ public partial class NetworkWorld : Node
                 group.Spawn(
                     prefabUid,
                     id,
+                    ownerPeerId,
                     host);
 
             GD.Print(
                 $"[world][spawn] {id} -> {spawned.Host.Name} " +
-                $"[{kind}]");
+                $"[{kind}] owner={ownerPeerId}");
 
             return spawned;
         }

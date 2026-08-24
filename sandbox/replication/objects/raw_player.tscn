@@ -1,0 +1,14 @@
+[gd_scene load_steps=3 format=3 uid="uid://dh6p8s1x3qv7r"]
+
+[ext_resource type="Script" uid="uid://dvy53c4h6joco" path="res://sandbox/replication/objects/RawPlayer.cs" id="1_rawplayer"]
+[ext_resource type="PackedScene" uid="uid://hons87n7eb" path="res://factory/networking/objects/network_object.tscn" id="2_networkobject"]
+
+[node name="RawPlayer" type="Node3D"]
+script = ExtResource("1_rawplayer")
+
+[node name="NetworkObject" parent="." instance=ExtResource("2_networkobject")]
+SpawnGroup = 1
+
+[editable path="NetworkObject"]
+[editable path="NetworkObject/ReplicationComponent"]
+[editable path="NetworkObject/AuthorityComponent"]

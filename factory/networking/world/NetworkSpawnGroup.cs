@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using GameFactory.Networking.Objects;
+using GameFactory.Networking.Peers;
 
 namespace GameFactory.Networking.World;
 
@@ -64,6 +65,7 @@ public partial class NetworkSpawnGroup : Node
     internal NetworkObject Spawn(
         long prefabUid,
         NetworkObjectId id,
+        PeerId ownerPeerId,
         Node localHost)
     {
         if (!Multiplayer.IsServer())
@@ -97,7 +99,8 @@ public partial class NetworkSpawnGroup : Node
         Godot.Collections.Dictionary data = new()
         {
             ["id"] = id.Value,
-            ["prefab_uid"] = prefabUid
+            ["prefab_uid"] = prefabUid,
+            ["owner_peer_id"] = ownerPeerId.Value
         };
 
         try
@@ -121,6 +124,9 @@ public partial class NetworkSpawnGroup : Node
 
         long prefabUid =
             (long)spawnData["prefab_uid"];
+
+        PeerId ownerPeerId =
+            new((long)spawnData["owner_peer_id"]);
 
         Node? host = null;
 
@@ -182,7 +188,7 @@ public partial class NetworkSpawnGroup : Node
 
             host.Name = $"NetworkObject_{id.Value}";
 
-            networkObject.Bind(World, id);
+            networkObject.Bind(World, id, ownerPeerId);
 
             return host;
         }

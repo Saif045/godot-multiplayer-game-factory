@@ -60,7 +60,7 @@ Predefining player and object identity contracts could appear comprehensive, but
 
 ## Validation and evidence
 
-Current source validates peer identity and the positive-value boundary for `NetworkObjectId`. Engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, and `NetworkObjectId`; persistent player identity has no implementation. Automated Godot and multiprocess evidence for dynamic object registration, spawning, and late joining does not exist. Future identity types should be tested for domain separation, lifetime, equality, invalid values, mapping cleanup, and relevant reconnect or late-join scenarios.
+Current source validates peer identity and the positive-value boundary for `PlayerId` and `NetworkObjectId`. Engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, `PlayerId`, `PlayerRegistry`, `PlayerLifecycle`, and `NetworkObjectId`; persistent player or account identity has no implementation. Automated Godot and multiprocess evidence for dynamic object registration, spawning, player lifecycle, and late joining does not exist. Future identity types should be tested for domain separation, lifetime, equality, invalid values, mapping cleanup, and relevant reconnect or late-join scenarios.
 
 ## Compatibility and migration
 
@@ -85,3 +85,7 @@ None.
 ## Implementation update (2026-08-19)
 
 `NetworkObjectId` now provides a positive, server-allocated runtime identity for dynamic objects in `NetworkWorld`. It remains separate from `PeerId` and does not establish persistent player identity, reconnect identity, or stable spawn-definition identity. Dynamic spawning uses Godot resource UIDs as the prefab identifier; that local-project mechanism is not an accepted stable cross-project prefab-definition design.
+
+## Implementation update (2026-08-24)
+
+`PlayerId` now provides positive session-scoped player identity. `PlayerLifecycle` associates it explicitly with a transient `PeerId` and a dynamic `NetworkObjectId` through `NetworkPlayer`; it does not establish account, Steam, reconnect, or persistence identity. `NetworkObject.OwnerPeerId` identifies the peer represented by a spawned object and remains separate from Godot multiplayer authority, which stays server-owned.
