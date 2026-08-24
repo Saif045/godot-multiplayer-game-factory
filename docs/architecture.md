@@ -49,4 +49,6 @@ The spawn payload carries `NetworkObjectId` and the Godot resource UID for the p
 
 ## Planned direction
 
-The next major subsystem is player lifecycle. Godot integration tests, multiprocess scenarios, persistent player identity, structured diagnostics, application shell, packaging, and CI are also not implemented.
+Networking is one implemented foundation within the broader GameFactory goal: rapidly building small-session online co-op games. The next major candidate is a complete player-lifecycle slice, not another isolated networking abstraction. Steam/platform integration, common game-shell infrastructure, co-op gameplay primitives, and reusable diagnostics/tooling are target areas, not implemented modules.
+
+Godot integration tests, multiprocess scenarios, persistent player identity, structured diagnostics, application shell, packaging, and CI are also not implemented. Future common subsystems should first be evaluated against existing Godot libraries, plugins, templates, and open-source work, then adopted, adapted, or built only when a concrete playable scenario demonstrates the need.

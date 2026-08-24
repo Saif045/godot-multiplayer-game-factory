@@ -13,6 +13,8 @@ The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `Ne
 3. **Multiprocess scenarios** are planned for multiple roles, connection loss, spawn/despawn, replication, late joining, timeouts, and child-process cleanup.
 4. **Manual probes** remain useful for exploration and diagnostics, but cannot be described as regression tests.
 
+As broader co-op capabilities are added, coverage should follow coherent playable slices rather than isolated speculative helpers. A future player-lifecycle slice, for example, should exercise join, spawn, ownership association, disconnect cleanup, late joining where relevant, and both listen-server and dedicated-server behavior.
+
 ## Replication evidence and next coverage
 
 The replication sandbox was manually exercised for normal state change and late joining. That establishes bounded exploratory evidence only. Automated Godot tests should eventually cover:

@@ -79,7 +79,7 @@ The default component scenes are implementations, not mandatory or exclusive com
 | `sandbox/replication/` | Manual raw RPC, spawning, and property-replication probe | Manual state-change, late-join, dynamic spawn/despawn, and multi-group exercise; not automated |
 | `tests/GameFactory.Tests/` | xUnit tests for peers, sessions, `NetworkObjectId`, and spawn-group enum contracts, with `FakeNetworkTransport` | Automated engine-independent baseline |
 
-The repository has no Godot integration test harness, multiprocess runner, persistence, platform, tooling, or testing module under `factory/`. Speculative empty source folders are intentionally absent.
+The repository has no Godot integration test harness, multiprocess runner, persistence, Steam/platform integration, game-shell, player-lifecycle, or general tooling module under `factory/`. Speculative empty source folders are intentionally absent.
 
 ## Documentation
 
