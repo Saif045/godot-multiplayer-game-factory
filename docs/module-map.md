@@ -102,7 +102,7 @@ The default component scenes are implementations, not mandatory or exclusive com
 |---|---|---|
 | `sandbox/connection/` | Manual session/ENet lifecycle probe | Exploratory only |
 | `sandbox/replication/` | Manual raw RPC, spawning, property-replication, and minimal player-lifecycle probe | Manual state-change, late-join, dynamic spawn/despawn, multi-group, and player-ownership exercise; not automated |
-| `sandbox/steam/` | Manual Steam initialization, lobby, invite, and `SteamMultiplayerPeer` probe | Build-validated only; real two-account Steam acceptance pending |
+| `sandbox/steam/` | Manual Steam initialization, lobby, invite, and patched `SteamMultiplayerPeer` re-host smoke | Re-host smoke and repeated host/leave manually verified; real two-account Steam acceptance pending |
 | `sandbox/launcher/` | Registered-scene launcher for development/exported sandbox arguments | `--run=connection`, `--run=replication`, or `--run=steam`; not application shell |
 | `tests/GameFactory.Tests/` | xUnit tests for peer/session/player policy, value types, registry, and spawn-group enum contracts, with `FakeNetworkTransport` | Automated engine-independent baseline |
 

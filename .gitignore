@@ -4,6 +4,7 @@
 .vscode/
 steam_appid.txt
 build
+/.tmp-*/
 
 # .NET build output
 bin/

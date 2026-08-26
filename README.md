@@ -15,7 +15,7 @@ The repository is an early foundation, not a production-ready framework. It has 
 - server-allocated `NetworkObjectId`, owner-peer metadata, and automatic `NetworkWorld` spawn routing;
 - session-scoped `PlayerId`, player registry, and server-side player lifecycle orchestration; and
 - manual connection, replication, and Steam listen-server sandbox probes; and
-- a Steam-specific session boundary backed by the pinned GodotSteam 4.22 GDExtension.
+- a Steam-specific session boundary backed by the pinned GodotSteam 4.22 GDExtension, with one documented re-host teardown patch.
 
 `NetworkSession` borrows its injected transport: it can close active session use, but its caller owns transport disposal. `NetworkObject` is not a universal gameplay base class. `NetworkObjectId` is runtime object identity, while `PlayerId` is session-scoped player identity rather than persistent account or Steam identity. `OwnerPeerId` identifies the peer a spawned object represents; it does not transfer Godot multiplayer authority from the server. `NetworkWorld` currently covers dynamic runtime spawning, including pre-tree shared `Variant` spawn data for opted-in gameplay roots and server-only off-tree configuration through `Spawn<T>`. Persistent/account identity, authored/static network objects, menus, settings, loading, Godot integration tests, multiprocess scenarios, CI, packaging, and an application shell remain planned. Steam listen-server code exists but has not yet been accepted through a real two-account Steam run.
 
@@ -23,7 +23,7 @@ The replication sandbox has been manually exercised for normal state change and 
 
 ## Current configuration
 
-The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for Android. It vendors GodotSteam 4.22 GDExtension, MIT licensed, under `addons/godotsteam/`; the pinned release supports Godot 4.4 and later. The configured main scene is the development-only sandbox launcher. It recognizes `--run=connection`, `--run=replication`, and `--run=steam`; connection is the default. The Steam probe uses development App ID `480` only and recognizes `--steam-host` or `--steam-lobby=<id>`. These probes are foundation evidence, not a complete co-op game flow.
+The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for Android. It vendors GodotSteam 4.22 GDExtension, MIT licensed, under `addons/godotsteam/`; the pinned release supports Godot 4.4 and later. The Windows x86_64 debug and release binaries are rebuilt from Steamworks SDK 1.65 with one explicit GodotSteam re-host teardown patch; see [the patch record](third_party/patches/godotsteam/README.md). The configured main scene is the development-only sandbox launcher. It recognizes `--run=connection`, `--run=replication`, and `--run=steam`; connection is the default. The Steam probe uses development App ID `480` only and recognizes `--steam-host` or `--steam-lobby=<id>`. These probes are foundation evidence, not a complete co-op game flow.
 
 ## Design philosophy
 

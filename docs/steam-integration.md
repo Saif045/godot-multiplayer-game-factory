@@ -10,6 +10,10 @@ GameFactory has a build-validated Steam listen-server foundation. It is not yet 
 - Source and release: <https://codeberg.org/godotsteam/godotsteam/releases/tag/v4.22-gde>.
 - The release states support for Godot 4.4 and up, including this project's Godot .NET SDK 4.7.1.
 - Files live in `addons/godotsteam/`, including the upstream `license.md` (MIT).
+- The Windows x86_64 debug and release binaries carry one GameFactory dependency
+  patch for `SteamMultiplayerPeer::_close()`. Its exact source delta, provenance,
+  rebuild command, and removal condition live in
+  [`third_party/patches/godotsteam/README.md`](../third_party/patches/godotsteam/README.md).
 - Development uses Steam App ID **480** only. It is not a production App ID or release configuration.
 
 ## Boundary and flow
@@ -23,8 +27,8 @@ The initial flow is listen-server only:
 3. Create a `SteamMultiplayerPeer` for that lobby and assign it to Godot.
 4. Invite through the Steam overlay, or explicitly join a requested/supplied lobby.
 5. Leave explicitly closes the `SteamMultiplayerPeer`, clears it from Godot's
-   `MultiplayerApi`, then leaves the lobby. This releases the listen socket so
-   the same process can host another lobby.
+   `MultiplayerApi`, then leaves the lobby. The patched GodotSteam close path
+   releases the listen socket so the same process can host another lobby.
 
 Incoming invites are surfaced to the caller. They never auto-join an active session. Peer IDs and Steam IDs remain distinct and are mapped through the active Steam peer.
 
@@ -33,6 +37,21 @@ Incoming invites are surfaced to the caller. They never auto-join an active sess
 Run two Steam accounts with the Steam client active, using development App ID 480. On one, run `steam_probe.tscn` with `--steam-host`; it prints the lobby ID. On the other, run it with `--steam-lobby=<id>` or accept an invite. The exported project uses `sandbox_launcher.tscn` as its main scene and accepts `--run=steam`, `--run=connection`, or `--run=replication`. The launcher selects only these packed, registered sandbox scenes; it replaces unsupported arbitrary `--scene` path overrides. The interactive probe also supports `H` (host), `I` (invite overlay), `J` (explicitly accept the latest requested lobby), and `L` (leave). Record Godot peer-connected/disconnected behavior and run the existing replication probe against the assigned peer before calling Steam transport replacement proven.
 
 The probe is intentionally not a second world implementation. It establishes the platform/peer boundary; existing network-world, object, replication, and player slices must be exercised above it.
+
+## Re-host regression smoke
+
+`sandbox/steam/steam_native_rehost_probe.tscn` is a manual engine-level smoke
+for the vendored dependency. With Steam running, run the scene and verify:
+
+```text
+create host 0 #1 -> OK
+close #1
+create host 0 #2 -> OK
+```
+
+No timer or retry is part of the acceptance condition. Then run the real probe
+and verify `H -> L -> H -> L -> H` reaches `Hosting`, `Ready`, and `Hosting`.
+This confirms the dependency boundary and the GameFactory lifecycle separately.
 
 ## Deferred seams
 

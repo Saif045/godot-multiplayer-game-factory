@@ -1,0 +1,7 @@
+diff --git a/godotsteam_multiplayer_peer.cpp b/godotsteam_multiplayer_peer.cpp
+index 91ff927..de94799 100644
+--- a/godotsteam_multiplayer_peer.cpp
++++ b/godotsteam_multiplayer_peer.cpp
+@@ -363 +363 @@ void SteamMultiplayerPeer::_close() {
+-	if (Engine::get_singleton()->has_singleton("Steam")) {
++	if (!Engine::get_singleton()->has_singleton("Steam")) {

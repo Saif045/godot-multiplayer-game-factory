@@ -13,6 +13,14 @@ The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `Ne
 3. **Multiprocess scenarios** are planned for multiple roles, connection loss, spawn/despawn, replication, late joining, timeouts, and child-process cleanup.
 4. **Manual probes** remain useful for exploration and diagnostics, but cannot be described as regression tests.
 
+The Steam re-host smoke is a narrow exception: it is a permanent manual
+engine-level dependency smoke, not an automated integration test. It verifies
+the vendored `SteamMultiplayerPeer` can execute `create_host(0)`, `close()`,
+then `create_host(0)` again in one process. The real Steam probe additionally
+has a manual `H -> L -> H -> L -> H` acceptance flow. A two-account session,
+connection, and replication run remains required before Steam is accepted as
+end-to-end runtime evidence.
+
 As broader co-op capabilities are added, coverage should follow coherent playable slices rather than isolated speculative helpers. A future player-lifecycle slice, for example, should exercise join, spawn, ownership association, disconnect cleanup, late joining where relevant, and both listen-server and dedicated-server behavior.
 
 ## Replication evidence and next coverage
