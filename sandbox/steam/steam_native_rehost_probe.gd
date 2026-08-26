@@ -31,9 +31,6 @@ func _run_rehost_smoke() -> void:
 	peer1.close()
 	peer1 = null
 
-	await get_tree().process_frame
-	await get_tree().process_frame
-
 	var peer2 := SteamMultiplayerPeer.new()
 	print("[native-test] create host 0 #2")
 	var result2 := peer2.create_host(0)
