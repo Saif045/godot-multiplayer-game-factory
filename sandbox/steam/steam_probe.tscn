@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bpqrwysrttdi7"]
+
+[ext_resource type="Script" uid="uid://cxjtpxg52tn57" path="res://sandbox/steam/SteamProbe.cs" id="1_probe"]
+
+[node name="SteamProbe" type="Node" unique_id=30225666]
+script = ExtResource("1_probe")

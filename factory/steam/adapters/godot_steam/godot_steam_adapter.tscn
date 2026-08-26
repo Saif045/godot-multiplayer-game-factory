@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://factory/steam/adapters/godot_steam/godot_steam_bridge.gd" id="1_bridge"]
+
+[node name="GodotSteamBridge" type="Node"]
+script = ExtResource("1_bridge")

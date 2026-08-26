@@ -2,7 +2,7 @@
 
 ## Mission
 
-GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games without rebuilding their recurring production infrastructure. It targets both player-hosted/listen-server and dedicated-server games, with server-authoritative shared gameplay as the normal default and Steam planned as a first-class online/platform integration.
+GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games without rebuilding their recurring production infrastructure. It targets both player-hosted/listen-server and dedicated-server games, with server-authoritative shared gameplay as the normal default. Steam is the first-class online/platform direction, not a generic multi-platform layer.
 
 The framework should make ordinary multiplayer behavior safe and extremely easy, make uncommon behavior explicit, and leave advanced users able to replace factory behavior or work directly with Godot.
 
@@ -56,7 +56,7 @@ The long-term factory scope includes reusable concerns that recur across games:
 
 - networking transport, sessions, peers, players, authority, replication, spawning, and world coordination;
 - player lifecycle, late joining, disconnect/reconnect infrastructure, networked scene transitions, and session resets;
-- Steam lobbies, friends, invites, and joining, through a suitable Godot integration where that creates real leverage;
+- Steam lobbies, friends, invites, joining, and Steam-backed Godot multiplayer peers through a suitable Godot integration;
 - application bootstrap, game/session flow, host/join, menus, pause, loading, settings, input, audio, and standard error flows;
 - common co-op interaction, item, pickup/drop, inventory, and character/player primitives only when gameplay proves them reusable;
 - local configuration, save infrastructure, dedicated-server lifecycle/configuration, diagnostics, validation, and operational observability;
@@ -81,7 +81,7 @@ For example, GameFactory may eventually provide interaction or pickup infrastruc
 
 GameFactory is for navigating mostly solved game-development problems, not reinventing them. Before building a common subsystem, investigate relevant Godot libraries, plugins, templates, and open-source projects; then deliberately choose to **use**, **adapt/learn from**, or **build**. Maaack's Game Template is the kind of candidate worth evaluating for common game-shell work, and Steam functionality should evaluate existing Godot Steam integrations instead of recreating platform APIs.
 
-External dependencies are welcome when they save substantial implementation or maintenance time, have a compatible license, are reasonably maintained, fit the Godot/GameFactory architecture, are not disproportionately large or fragile for their value, and leave a reasonable replacement or customization path. Do not add a dependency merely to avoid trivial code.
+External dependencies are welcome when they save substantial implementation or maintenance time, have a compatible license, are reasonably maintained, fit the Godot/GameFactory architecture, are not disproportionately large or fragile for their value, and leave a reasonable replacement or customization path. Do not add a dependency merely to avoid trivial code. The current Steam dependency is GodotSteam 4.22 GDExtension, selected for current Godot 4.7 compatibility and `SteamMultiplayerPeer`; `ISteamAdapter` permits replacing that Steam library without pretending Steam itself is replaceable by another platform.
 
 Prefer vertical, useful subsystems over disconnected micro-features. A player-lifecycle slice, for example, should establish and validate peer join, player creation, player spawn, ownership association, disconnect cleanup, and listen/dedicated behavior together. Real playable scenarios drive abstractions; networking grows when actual co-op systems require it.
 

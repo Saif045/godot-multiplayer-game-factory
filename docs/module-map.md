@@ -53,6 +53,19 @@ This layer does not define persistent/account identity, Steam identity, player m
 
 `HostMode`, `SessionState`, `SessionEndReason`, `SessionResult`, and `NetworkSession` define the current lifecycle foundation. `NetworkSession` borrows its injected transport, unsubscribes during idempotent disposal, and never disposes that transport; its composition root owns disposal.
 
+## `factory/steam/`
+
+| Type/path | Responsibility | Status |
+|---|---|---|
+| `ISteamAdapter` | Steam-specific lifecycle, lobby, overlay, presence, peer mapping, dedicated-server, and auth boundary. | Implemented contract |
+| `SteamSession` | Explicit Steam initialization, lobby host/join/leave, and Godot `MultiplayerPeer` assignment. | Implemented; manual acceptance pending |
+| `models/` | Validated Steam IDs and typed Steam data/options/errors. | Implemented |
+| `adapters/godot_steam/GodotSteamAdapter` | Typed C# facade over bridge calls and signals. | Implemented; listen server only |
+| `adapters/godot_steam/godot_steam_bridge.gd` | The only GameFactory GDScript that calls GodotSteam. | Implemented |
+| `adapters/godot_steam/godot_steam_adapter.tscn` | Bridge composition scene. | Implemented |
+
+Dedicated server and Steam auth methods are declared seams and intentionally report unsupported in `GodotSteamAdapter`; no dedicated-server implementation is claimed.
+
 ## `factory/networking/objects/`
 
 | Path/type | Responsibility |
@@ -89,9 +102,11 @@ The default component scenes are implementations, not mandatory or exclusive com
 |---|---|---|
 | `sandbox/connection/` | Manual session/ENet lifecycle probe | Exploratory only |
 | `sandbox/replication/` | Manual raw RPC, spawning, property-replication, and minimal player-lifecycle probe | Manual state-change, late-join, dynamic spawn/despawn, multi-group, and player-ownership exercise; not automated |
+| `sandbox/steam/` | Manual Steam initialization, lobby, invite, and `SteamMultiplayerPeer` probe | Build-validated only; real two-account Steam acceptance pending |
+| `sandbox/launcher/` | Registered-scene launcher for development/exported sandbox arguments | `--run=connection`, `--run=replication`, or `--run=steam`; not application shell |
 | `tests/GameFactory.Tests/` | xUnit tests for peer/session/player policy, value types, registry, and spawn-group enum contracts, with `FakeNetworkTransport` | Automated engine-independent baseline |
 
-The repository has no Godot integration test harness, multiprocess runner, persistence, Steam/platform integration, game-shell, or general tooling module under `factory/`. Speculative empty source folders are intentionally absent.
+The repository has no Godot integration test harness, multiprocess runner, persistence, game-shell, or general tooling module under `factory/`. Steam listen-server integration is present but is not yet accepted through real Steam runtime evidence. Speculative empty source folders are intentionally absent.
 
 ## Documentation
 

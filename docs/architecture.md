@@ -14,9 +14,20 @@ Sandbox probes
         ├── RuntimeContext
         ├── PeerRegistry -> NetworkPeer -> PeerId
         └── INetworkTransport -> ENetTransport -> Godot ENet
+└── Steam probe
+    └── SteamSession -> ISteamAdapter -> GodotSteamAdapter -> GDScript bridge
+        -> GodotSteam / SteamMultiplayerPeer -> Godot MultiplayerAPI
 ```
 
 `NetworkSession` has no ENet or Godot dependency. `ENetTransport` is the current concrete adapter. Sandbox code may compose the layers and use raw Godot APIs while factory abstractions are incomplete.
+
+## Steam listen-server foundation
+
+`factory/steam/` is a Steam-specific platform boundary, not a platform-neutral online abstraction. `SteamSession` owns explicit initialization, host/join/leave sequencing, and assignment of a returned `MultiplayerPeer` to Godot's `MultiplayerApi`. It does not replace `NetworkSession`, ENet, `NetworkWorld`, object spawning, replication, or player lifecycle.
+
+`ISteamAdapter` describes Steam lifecycle, identity, friends/presence, lobby discovery/configuration/membership, overlays, rich presence, peer-to-Steam-ID mapping, and declared seams for dedicated servers and auth tickets. The current `GodotSteamAdapter` uses only `Node.Call` and bridge signals. All GodotSteam-specific GDScript remains in `godot_steam_bridge.gd`; the typed C# layer does not reference vendor types directly. A future Steamworks-backed implementation can therefore replace the library without creating a fictitious cross-platform API.
+
+The vendor dependency is GodotSteam 4.22 GDExtension, including `SteamMultiplayerPeer`, committed under `addons/godotsteam/` with its MIT license. The adapter uses development App ID 480. `SteamProbe` creates a friends-only four-member lobby, can create/assign a Steam listen-server peer, and can explicitly join a supplied lobby ID. Invite callbacks are surfaced; they do not automatically join an already active session. Real two-account Steam testing is required before this is accepted as replacement-transport evidence.
 
 ## Runtime, peers, transport, and sessions
 
@@ -56,6 +67,6 @@ The gameplay-specific spawn delegate owns the concrete player scene. The replica
 
 ## Planned direction
 
-Networking is one implemented foundation within the broader GameFactory goal: rapidly building small-session online co-op games. The player-lifecycle foundation is implemented; it is deliberately limited to session-scoped identity, spawn/despawn orchestration, and ownership association. Steam/platform integration, common game-shell infrastructure, co-op gameplay primitives, and reusable diagnostics/tooling are target areas, not implemented modules.
+Networking is one implemented foundation within the broader GameFactory goal: rapidly building small-session online co-op games. The player-lifecycle foundation is implemented; it is deliberately limited to session-scoped identity, spawn/despawn orchestration, and ownership association. Steam listen-server integration is implemented but not yet runtime-accepted; dedicated Steam servers, Steam authentication, persistent identity, common game-shell infrastructure, co-op gameplay primitives, and reusable diagnostics/tooling remain target areas.
 
 Godot integration tests, multiprocess scenarios, persistent player identity, structured diagnostics, application shell, packaging, and CI are also not implemented. Future common subsystems should first be evaluated against existing Godot libraries, plugins, templates, and open-source work, then adopted, adapted, or built only when a concrete playable scenario demonstrates the need.

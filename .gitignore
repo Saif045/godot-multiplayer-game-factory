@@ -2,6 +2,8 @@
 .godot/
 /android/
 .vscode/
+steam_appid.txt
+build
 
 # .NET build output
 bin/
