@@ -21,6 +21,7 @@ public sealed class LogRunTests : IDisposable
         Assert.Equal("network.peer", json.RootElement.GetProperty("Category").GetString());
         Assert.Equal("2", json.RootElement.GetProperty("Fields").GetProperty("peer_id").GetString());
         Assert.Equal(entry.RunId, run.RunId);
+        Assert.Equal(Path.Combine(_root, "runs"), Path.GetDirectoryName(run.FilePath));
     }
 
     [Fact]

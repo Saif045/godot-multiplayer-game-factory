@@ -40,7 +40,7 @@ public partial class SteamProbe : Node
             };
             _session.StateChanged += (_, to) =>
             {
-                if (to == SteamSessionState.Ready)
+                if (to == SteamSessionState.Ready && _diagnostics.SessionId is not null)
                     _diagnostics.EndSession();
             };
             _session.LobbyJoinRequested += OnLobbyJoinRequested;

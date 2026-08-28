@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Godot;
 
@@ -12,6 +13,7 @@ public static class GameLog
     private static LogRun? _run;
 
     public static string RunId => Run.RunId;
+    public static string LogRoot => Run.LogRoot;
     public static string LocalFilePath => Run.FilePath;
     public static event Action<LogEntry>? EntryWritten;
 
@@ -52,10 +54,32 @@ public static class GameLog
             lock (Gate)
             {
                 if (_run is not null) return _run;
-                string root = ProjectSettings.GlobalizePath("user://logs");
-                _run = new LogRun(root);
+                _run = CreateRun(out string? fallbackWarning);
+                if (fallbackWarning is not null)
+                    Warning("diagnostics.log", "fallback_to_user_directory", fallbackWarning);
                 return _run;
             }
+        }
+    }
+
+    private static LogRun CreateRun(out string? fallbackWarning)
+    {
+        fallbackWarning = null;
+        string fallbackRoot = ProjectSettings.GlobalizePath("user://logs");
+        string executablePath = OS.GetExecutablePath();
+        string? executableDirectory = Path.GetDirectoryName(executablePath);
+        if (string.IsNullOrWhiteSpace(executableDirectory))
+            return new LogRun(fallbackRoot);
+
+        string preferredRoot = Path.Combine(executableDirectory, "logs");
+        try
+        {
+            return new LogRun(preferredRoot);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            fallbackWarning = $"Could not create a diagnostics log beside the executable; using user://logs instead. {exception.Message}";
+            return new LogRun(fallbackRoot);
         }
     }
 }

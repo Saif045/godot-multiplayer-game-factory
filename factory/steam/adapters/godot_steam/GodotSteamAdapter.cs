@@ -143,7 +143,8 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         _lobbyMetadata["joinable"] = options.IsJoinable ? "true" : "false";
 
         TaskCompletionSource<SteamLobby> pending = NewLobbyCompletion(cancellationToken);
-        _bridge.Call("create_lobby", ToGodotLobbyType(options.Visibility), options.MaxMembers);
+        try { _bridge.Call("create_lobby", ToGodotLobbyType(options.Visibility), options.MaxMembers); }
+        catch (Exception exception) { FailPendingLobby(exception); }
         SteamLobby lobby = await pending.Task;
         foreach ((string key, string value) in _lobbyMetadata) SetLobbyData(key, value);
         CurrentLobby = lobby with { IsJoinable = options.IsJoinable, MemberLimit = options.MaxMembers };
@@ -155,7 +156,8 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         EnsureReadyForLobbyOperation();
         cancellationToken.ThrowIfCancellationRequested();
         TaskCompletionSource<SteamLobby> pending = NewLobbyCompletion(cancellationToken);
-        _bridge.Call("join_lobby", ToSteamInt(lobbyId));
+        try { _bridge.Call("join_lobby", ToSteamInt(lobbyId)); }
+        catch (Exception exception) { FailPendingLobby(exception); }
         return await pending.Task;
     }
 

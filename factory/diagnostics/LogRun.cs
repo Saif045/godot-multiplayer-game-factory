@@ -18,6 +18,7 @@ public sealed class LogRun : IDisposable
     private bool _disposed;
 
     public string RunId { get; }
+    public string LogRoot { get; }
     public string FilePath { get; }
     public string? DiagnosticsSessionId { get; private set; }
     public event Action<LogEntry>? EntryWritten;
@@ -27,12 +28,12 @@ public sealed class LogRun : IDisposable
         if (string.IsNullOrWhiteSpace(logRoot))
             throw new ArgumentException("A log root is required.", nameof(logRoot));
 
+        LogRoot = logRoot;
         RunId = string.IsNullOrWhiteSpace(runId)
             ? Guid.NewGuid().ToString("N")[..8]
             : runId;
-        string day = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        string stamp = DateTimeOffset.UtcNow.ToString("HH-mm-ss.fff", CultureInfo.InvariantCulture);
-        string directory = Path.Combine(logRoot, day);
+        string stamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd_HH-mm-ss.fff", CultureInfo.InvariantCulture);
+        string directory = Path.Combine(LogRoot, "runs");
         Directory.CreateDirectory(directory);
         FilePath = Path.Combine(directory, $"{stamp}_{RunId}.jsonl");
         _writer = new StreamWriter(new FileStream(FilePath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite));

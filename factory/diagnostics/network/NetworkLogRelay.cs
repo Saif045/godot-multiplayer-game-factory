@@ -11,7 +11,8 @@ namespace GameFactory.Diagnostics.Network;
 /// <summary>Forwards bounded local diagnostic batches to the authoritative host.</summary>
 public partial class NetworkLogRelay : Node
 {
-    private const int DiagnosticsChannel = 7;
+    // GodotSteam currently creates four channels (0-3) for lobby peers. Keep diagnostics isolated on 3.
+    private const int DiagnosticsChannel = 3;
     private const int BatchLimit = 32;
     private const double FlushIntervalSeconds = 0.1;
 
@@ -19,6 +20,7 @@ public partial class NetworkLogRelay : Node
     private readonly Dictionary<string, long> _highestReceived = [];
     private StreamWriter? _masterWriter;
     private DiagnosticsSessionId? _hostSession;
+    private long _hostClockOffsetMilliseconds;
     private double _secondsUntilFlush;
 
     public Func<PeerId, IReadOnlyDictionary<string, string?>?>? SourceMetadataResolver { get; set; }
@@ -55,7 +57,7 @@ public partial class NetworkLogRelay : Node
         SessionId = sessionId;
         _hostSession = sessionId;
         GameLog.AssociateSession(sessionId);
-        string directory = ProjectSettings.GlobalizePath($"user://logs/sessions/{sessionId}");
+        string directory = Path.Combine(GameLog.LogRoot, "sessions", sessionId.ToString());
         Directory.CreateDirectory(directory);
         _masterWriter?.Dispose();
         _masterWriter = new StreamWriter(new FileStream(Path.Combine(directory, "master.jsonl"), FileMode.Append, System.IO.FileAccess.Write, FileShare.ReadWrite));
@@ -72,6 +74,7 @@ public partial class NetworkLogRelay : Node
         _masterWriter = null;
         _hostSession = null;
         SessionId = null;
+        _hostClockOffsetMilliseconds = 0;
         _highestReceived.Clear();
         _backlog.EndSession();
         GameLog.ClearSession();
@@ -88,15 +91,21 @@ public partial class NetworkLogRelay : Node
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable, TransferChannel = DiagnosticsChannel)]
-    private void AssignSessionRpc(string sessionId)
+    private void AssignSessionRpc(string sessionId, long hostUtcUnixMilliseconds)
     {
         if (!Guid.TryParse(sessionId, out Guid raw)) return;
         DiagnosticsSessionId assigned = new(raw);
         if (SessionId is not null && SessionId.Value == assigned) return;
         SessionId = assigned;
+        _hostClockOffsetMilliseconds = ClockAlignment.EstimateHostOffsetMilliseconds(
+            DateTimeOffset.FromUnixTimeMilliseconds(hostUtcUnixMilliseconds),
+            DateTimeOffset.UtcNow);
         _backlog.BeginSession(assigned);
         GameLog.AssociateSession(assigned);
-        GameLog.Info("diagnostics.session", "assigned", $"session={SessionId}");
+        GameLog.Info("diagnostics.session", "assigned", $"session={SessionId}", new Dictionary<string, string?>
+        {
+            ["host_clock_offset_ms"] = _hostClockOffsetMilliseconds.ToString()
+        });
     }
 
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable, TransferChannel = DiagnosticsChannel)]
@@ -124,7 +133,8 @@ public partial class NetworkLogRelay : Node
             if (hasAcceptedEntry && entry.Sequence != highest + 1) break;
             highest = entry.Sequence;
             hasAcceptedEntry = true;
-            WriteMaster(entry, new PeerId(sender), role: "client", DateTimeOffset.UtcNow);
+            WriteMaster(entry, new PeerId(sender), role: "client", DateTimeOffset.UtcNow,
+                ClockAlignment.NormalizeToHostUtc(entry.Utc, batch.HostClockOffsetMilliseconds));
         }
         _highestReceived[runId] = highest;
         RpcId(sender, MethodName.AcknowledgeBatchRpc, runId, highest);
@@ -141,7 +151,7 @@ public partial class NetworkLogRelay : Node
     {
         GameLog.Info("network.peer", "connected", fields: new Dictionary<string, string?> { ["peer_id"] = peerId.ToString() });
         if (Multiplayer.IsServer() && _hostSession is not null)
-            RpcId(peerId, MethodName.AssignSessionRpc, _hostSession.Value.ToString());
+            RpcId(peerId, MethodName.AssignSessionRpc, _hostSession.Value.ToString(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
     private void OnPeerDisconnected(long peerId) => GameLog.Info("network.peer", "disconnected", fields: new Dictionary<string, string?> { ["peer_id"] = peerId.ToString() });
@@ -160,12 +170,12 @@ public partial class NetworkLogRelay : Node
 
     private void FlushClientBatch()
     {
-        LogBatch? batch = _backlog.CreateBatch(GameLog.RunId, BatchLimit);
+        LogBatch? batch = _backlog.CreateBatch(GameLog.RunId, BatchLimit, _hostClockOffsetMilliseconds);
         if (batch is null) return;
         RpcId(PeerId.Server.Value, MethodName.ReceiveBatchRpc, JsonSerializer.Serialize(batch));
     }
 
-    private void WriteMaster(LogEntry entry, PeerId peerId, string role, DateTimeOffset receivedUtc)
+    private void WriteMaster(LogEntry entry, PeerId peerId, string role, DateTimeOffset receivedUtc, DateTimeOffset? normalizedUtc = null)
     {
         IReadOnlyDictionary<string, string?>? sourceMetadata = SourceMetadataResolver?.Invoke(peerId);
         var master = new
@@ -174,6 +184,7 @@ public partial class NetworkLogRelay : Node
             source_peer_id = peerId.Value,
             source_metadata = sourceMetadata,
             host_received_utc = receivedUtc,
+            normalized_utc = normalizedUtc ?? entry.Utc,
             entry
         };
         _masterWriter?.WriteLine(JsonSerializer.Serialize(master));

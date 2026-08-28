@@ -2,23 +2,30 @@
 
 GameFactory diagnostics is a small distributed debugging facility, not a
 general-purpose observability framework. Every process writes its own JSONL file
-under `user://logs/<utc-date>/`; a unique run ID and per-run sequence make local
-ordering unambiguous. Entries include UTC time, elapsed milliseconds, level,
-category, event name, message, fields, and the diagnostics session once known.
+beside the running executable when that location is writable:
+
+```text
+<exe-dir>/logs/
+  runs/<utc-date>_<utc-time>_<run-id>.jsonl
+  sessions/<diagnostics-session-id>/master.jsonl
+```
+
+If the executable directory cannot be written, `GameLog` warns and falls back to
+`user://logs`. A unique run ID and per-run sequence make local ordering
+unambiguous. Entries include UTC time, elapsed milliseconds, level, category,
+event name, message, fields, and the diagnostics session once known.
 
 `GameLog` preserves live Godot output: information uses `GD.Print`, warnings use
 `GD.PushWarning`, and errors use `GD.PushError`. Godot engine output remains
 independent and is not intercepted.
 
 For an authoritative multiplayer session, `NetworkLogRelay` creates a separate
-diagnostics session ID and host file at:
-
-```text
-user://logs/sessions/<diagnostics-session-id>/master.jsonl
-```
+diagnostics session ID and host master file in the `sessions` location above.
 
 Clients retain their own local logs and forward bounded batches over reliable
-Godot RPC channel 7. Recent pre-session entries are seeded into a newly assigned
+Godot RPC channel 3. The current GodotSteam lobby peer configures channels 0–3;
+channel 3 is reserved for diagnostics so it does not silently fall back to
+channel 0. Recent pre-session entries are seeded into a newly assigned
 session so the join/setup story is retained. The host derives the sending peer
 from `MultiplayerApi`, records host receive time and optional platform metadata,
 rejects duplicates, and acknowledges accepted sequences. A client retains at
@@ -29,6 +36,11 @@ does not log its own transport activity.
 
 The relay is transport/platform independent. Steam peer-to-user mapping is
 optional enrichment supplied by the Steam sandbox; the diagnostics layer itself
-does not reference Steam. The session ID is not a Steam lobby ID. Clock
-synchronization and durable upload after process restart are intentionally
-deferred.
+does not reference Steam. The session ID is not a Steam lobby ID.
+
+When the host assigns a diagnostics session, it includes its current UTC time.
+The client estimates a host-clock offset from that message and includes it with
+each batch. `master.jsonl` retains the source `entry.Utc`, source elapsed time,
+and source sequence, and adds both `host_received_utc` and `normalized_utc`.
+This is a lightweight debugging estimate rather than NTP-grade synchronization.
+Durable upload after process restart remains intentionally deferred.

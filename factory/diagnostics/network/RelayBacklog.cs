@@ -43,10 +43,10 @@ public sealed class RelayBacklog
         DroppedThroughSequence = 0;
     }
 
-    public LogBatch? CreateBatch(string runId, int maximumEntries)
+    public LogBatch? CreateBatch(string runId, int maximumEntries, long hostClockOffsetMilliseconds = 0)
     {
         if (SessionId is null || _entries.Count == 0) return null;
-        return new LogBatch(SessionId, runId, DroppedThroughSequence, _entries.Take(maximumEntries).ToArray());
+        return new LogBatch(SessionId, runId, DroppedThroughSequence, hostClockOffsetMilliseconds, _entries.Take(maximumEntries).ToArray());
     }
 
     public void Acknowledge(long highestSequence)
