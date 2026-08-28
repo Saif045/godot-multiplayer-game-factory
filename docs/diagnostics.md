@@ -23,9 +23,13 @@ For an authoritative multiplayer session, `NetworkLogRelay` creates a separate
 diagnostics session ID and host master file in the `sessions` location above.
 
 Clients retain their own local logs and forward bounded batches over reliable
-Godot RPC channel 3. The current GodotSteam lobby peer configures channels 0–3;
-channel 3 is reserved for diagnostics so it does not silently fall back to
-channel 0. Recent pre-session entries are seeded into a newly assigned
+Godot RPC transfer channel 2. Godot maps nonzero high-level transfer channels
+onto underlying peer channels after its reserved system channels: transfer
+channel 0 uses Godot's default/system behavior, channel 1 is the first custom
+channel, and channel 2 is the second custom channel. With the current
+four-channel GodotSteam peer (physical channels 0–3), diagnostics channel 2 maps
+to physical channel 3; transfer channel 3 would exceed that range and fall back
+to channel 0. Recent pre-session entries are seeded into a newly assigned
 session so the join/setup story is retained. The host derives the sending peer
 from `MultiplayerApi`, records host receive time and optional platform metadata,
 rejects duplicates, and acknowledges accepted sequences. A client retains at

@@ -11,8 +11,9 @@ namespace GameFactory.Diagnostics.Network;
 /// <summary>Forwards bounded local diagnostic batches to the authoritative host.</summary>
 public partial class NetworkLogRelay : Node
 {
-    // GodotSteam currently creates four channels (0-3) for lobby peers. Keep diagnostics isolated on 3.
-    private const int DiagnosticsChannel = 3;
+    // Godot reserves low physical channels for transfer modes. With GodotSteam's four
+    // physical channels (0-3), logical transfer channel 2 maps to physical channel 3.
+    private const int DiagnosticsChannel = 2;
     private const int BatchLimit = 32;
     private const double FlushIntervalSeconds = 0.1;
 
