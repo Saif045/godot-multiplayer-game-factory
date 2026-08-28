@@ -303,9 +303,17 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     }
     private void CompleteLobby(SteamLobbyId id, bool created)
     {
+        if (_pendingLobby is null) return;
+        SteamLobby lobby;
+        try { lobby = ToLobby(id); }
+        catch (Exception exception)
+        {
+            FailPendingLobby(exception);
+            return;
+        }
+
         TaskCompletionSource<SteamLobby>? pending = TakePendingLobby();
         if (pending is null) return;
-        SteamLobby lobby = ToLobby(id);
         CurrentLobby = lobby;
         pending.TrySetResult(lobby);
         if (created) LobbyCreated?.Invoke(lobby); else LobbyJoined?.Invoke(lobby);

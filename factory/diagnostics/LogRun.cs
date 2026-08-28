@@ -39,6 +39,7 @@ public sealed class LogRun : IDisposable
     }
 
     public void AssociateSession(DiagnosticsSessionId sessionId) => DiagnosticsSessionId = sessionId.ToString();
+    public void ClearSession() => DiagnosticsSessionId = null;
 
     public LogEntry Write(
         LogLevel level,

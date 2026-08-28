@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text.Json;
 using Godot;
 using GameFactory.Networking.Peers;
-using GameFactory.Steam.Models;
 
 namespace GameFactory.Diagnostics.Network;
 
@@ -14,16 +13,15 @@ public partial class NetworkLogRelay : Node
 {
     private const int DiagnosticsChannel = 7;
     private const int BatchLimit = 32;
-    private const int BacklogLimit = 512;
     private const double FlushIntervalSeconds = 0.1;
 
-    private readonly List<LogEntry> _backlog = [];
+    private readonly RelayBacklog _backlog = new();
     private readonly Dictionary<string, long> _highestReceived = [];
     private StreamWriter? _masterWriter;
     private DiagnosticsSessionId? _hostSession;
     private double _secondsUntilFlush;
 
-    public Func<PeerId, SteamUserId?>? SteamUserResolver { get; set; }
+    public Func<PeerId, IReadOnlyDictionary<string, string?>?>? SourceMetadataResolver { get; set; }
     public DiagnosticsSessionId? SessionId { get; private set; }
 
     public override void _Ready()
@@ -61,13 +59,28 @@ public partial class NetworkLogRelay : Node
         Directory.CreateDirectory(directory);
         _masterWriter?.Dispose();
         _masterWriter = new StreamWriter(new FileStream(Path.Combine(directory, "master.jsonl"), FileMode.Append, System.IO.FileAccess.Write, FileShare.ReadWrite));
+        _highestReceived.Clear();
+        _backlog.BeginSession(sessionId);
+        foreach (LogEntry entry in _backlog.Entries)
+            WriteMaster(entry with { DiagnosticsSessionId = sessionId.ToString() }, PeerId.Server, "host", entry.Utc);
         GameLog.Info("diagnostics.session", "host_started", $"session={sessionId}");
+    }
+
+    public void EndSession()
+    {
+        _masterWriter?.Dispose();
+        _masterWriter = null;
+        _hostSession = null;
+        SessionId = null;
+        _highestReceived.Clear();
+        _backlog.EndSession();
+        GameLog.ClearSession();
     }
 
     public override void _Process(double delta)
     {
         _secondsUntilFlush -= delta;
-        if (_secondsUntilFlush > 0 || _backlog.Count == 0 || Multiplayer.IsServer() || SessionId is null)
+        if (_secondsUntilFlush > 0 || Multiplayer.IsServer())
             return;
 
         FlushClientBatch();
@@ -78,8 +91,11 @@ public partial class NetworkLogRelay : Node
     private void AssignSessionRpc(string sessionId)
     {
         if (!Guid.TryParse(sessionId, out Guid raw)) return;
-        SessionId = new DiagnosticsSessionId(raw);
-        GameLog.AssociateSession(SessionId.Value);
+        DiagnosticsSessionId assigned = new(raw);
+        if (SessionId is not null && SessionId.Value == assigned) return;
+        SessionId = assigned;
+        _backlog.BeginSession(assigned);
+        GameLog.AssociateSession(assigned);
         GameLog.Info("diagnostics.session", "assigned", $"session={SessionId}");
     }
 
@@ -88,15 +104,21 @@ public partial class NetworkLogRelay : Node
     {
         if (!Multiplayer.IsServer() || _hostSession is null) return;
         long sender = Multiplayer.GetRemoteSenderId();
-        List<LogEntry>? entries;
-        try { entries = JsonSerializer.Deserialize<List<LogEntry>>(payload); }
+        LogBatch? batch;
+        try { batch = JsonSerializer.Deserialize<LogBatch>(payload); }
         catch (JsonException) { return; }
-        if (entries is null || entries.Count == 0 || entries.Count > BatchLimit) return;
+        if (batch is null || batch.Entries.Count == 0 || batch.Entries.Count > BatchLimit || batch.DiagnosticsSessionId != _hostSession.Value.ToString()) return;
 
-        string runId = entries[0].RunId;
-        if (entries.Any(entry => entry.RunId != runId || entry.DiagnosticsSessionId != _hostSession.Value.ToString())) return;
+        string runId = batch.RunId;
+        if (batch.Entries.Any(entry => entry.RunId != runId || entry.DiagnosticsSessionId != batch.DiagnosticsSessionId)) return;
         bool hasAcceptedEntry = _highestReceived.TryGetValue(runId, out long highest);
-        foreach (LogEntry entry in entries.OrderBy(entry => entry.Sequence))
+        if (batch.DroppedThroughSequence > highest)
+        {
+            WriteGap(runId, new PeerId(sender), highest + 1, batch.DroppedThroughSequence);
+            highest = batch.DroppedThroughSequence;
+            hasAcceptedEntry = true;
+        }
+        foreach (LogEntry entry in batch.Entries.OrderBy(entry => entry.Sequence))
         {
             if (entry.Sequence <= highest) continue;
             if (hasAcceptedEntry && entry.Sequence != highest + 1) break;
@@ -112,7 +134,7 @@ public partial class NetworkLogRelay : Node
     private void AcknowledgeBatchRpc(string runId, long highestSequence)
     {
         if (runId != GameLog.RunId) return;
-        _backlog.RemoveAll(entry => entry.Sequence <= highestSequence);
+        _backlog.Acknowledge(highestSequence);
     }
 
     private void OnPeerConnected(long peerId)
@@ -132,29 +154,43 @@ public partial class NetworkLogRelay : Node
         if (_hostSession is not null && entry.DiagnosticsSessionId == _hostSession.Value.ToString())
             WriteMaster(entry, PeerId.Server, "host", entry.Utc);
 
-        if (Multiplayer.IsServer() || SessionId is null || entry.Category == "diagnostics.relay") return;
-        _backlog.Add(entry);
-        if (_backlog.Count > BacklogLimit) _backlog.RemoveAt(0);
+        if (entry.Category == "diagnostics.relay") return;
+        _backlog.Record(entry);
     }
 
     private void FlushClientBatch()
     {
-        List<LogEntry> batch = _backlog.Take(BatchLimit).ToList();
+        LogBatch? batch = _backlog.CreateBatch(GameLog.RunId, BatchLimit);
+        if (batch is null) return;
         RpcId(PeerId.Server.Value, MethodName.ReceiveBatchRpc, JsonSerializer.Serialize(batch));
     }
 
     private void WriteMaster(LogEntry entry, PeerId peerId, string role, DateTimeOffset receivedUtc)
     {
-        SteamUserId? steamId = SteamUserResolver?.Invoke(peerId);
+        IReadOnlyDictionary<string, string?>? sourceMetadata = SourceMetadataResolver?.Invoke(peerId);
         var master = new
         {
             source_role = role,
             source_peer_id = peerId.Value,
-            source_steam_id = steamId?.Value,
+            source_metadata = sourceMetadata,
             host_received_utc = receivedUtc,
             entry
         };
         _masterWriter?.WriteLine(JsonSerializer.Serialize(master));
+        _masterWriter?.Flush();
+    }
+
+    private void WriteGap(string runId, PeerId peerId, long firstMissing, long droppedThrough)
+    {
+        var gap = new
+        {
+            source_role = "client",
+            source_peer_id = peerId.Value,
+            source_metadata = SourceMetadataResolver?.Invoke(peerId),
+            host_received_utc = DateTimeOffset.UtcNow,
+            diagnostics_gap = new { run_id = runId, missing_from_sequence = firstMissing, missing_through_sequence = droppedThrough }
+        };
+        _masterWriter?.WriteLine(JsonSerializer.Serialize(gap));
         _masterWriter?.Flush();
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace GameFactory.Diagnostics;
@@ -15,6 +16,7 @@ public static class GameLog
     public static event Action<LogEntry>? EntryWritten;
 
     public static void AssociateSession(DiagnosticsSessionId sessionId) => Run.AssociateSession(sessionId);
+    public static void ClearSession() => Run.ClearSession();
 
     public static LogEntry Info(string category, string eventName, string? message = null, IReadOnlyDictionary<string, string?>? fields = null)
         => Write(LogLevel.Info, category, eventName, message, fields);
@@ -28,8 +30,10 @@ public static class GameLog
     private static LogEntry Write(LogLevel level, string category, string eventName, string? message, IReadOnlyDictionary<string, string?>? fields)
     {
         LogEntry entry = Run.Write(level, category, eventName, message, fields);
-        string line = $"{entry.Utc:HH:mm:ss.fff} [{entry.Category}] {entry.Event}" +
-            (string.IsNullOrWhiteSpace(entry.Message) ? string.Empty : $" {entry.Message}");
+        string fieldText = string.Join(" ", entry.Fields.Select(field => $"{field.Key}={field.Value}"));
+        string line = $"{entry.Utc:HH:mm:ss.fff}Z [{entry.Category}] {entry.Event}" +
+            (string.IsNullOrWhiteSpace(entry.Message) ? string.Empty : $" {entry.Message}") +
+            (string.IsNullOrWhiteSpace(fieldText) ? string.Empty : $" {fieldText}");
         switch (level)
         {
             case LogLevel.Warning: GD.PushWarning(line); break;

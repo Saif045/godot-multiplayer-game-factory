@@ -18,13 +18,17 @@ user://logs/sessions/<diagnostics-session-id>/master.jsonl
 ```
 
 Clients retain their own local logs and forward bounded batches over reliable
-Godot RPC channel 7. The host derives the sending peer from `MultiplayerApi`,
-records host receive time and source metadata, rejects duplicate source
-sequences, and acknowledges the highest accepted sequence. A client retains at
+Godot RPC channel 7. Recent pre-session entries are seeded into a newly assigned
+session so the join/setup story is retained. The host derives the sending peer
+from `MultiplayerApi`, records host receive time and optional platform metadata,
+rejects duplicates, and acknowledges accepted sequences. A client retains at
 most 512 unacknowledged entries and sends at most 32 entries per batch every 100
-milliseconds. Diagnostics forwarding does not log its own transport activity.
+milliseconds. If that bound drops unacknowledged entries, the next batch reports
+the sequence gap and the host records it before advancing. Diagnostics forwarding
+does not log its own transport activity.
 
 The relay is transport/platform independent. Steam peer-to-user mapping is
-optional enrichment supplied by the Steam sandbox; the session ID is not a
-Steam lobby ID. Clock synchronization and durable upload after process restart
-are intentionally deferred.
+optional enrichment supplied by the Steam sandbox; the diagnostics layer itself
+does not reference Steam. The session ID is not a Steam lobby ID. Clock
+synchronization and durable upload after process restart are intentionally
+deferred.

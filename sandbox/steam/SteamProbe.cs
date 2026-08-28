@@ -33,8 +33,16 @@ public partial class SteamProbe : Node
             _session = new SteamSession(_adapter, Multiplayer);
 
 
-            _diagnostics.SteamUserResolver = peer => _adapter.TryGetSteamUserForPeer(peer, out SteamUserId user) ? user : null;
-            _session.StateChanged += (from, to) => GameLog.Info("steam.session", "probe_state_changed", $"{from} -> {to}");
+            _diagnostics.SourceMetadataResolver = peer =>
+            {
+                if (!_adapter.TryGetSteamUserForPeer(peer, out SteamUserId user)) return null;
+                return new System.Collections.Generic.Dictionary<string, string?> { ["steam_id"] = user.ToString() };
+            };
+            _session.StateChanged += (_, to) =>
+            {
+                if (to == SteamSessionState.Ready)
+                    _diagnostics.EndSession();
+            };
             _session.LobbyJoinRequested += OnLobbyJoinRequested;
 
             await _session.InitializeAsync();
