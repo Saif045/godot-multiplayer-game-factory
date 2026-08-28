@@ -6,8 +6,8 @@ extends Node
 const DEVELOPMENT_APP_ID := 480
 
 func _ready() -> void:
-	print("[native-test] Steam singleton=", Engine.has_singleton("Steam"))
-	print("[native-test] SteamMultiplayerPeer=", ClassDB.class_exists("SteamMultiplayerPeer"))
+	# print("[native-test] Steam singleton=", Engine.has_singleton("Steam"))
+	# print("[native-test] SteamMultiplayerPeer=", ClassDB.class_exists("SteamMultiplayerPeer"))
 
 	var initialization := Steam.steamInitEx(DEVELOPMENT_APP_ID, true)
 	var status: int = int(initialization.get("status", -1))

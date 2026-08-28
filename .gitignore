@@ -5,6 +5,7 @@
 steam_appid.txt
 build
 /.tmp-*/
+/addons/godotsteam/win64/~*.TMP
 
 # .NET build output
 bin/

@@ -13,8 +13,8 @@ signal overlay_changed(active: bool)
 signal lobby_search_completed(lobbies: Array)
 
 func _ready() -> void:
-	print("Steam singleton: ", Engine.has_singleton("Steam"))
-	print("SteamMultiplayerPeer: ", ClassDB.class_exists("SteamMultiplayerPeer"))
+	# print("Steam singleton: ", Engine.has_singleton("Steam"))
+	# print("SteamMultiplayerPeer: ", ClassDB.class_exists("SteamMultiplayerPeer"))
 	Steam.lobby_created.connect(_on_lobby_created)
 	Steam.lobby_joined.connect(_on_lobby_joined)
 	Steam.lobby_data_update.connect(_on_lobby_data_update)
@@ -24,7 +24,6 @@ func _ready() -> void:
 	Steam.lobby_match_list.connect(_on_lobby_match_list)
 
 func initialize(app_id: int) -> Dictionary:
-	print("app_id:",app_id)
 	return Steam.steamInitEx(app_id, true)
 
 func shutdown() -> void:
