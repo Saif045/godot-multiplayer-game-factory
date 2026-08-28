@@ -18,7 +18,8 @@ public partial class SandboxLauncher : Node
         {
             ["connection"] = "res://sandbox/connection/network_probe.tscn",
             ["replication"] = "res://sandbox/replication/replication_probe.tscn",
-            ["steam"] = "res://sandbox/steam/steam_probe.tscn"
+            ["steam"] = "res://sandbox/steam/steam_probe.tscn",
+            ["steam-gameplay"] = "res://sandbox/steam/steam_gameplay_probe.tscn"
         };
 
     public override void _Ready()

@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using GameFactory.Diagnostics;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Objects.Components.Authority;
 using GameFactory.Networking.Objects.Components.Replication;
@@ -73,5 +74,16 @@ public partial class RawPlayer : Node3D, INetworkSpawnInitializable
             $"local_peer={localPeerValue} " +
             $"is_local_owner={isLocalOwner} " +
             $"has_godot_authority={authority.HasAuthority}");
+
+        GameLog.Info("gameplay.player", phase, fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["player_id"] = PlayerId.ToString(),
+            ["network_object_id"] = networkObject.Id.ToString(),
+            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+            ["authority_peer_id"] = authority.AuthorityPeerId.ToString(),
+            ["local_peer_id"] = localPeerValue.ToString(),
+            ["is_local_owner"] = isLocalOwner.ToString(),
+            ["has_godot_authority"] = authority.HasAuthority.ToString()
+        });
     }
 }

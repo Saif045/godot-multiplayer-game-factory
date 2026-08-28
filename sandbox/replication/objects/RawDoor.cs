@@ -1,4 +1,6 @@
+using System;
 using Godot;
+using GameFactory.Diagnostics;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Objects.Components.Authority;
 using GameFactory.Networking.Objects.Components.Replication;
@@ -99,6 +101,21 @@ public partial class RawDoor : Node3D
             $"IsOpen = {IsOpen}");
     }
 
+    public void SetOpenOnAuthority(bool isOpen)
+    {
+        if (!_authority.HasAuthority)
+        {
+            throw new InvalidOperationException("Only the authoritative server can change the probe door state.");
+        }
+
+        IsOpen = isOpen;
+        GameLog.Info("gameplay.replication", "door_mutated", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(),
+            ["is_open"] = IsOpen.ToString()
+        });
+    }
+
     public override void _Ready()
     {
         _network = GetNode<NetworkObject>("NetworkObject");
@@ -118,6 +135,7 @@ public partial class RawDoor : Node3D
             GD.Print(
                 $"[door][sync] full sync received; " +
                 $"IsOpen = {IsOpen}");
+            LogReplicationObservation("full_sync");
         };
 
         _replication.DeltaSynchronized += () =>
@@ -125,10 +143,28 @@ public partial class RawDoor : Node3D
             GD.Print(
                 $"[door][sync] delta received; " +
                 $"IsOpen = {IsOpen}");
+            LogReplicationObservation("delta_sync");
         };
 
         GD.Print(
             $"[door] created on peer " +
             $"{Multiplayer.GetUniqueId()}");
+
+        GameLog.Info("gameplay.world", "door_ready", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(),
+            ["owner_peer_id"] = _network.OwnerPeerId.ToString(),
+            ["is_open"] = IsOpen.ToString()
+        });
+    }
+
+    private void LogReplicationObservation(string eventName)
+    {
+        GameLog.Info("gameplay.replication", eventName, fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(),
+            ["is_open"] = IsOpen.ToString(),
+            ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
+        });
     }
 }

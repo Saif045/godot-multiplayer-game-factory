@@ -1,0 +1,15 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://sandbox/steam/SteamGameplayProbe.cs" id="1_probe"]
+[ext_resource type="PackedScene" path="res://factory/networking/world/network_world.tscn" id="2_world"]
+[ext_resource type="PackedScene" path="res://sandbox/replication/objects/raw_door.tscn" id="3_door"]
+[ext_resource type="PackedScene" path="res://sandbox/replication/objects/raw_player.tscn" id="4_player"]
+
+[node name="SteamGameplayProbe" type="Node"]
+script = ExtResource("1_probe")
+DoorScene = ExtResource("3_door")
+PlayerScene = ExtResource("4_player")
+
+[node name="NetworkWorld" parent="." instance=ExtResource("2_world")]
+
+[editable path="NetworkWorld"]

@@ -14,6 +14,9 @@ public partial class NetworkWorld : Node
 
     private long _nextId = 1;
 
+    /// <summary>Number of locally registered network objects in this world.</summary>
+    public int Count => _objects.Count;
+
     public override void _EnterTree()
     {
         CreateSpawnGroups();

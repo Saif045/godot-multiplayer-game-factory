@@ -30,6 +30,13 @@ has a manual `H -> L -> H -> L -> H` acceptance flow. A two-account session,
 connection, and replication run remains required before Steam is accepted as
 end-to-end runtime evidence.
 
+`--run=steam-gameplay` is the separate manual two-account gameplay acceptance
+probe. It composes the existing `PlayerLifecycle`, `NetworkWorld`,
+`NetworkObject`, and replication paths over the Steam-backed Godot peer. Its
+required exercise is host-player creation, a pre-client world spawn, remote
+player creation and late join, an authoritative replicated door mutation, and
+remote disconnect cleanup. It does not establish automated gameplay evidence.
+
 As broader co-op capabilities are added, coverage should follow coherent playable slices rather than isolated speculative helpers. A future player-lifecycle slice, for example, should exercise join, spawn, ownership association, disconnect cleanup, late joining where relevant, and both listen-server and dedicated-server behavior.
 
 ## Replication evidence and next coverage
