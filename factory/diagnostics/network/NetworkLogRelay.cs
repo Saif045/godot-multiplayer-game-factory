@@ -19,7 +19,7 @@ public partial class NetworkLogRelay : Node
 
     private readonly RelayBacklog _backlog = new();
     private readonly Dictionary<string, long> _highestReceived = [];
-    private StreamWriter? _masterWriter;
+    private MasterLogWriter? _masterWriter;
     private DiagnosticsSessionId? _hostSession;
     private long _hostClockOffsetMilliseconds;
     private double _secondsUntilFlush;
@@ -61,7 +61,7 @@ public partial class NetworkLogRelay : Node
         string directory = Path.Combine(GameLog.LogRoot, "sessions", sessionId.ToString());
         Directory.CreateDirectory(directory);
         _masterWriter?.Dispose();
-        _masterWriter = new StreamWriter(new FileStream(Path.Combine(directory, "master.jsonl"), FileMode.Append, System.IO.FileAccess.Write, FileShare.ReadWrite));
+        _masterWriter = new MasterLogWriter(Path.Combine(directory, "master.jsonl"));
         _highestReceived.Clear();
         _backlog.BeginSession(sessionId);
         foreach (LogEntry entry in _backlog.Entries)
@@ -110,6 +110,15 @@ public partial class NetworkLogRelay : Node
     }
 
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable, TransferChannel = DiagnosticsChannel)]
+    private void RequestDiagnosticsSessionRpc()
+    {
+        if (!Multiplayer.IsServer() || _hostSession is null) return;
+        long sender = Multiplayer.GetRemoteSenderId();
+        if (sender <= 0) return;
+        RpcId(sender, MethodName.AssignSessionRpc, _hostSession.Value.ToString(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable, TransferChannel = DiagnosticsChannel)]
     private void ReceiveBatchRpc(string payload)
     {
         if (!Multiplayer.IsServer() || _hostSession is null) return;
@@ -151,12 +160,14 @@ public partial class NetworkLogRelay : Node
     private void OnPeerConnected(long peerId)
     {
         GameLog.Info("network.peer", "connected", fields: new Dictionary<string, string?> { ["peer_id"] = peerId.ToString() });
-        if (Multiplayer.IsServer() && _hostSession is not null)
-            RpcId(peerId, MethodName.AssignSessionRpc, _hostSession.Value.ToString(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
     private void OnPeerDisconnected(long peerId) => GameLog.Info("network.peer", "disconnected", fields: new Dictionary<string, string?> { ["peer_id"] = peerId.ToString() });
-    private void OnConnectedToServer() => GameLog.Info("network.connection", "connected_to_server");
+    private void OnConnectedToServer()
+    {
+        GameLog.Info("network.connection", "connected_to_server");
+        CallDeferred(nameof(RequestDiagnosticsSession));
+    }
     private void OnConnectionFailed() => GameLog.Warning("network.connection", "connection_failed");
     private void OnServerDisconnected() => GameLog.Warning("network.connection", "server_disconnected");
 
@@ -188,8 +199,7 @@ public partial class NetworkLogRelay : Node
             normalized_utc = normalizedUtc ?? entry.Utc,
             entry
         };
-        _masterWriter?.WriteLine(JsonSerializer.Serialize(master));
-        _masterWriter?.Flush();
+        _masterWriter?.Append(master);
     }
 
     private void WriteGap(string runId, PeerId peerId, long firstMissing, long droppedThrough)
@@ -202,7 +212,12 @@ public partial class NetworkLogRelay : Node
             host_received_utc = DateTimeOffset.UtcNow,
             diagnostics_gap = new { run_id = runId, missing_from_sequence = firstMissing, missing_through_sequence = droppedThrough }
         };
-        _masterWriter?.WriteLine(JsonSerializer.Serialize(gap));
-        _masterWriter?.Flush();
+        _masterWriter?.Append(gap);
+    }
+
+    private void RequestDiagnosticsSession()
+    {
+        if (Multiplayer.IsServer()) return;
+        RpcId(PeerId.Server.Value, MethodName.RequestDiagnosticsSessionRpc);
     }
 }

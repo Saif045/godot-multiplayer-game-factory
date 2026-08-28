@@ -48,3 +48,16 @@ each batch. `master.jsonl` retains the source `entry.Utc`, source elapsed time,
 and source sequence, and adds both `host_received_utc` and `normalized_utc`.
 This is a lightweight debugging estimate rather than NTP-grade synchronization.
 Durable upload after process restart remains intentionally deferred.
+
+Session assignment is client-initiated: after Godot reports
+`ConnectedToServer`, the client defers a reliable diagnostics-session request by
+one process tick. The host derives the requesting peer from `MultiplayerApi` and
+responds only while an authoritative diagnostics session exists. This avoids
+sending application RPC data while a transport is still completing its own
+connection handshake. Repeated requests are harmless because assigning the same
+session is idempotent.
+
+The host is the sole writer of its `master.jsonl`. Every host or remote entry,
+including recorded sequence gaps, goes through one locked append path. The file
+allows concurrent readers but not a second writer, and each append serializes,
+writes one JSON object plus its newline, and flushes before returning.
