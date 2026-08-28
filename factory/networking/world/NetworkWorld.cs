@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using GameFactory.Diagnostics;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Peers;
 
@@ -135,9 +136,7 @@ public partial class NetworkWorld : Node
                     host,
                     configure);
 
-            GD.Print(
-                $"[world][spawn] {id} -> {spawned.Host.Name} " +
-                $"[{kind}] owner={ownerPeerId}");
+            GameLog.Info("network_object", "spawned", $"{id} -> {spawned.Host.Name} [{kind}] owner={ownerPeerId}");
 
             return spawned;
         }
@@ -169,8 +168,7 @@ public partial class NetworkWorld : Node
                 $"Network object {id} does not exist.");
         }
 
-        GD.Print(
-            $"[world][despawn] {id} -> {networkObject.Host.Name}");
+        GameLog.Info("network_object", "despawned", $"{id} -> {networkObject.Host.Name}");
 
         networkObject.Host.QueueFree();
     }
@@ -195,9 +193,7 @@ public partial class NetworkWorld : Node
                 "is already registered.");
         }
 
-        GD.Print(
-            $"[world][register] {networkObject.Id} -> " +
-            $"{networkObject.Host.Name}");
+        GameLog.Info("network_object", "registered", $"{networkObject.Id} -> {networkObject.Host.Name}");
     }
 
     internal void Unregister(NetworkObject networkObject)
@@ -211,8 +207,7 @@ public partial class NetworkWorld : Node
             return;
         }
 
-        GD.Print(
-            $"[world][unregister] {networkObject.Id}");
+        GameLog.Info("network_object", "unregistered", networkObject.Id.ToString());
     }
 
     private void CreateSpawnGroups()

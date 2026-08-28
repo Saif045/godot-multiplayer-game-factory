@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
+using GameFactory.Diagnostics;
 using GameFactory.Steam.Models;
 
 namespace GameFactory.Steam;
@@ -143,24 +144,24 @@ public sealed class SteamSession : IDisposable
         MultiplayerPeer? peer = _activePeer;
         if (peer is null) return;
 
-        GD.Print($"[steam][peer] closing {peer.GetType().Name}");
+        GameLog.Info("steam.peer", "closing", peer.GetType().Name);
         try
         {
             peer.Close();
-            GD.Print("[steam][peer] closed");
+            GameLog.Info("steam.peer", "closed");
         }
         finally
         {
             if (ReferenceEquals(_multiplayer.MultiplayerPeer, peer))
             {
                 _multiplayer.MultiplayerPeer = null;
-                GD.Print("[steam][peer] cleared from MultiplayerAPI");
+                GameLog.Info("steam.peer", "cleared_from_multiplayer_api");
             }
 
             try
             {
                 peer.Dispose();
-                GD.Print("[steam][peer] disposed");
+                GameLog.Info("steam.peer", "disposed");
             }
             finally
             {
@@ -201,6 +202,11 @@ public sealed class SteamSession : IDisposable
         if (State == next) return;
         SteamSessionState previous = State;
         State = next;
+        GameLog.Info("steam.session", "state_changed", $"{previous} -> {next}", new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["previous"] = previous.ToString(),
+            ["next"] = next.ToString()
+        });
         StateChanged?.Invoke(previous, next);
     }
 }

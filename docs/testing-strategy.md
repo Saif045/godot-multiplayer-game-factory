@@ -13,6 +13,12 @@ The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `Ne
 3. **Multiprocess scenarios** are planned for multiple roles, connection loss, spawn/despawn, replication, late joining, timeouts, and child-process cleanup.
 4. **Manual probes** remain useful for exploration and diagnostics, but cannot be described as regression tests.
 
+Diagnostics writes one JSONL file per run under `user://logs/`. `NetworkLogRelay`
+is exercised next through a real host/client session: it must preserve each local
+file and append host plus remote client events to the host session's
+`master.jsonl`. The relay's batching and acknowledgement behavior is deliberately
+bounded in memory; it is not durable offline upload.
+
 The Steam re-host smoke is a narrow exception: it is a permanent manual
 engine-level dependency smoke, not an automated integration test. It verifies
 the vendored `SteamMultiplayerPeer` can execute `create_host(0)`, `close()`,

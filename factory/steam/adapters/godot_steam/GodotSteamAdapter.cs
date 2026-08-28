@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
+using GameFactory.Diagnostics;
 using GameFactory.Networking.Peers;
 using GameFactory.Steam.Models;
 
@@ -17,6 +18,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     private readonly Node _bridge;
     private readonly Dictionary<string, string> _lobbyMetadata = [];
     private TaskCompletionSource<SteamLobby>? _pendingLobby;
+    private CancellationTokenRegistration _pendingLobbyCancellation;
     private TaskCompletionSource<IReadOnlyList<SteamLobbyInfo>>? _pendingSearch;
     private MultiplayerPeer? _activePeer;
     private bool _disposed;
@@ -133,15 +135,16 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     public async Task<SteamLobby> CreateLobbyAsync(SteamLobbyCreateOptions options, CancellationToken cancellationToken = default)
     {
         EnsureReadyForLobbyOperation();
+        cancellationToken.ThrowIfCancellationRequested();
         ValidateLobbyOptions(options);
         _lobbyMetadata.Clear();
         if (options.Metadata is not null)
             foreach ((string key, string value) in options.Metadata) _lobbyMetadata[key] = value;
         _lobbyMetadata["joinable"] = options.IsJoinable ? "true" : "false";
 
-        _pendingLobby = NewLobbyCompletion(cancellationToken);
+        TaskCompletionSource<SteamLobby> pending = NewLobbyCompletion(cancellationToken);
         _bridge.Call("create_lobby", ToGodotLobbyType(options.Visibility), options.MaxMembers);
-        SteamLobby lobby = await _pendingLobby.Task;
+        SteamLobby lobby = await pending.Task;
         foreach ((string key, string value) in _lobbyMetadata) SetLobbyData(key, value);
         CurrentLobby = lobby with { IsJoinable = options.IsJoinable, MemberLimit = options.MaxMembers };
         return CurrentLobby;
@@ -150,9 +153,10 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     public async Task<SteamLobby> JoinLobbyAsync(SteamLobbyId lobbyId, CancellationToken cancellationToken = default)
     {
         EnsureReadyForLobbyOperation();
-        _pendingLobby = NewLobbyCompletion(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        TaskCompletionSource<SteamLobby> pending = NewLobbyCompletion(cancellationToken);
         _bridge.Call("join_lobby", ToSteamInt(lobbyId));
-        return await _pendingLobby.Task;
+        return await pending.Task;
     }
 
     public Task LeaveLobbyAsync()
@@ -201,13 +205,13 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     public void OpenInviteOverlay()
     {
         SteamLobby lobby = RequireLobby();
-        GD.Print($"[steam][adapter] opening invite overlay for lobby {lobby.Id}; enabled={IsOverlayAvailable}");
+        GameLog.Info("steam.adapter", "open_invite_overlay", $"lobby={lobby.Id}; enabled={IsOverlayAvailable}");
         _bridge.Call("activate_invite_overlay", ToSteamInt(lobby.Id));
     }
     public void OpenFriendsOverlay()
     {
         EnsureInitialized();
-        GD.Print($"[steam][adapter] opening friends overlay; enabled={IsOverlayAvailable}");
+        GameLog.Info("steam.adapter", "open_friends_overlay", $"enabled={IsOverlayAvailable}");
         _bridge.Call("activate_friends_overlay");
     }
     public void OpenUserOverlay(SteamUserId userId) => _bridge.Call("activate_user_overlay", ToSteamInt(userId));
@@ -262,7 +266,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     {
         if (_disposed) return;
         _disposed = true;
-        _pendingLobby?.TrySetCanceled();
+        CancelPendingLobby();
         _pendingSearch?.TrySetCanceled();
         if (IsInitialized) _ = ShutdownAsync();
         if (GodotObject.IsInstanceValid(_bridge)) _bridge.QueueFree();
@@ -281,20 +285,29 @@ public sealed class GodotSteamAdapter : ISteamAdapter
 
     private void OnLobbyCreated(long result, long rawLobbyId)
     {
-        if (result != 1) { _pendingLobby?.TrySetException(Report("lobby_create_failed", $"Steam lobby creation failed with result {result}.")); return; }
+        if (result != 1)
+        {
+            FailPendingLobby(Report("lobby_create_failed", $"Steam lobby creation failed with result {result}."));
+            return;
+        }
         CompleteLobby(new SteamLobbyId((ulong)rawLobbyId), created: true);
     }
     private void OnLobbyJoined(long rawLobbyId, long response)
     {
-        if (response != 1) { _pendingLobby?.TrySetException(Report("lobby_join_failed", $"Steam lobby join failed with response {response}.")); return; }
+        if (response != 1)
+        {
+            FailPendingLobby(Report("lobby_join_failed", $"Steam lobby join failed with response {response}."));
+            return;
+        }
         CompleteLobby(new SteamLobbyId((ulong)rawLobbyId), created: false);
     }
     private void CompleteLobby(SteamLobbyId id, bool created)
     {
+        TaskCompletionSource<SteamLobby>? pending = TakePendingLobby();
+        if (pending is null) return;
         SteamLobby lobby = ToLobby(id);
         CurrentLobby = lobby;
-        _pendingLobby?.TrySetResult(lobby);
-        _pendingLobby = null;
+        pending.TrySetResult(lobby);
         if (created) LobbyCreated?.Invoke(lobby); else LobbyJoined?.Invoke(lobby);
     }
     private void OnLobbyDataChanged(long rawLobbyId)
@@ -358,8 +371,29 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     {
         if (_pendingLobby is not null) throw new InvalidOperationException("A Steam lobby operation is already in progress.");
         TaskCompletionSource<SteamLobby> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+        _pendingLobby = completion;
+        _pendingLobbyCancellation = cancellationToken.Register(() => CancelPendingLobby(completion, cancellationToken));
         return completion;
+    }
+    private void FailPendingLobby(Exception exception)
+    {
+        TaskCompletionSource<SteamLobby>? pending = TakePendingLobby();
+        pending?.TrySetException(exception);
+    }
+    private void CancelPendingLobby() => CancelPendingLobby(_pendingLobby, default);
+    private void CancelPendingLobby(TaskCompletionSource<SteamLobby>? expected, CancellationToken cancellationToken)
+    {
+        if (expected is null || !ReferenceEquals(_pendingLobby, expected)) return;
+        TaskCompletionSource<SteamLobby>? pending = TakePendingLobby(disposeRegistration: false);
+        pending?.TrySetCanceled(cancellationToken);
+    }
+    private TaskCompletionSource<SteamLobby>? TakePendingLobby(bool disposeRegistration = true)
+    {
+        TaskCompletionSource<SteamLobby>? pending = _pendingLobby;
+        _pendingLobby = null;
+        if (disposeRegistration) _pendingLobbyCancellation.Dispose();
+        _pendingLobbyCancellation = default;
+        return pending;
     }
     private SteamUser ToUser(Godot.Collections.Dictionary raw) => new(new SteamUserId((ulong)raw["id"].AsInt64()), raw["name"].AsString());
     private static MultiplayerPeer ToPeer(Variant result) => result.As<MultiplayerPeer>() ?? throw new SteamAdapterError("steam_peer_create_failed", "GodotSteam did not return a multiplayer peer.");

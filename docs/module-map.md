@@ -13,6 +13,14 @@ This inventory describes tracked paths and current responsibilities. Directories
 
 The project currently uses Godot .NET SDK 4.7.1, .NET 8, and conditional .NET 9 for Android. These are settings, not platform-support promises.
 
+## `factory/diagnostics/`
+
+| Type/path | Responsibility | Status |
+|---|---|---|
+| `GameLog` / `LogRun` | Process-local structured JSONL events and Godot-console mirroring. | Implemented; local unit coverage |
+| `LogEntry`, `LogLevel`, `DiagnosticsSessionId` | Small structured event and session identity model. | Implemented |
+| `network/NetworkLogRelay` | Reliable bounded client forwarding and authoritative host master-log collection. | Implemented; real two-client acceptance pending |
+
 ## `factory/runtime/`
 
 | Type | Responsibility |
