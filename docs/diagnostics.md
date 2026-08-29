@@ -91,6 +91,21 @@ Steam IDs. Debugging normally starts with `session.log`, drills into
 `master.jsonl` for exact structured data, and uses a participant's `engine.log`
 for native or client-specific evidence.
 
+## Replication acceptance confirmation
+
+The Steam gameplay acceptance probe can attach a pure
+`ReplicationConfirmationTracker` to selected replicated state. The host records
+the peers present for an authoritative revision; a non-authoritative client
+acknowledges after it applies that revision. The tracker exposes in-memory
+read-only snapshots and change events alongside `GameLog.EntryWritten` and
+`NetworkWorld.Objects`, so a future debug overlay can inspect live state without
+tailing files. No overlay is implemented yet.
+
+This is an acceptance diagnostic, not a gameplay-delivery guarantee.
+`MultiplayerSynchronizer` replicates state and may legitimately converge through
+rapid intermediate values to the latest state. Gameplay that must process every
+intermediate action belongs on an appropriate reliable command/event/RPC path.
+
 Before a Steam peer is removed, the sandbox asks the relay for one best-effort
 client flush after recording the peer-closing event. It is deliberately not a
 guaranteed-delivery protocol: the local `game.jsonl` and `engine.log` remain

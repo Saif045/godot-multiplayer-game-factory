@@ -20,6 +20,10 @@ creates `session.log` (human merged flight recorder), `master.jsonl` (machine
 truth), and `manifest.json` (participant index). Focused unit tests cover local
 file layout, engine evidence formatting, session-log source formatting, and
 manifest participant updates.
+`ReplicationConfirmationTracker` has pure tests for expected peers, duplicates,
+unexpected acknowledgements, independent revisions, late joins, timeouts, late
+acknowledgements, and zero-peer completion. Its Steam gameplay wiring remains a
+manual two-account acceptance exercise.
 `NetworkLogRelay` is exercised next through a real host/client session: it must
 preserve each local file and append host plus remote client events to the host
 session's `master.jsonl`, without a Godot RPC channel fallback warning. The relay

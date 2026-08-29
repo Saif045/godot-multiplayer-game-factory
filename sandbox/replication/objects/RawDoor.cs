@@ -4,6 +4,7 @@ using GameFactory.Diagnostics;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Objects.Components.Authority;
 using GameFactory.Networking.Objects.Components.Replication;
+using GameFactory.Networking.Peers;
 
 namespace GameFactory.Sandbox.Replication;
 
@@ -12,9 +13,17 @@ public partial class RawDoor : Node3D
     [Replicated]
     public bool IsOpen { get; set; }
 
+    /// <summary>Authoritative state revision for acceptance diagnostics; not an event stream.</summary>
+    [Replicated]
+    public long Revision { get; set; }
+
     private NetworkObject _network = null!;
     private INetworkReplication _replication = null!;
     private INetworkAuthority _authority = null!;
+    private long _lastAppliedRevision = -1;
+
+    public event Action<NetworkObjectId, long>? AuthorityUpdated;
+    public event Action<NetworkObjectId, long, PeerId>? ConfirmationAcknowledged;
 
     public override void _UnhandledInput(
         InputEvent inputEvent)
@@ -85,17 +94,19 @@ public partial class RawDoor : Node3D
             return;
         }
 
-        Open();
+        CommitAuthorityState(isOpen: true);
     }
 
-    private void Open()
+    private void CommitAuthorityState(bool isOpen)
     {
-        IsOpen = true;
+        IsOpen = isOpen;
+        Revision++;
 
-        GameLog.Info("gameplay.replication", "door_opened", fields: new System.Collections.Generic.Dictionary<string, string?>
+        GameLog.Info("gameplay.replication", "authority_update", fields: new System.Collections.Generic.Dictionary<string, string?>
         {
-            ["network_object_id"] = _network.Id.ToString(), ["is_open"] = IsOpen.ToString()
+            ["network_object_id"] = _network.Id.ToString(), ["revision"] = Revision.ToString(), ["is_open"] = IsOpen.ToString()
         });
+        AuthorityUpdated?.Invoke(_network.Id, Revision);
     }
 
     public void SetOpenOnAuthority(bool isOpen)
@@ -105,12 +116,7 @@ public partial class RawDoor : Node3D
             throw new InvalidOperationException("Only the authoritative server can change the probe door state.");
         }
 
-        IsOpen = isOpen;
-        GameLog.Info("gameplay.replication", "door_mutated", fields: new System.Collections.Generic.Dictionary<string, string?>
-        {
-            ["network_object_id"] = _network.Id.ToString(),
-            ["is_open"] = IsOpen.ToString()
-        });
+        CommitAuthorityState(isOpen);
     }
 
     public override void _Ready()
@@ -142,7 +148,7 @@ public partial class RawDoor : Node3D
         {
             ["network_object_id"] = _network.Id.ToString(),
             ["owner_peer_id"] = _network.OwnerPeerId.ToString(),
-            ["is_open"] = IsOpen.ToString(), ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
+            ["is_open"] = IsOpen.ToString(), ["revision"] = Revision.ToString(), ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
         });
     }
 
@@ -152,7 +158,27 @@ public partial class RawDoor : Node3D
         {
             ["network_object_id"] = _network.Id.ToString(),
             ["is_open"] = IsOpen.ToString(),
+            ["revision"] = Revision.ToString(),
             ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
         });
+
+        if (_authority.HasAuthority || Revision == _lastAppliedRevision) return;
+        _lastAppliedRevision = Revision;
+        long localPeerId = Multiplayer.GetUniqueId();
+        GameLog.Info("gameplay.replication", "applied", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(), ["revision"] = Revision.ToString(), ["is_open"] = IsOpen.ToString(), ["local_peer_id"] = localPeerId.ToString()
+        });
+        if (localPeerId > 0)
+            RpcId(PeerId.Server.Value, MethodName.AcknowledgeRevisionRpc, _network.Id.Value, Revision);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void AcknowledgeRevisionRpc(long networkObjectId, long revision)
+    {
+        if (!_authority.HasAuthority || networkObjectId != _network.Id.Value) return;
+        long sender = Multiplayer.GetRemoteSenderId();
+        if (sender <= 0 || sender == PeerId.Server.Value) return;
+        ConfirmationAcknowledged?.Invoke(_network.Id, revision, new PeerId(sender));
     }
 }

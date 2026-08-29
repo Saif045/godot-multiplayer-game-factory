@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Godot;
 using GameFactory.Diagnostics;
 using GameFactory.Diagnostics.Network;
+using GameFactory.Diagnostics.Replication;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Peers;
 using GameFactory.Networking.Players;
@@ -23,6 +24,8 @@ public partial class SteamGameplayProbe : Node
     private readonly PeerRegistry _peers = new();
     private readonly PlayerRegistry _players = new();
     private readonly RuntimeContext _runtime = new();
+    private readonly ReplicationConfirmationTracker _confirmations = new();
+    private const long ConfirmationTimeoutMilliseconds = 1500;
 
     private SteamSession? _session;
     private GodotSteamAdapter? _adapter;
@@ -40,6 +43,7 @@ public partial class SteamGameplayProbe : Node
         try
         {
             _world = GetNode<NetworkWorld>("NetworkWorld");
+            _confirmations.Changed += OnConfirmationChanged;
             SubscribeToRegistries();
             SubscribeToMultiplayer();
 
@@ -105,6 +109,7 @@ public partial class SteamGameplayProbe : Node
         Multiplayer.PeerConnected -= OnPeerConnected;
         Multiplayer.PeerDisconnected -= OnPeerDisconnected;
         Multiplayer.ConnectedToServer -= OnConnectedToServer;
+        _confirmations.Changed -= OnConfirmationChanged;
         _playerLifecycle?.Dispose();
         if (_session is not null)
         {
@@ -138,6 +143,8 @@ public partial class SteamGameplayProbe : Node
 
         _door = _world.Spawn<RawDoor>(DoorScene, door => door.IsOpen = false);
         _doorId = _door.GetNode<NetworkObject>("NetworkObject").Id;
+        _door.AuthorityUpdated += OnDoorAuthorityUpdated;
+        _door.ConfirmationAcknowledged += OnDoorConfirmationAcknowledged;
         GameLog.Info("gameplay.world", "pre_client_object_spawned", fields: new Dictionary<string, string?>
         {
             ["network_object_id"] = _doorId.Value.ToString(),
@@ -174,6 +181,19 @@ public partial class SteamGameplayProbe : Node
                     ["peer_id"] = peerId.ToString(),
                     ["steam_id"] = steamId.ToString()
                 });
+            if (_doorId is NetworkObjectId doorId)
+            {
+                long revision = _door?.Revision ?? 0;
+                if (_confirmations.TryGetSnapshot(doorId, revision, out _))
+                {
+                    _confirmations.Expect(doorId, revision, peerId, GameLog.ElapsedMilliseconds, "late_join");
+                }
+                else
+                {
+                    _confirmations.Begin(doorId, revision, [peerId], GameLog.ElapsedMilliseconds, "late_join");
+                    LogConfirmationExpected(doorId, revision, peerId, "late_join", 1);
+                }
+            }
             LogSnapshot("remote_peer_connected");
         }
     }
@@ -196,6 +216,12 @@ public partial class SteamGameplayProbe : Node
     }
 
     private void OnPeerTearingDown() => _diagnostics?.FlushBeforePeerTeardown();
+
+    public override void _Process(double delta)
+    {
+        if (Multiplayer.IsServer())
+            _confirmations.Expire(GameLog.ElapsedMilliseconds, ConfirmationTimeoutMilliseconds);
+    }
 
     private void ToggleDoor()
     {
@@ -228,6 +254,73 @@ public partial class SteamGameplayProbe : Node
         });
     }
 
+    private void OnDoorAuthorityUpdated(NetworkObjectId objectId, long revision)
+    {
+        PeerId[] expected = _peers.Peers.Where(peer => !peer.IsLocal).Select(peer => peer.Id).ToArray();
+        _confirmations.Begin(objectId, revision, expected, GameLog.ElapsedMilliseconds);
+        foreach (PeerId peerId in expected)
+            LogConfirmationExpected(objectId, revision, peerId, "mutation", expected.Length);
+    }
+
+    private void OnDoorConfirmationAcknowledged(NetworkObjectId objectId, long revision, PeerId peerId)
+    {
+        _confirmations.Confirm(objectId, revision, peerId, GameLog.ElapsedMilliseconds);
+    }
+
+    private void OnConfirmationChanged(ReplicationConfirmationEvent change)
+    {
+        ReplicationConfirmationSnapshot? snapshot = change.Snapshot;
+        if (snapshot is null) return;
+        switch (change.Kind)
+        {
+            case ReplicationConfirmationEventKind.Expected when change.PeerId is PeerId expected:
+                LogConfirmationExpected(snapshot.ObjectId, snapshot.Revision, expected, change.Reason ?? "unknown", snapshot.ExpectedPeers.Count);
+                break;
+            case ReplicationConfirmationEventKind.Confirmed when change.PeerId is PeerId peer:
+                LogConfirmation("confirmed", snapshot, peer, change.LatencyMilliseconds);
+                break;
+            case ReplicationConfirmationEventKind.LateConfirmed when change.PeerId is PeerId latePeer:
+                LogConfirmation("confirmation_late", snapshot, latePeer, change.LatencyMilliseconds);
+                break;
+            case ReplicationConfirmationEventKind.Completed:
+                GameLog.Info("gameplay.replication", "confirmation_complete", fields: ConfirmationFields(snapshot));
+                break;
+            case ReplicationConfirmationEventKind.TimedOut:
+                var fields = new Dictionary<string, string?>(ConfirmationFields(snapshot))
+                {
+                    ["missing_peer_ids"] = string.Join(",", change.MissingPeers?.Select(peer => peer.Value) ?? []),
+                    ["elapsed_ms"] = change.ElapsedMilliseconds?.ToString(),
+                    ["reason"] = change.Reason
+                };
+                GameLog.Warning("gameplay.replication", "confirmation_timeout", fields: fields);
+                break;
+        }
+    }
+
+    private static Dictionary<string, string?> ConfirmationFields(ReplicationConfirmationSnapshot snapshot) => new()
+    {
+        ["network_object_id"] = snapshot.ObjectId.ToString(),
+        ["revision"] = snapshot.Revision.ToString(),
+        ["expected_count"] = snapshot.ExpectedPeers.Count.ToString(),
+        ["confirmed_count"] = snapshot.ConfirmedLatencyMilliseconds.Count.ToString()
+    };
+
+    private static void LogConfirmationExpected(NetworkObjectId objectId, long revision, PeerId peerId, string reason, int expectedCount)
+    {
+        GameLog.Info("gameplay.replication", "confirmation_expected", fields: new Dictionary<string, string?>
+        {
+            ["network_object_id"] = objectId.ToString(), ["revision"] = revision.ToString(), ["peer_id"] = peerId.ToString(), ["reason"] = reason, ["expected_count"] = expectedCount.ToString()
+        });
+    }
+
+    private static void LogConfirmation(string eventName, ReplicationConfirmationSnapshot snapshot, PeerId peerId, long? latency)
+    {
+        var fields = ConfirmationFields(snapshot);
+        fields["peer_id"] = peerId.ToString();
+        fields["latency_ms"] = latency?.ToString();
+        GameLog.Info("gameplay.replication", eventName, fields: fields);
+    }
+
     private IReadOnlyDictionary<string, string?>? ResolveSteamMetadata(PeerId peer)
     {
         if (_adapter is null || !_adapter.TryGetSteamUserForPeer(peer, out SteamUserId user)) return null;
@@ -236,14 +329,30 @@ public partial class SteamGameplayProbe : Node
 
     private void LogSnapshot(string reason)
     {
+        if (Multiplayer.IsServer())
+        {
+            GameLog.Info("gameplay.snapshot", reason, fields: new Dictionary<string, string?>
+            {
+                ["runtime_mode"] = _runtime.Mode.ToString(), ["connected_peers"] = _peers.Count.ToString(), ["authoritative_players"] = _players.Count.ToString(),
+                ["network_objects"] = _world.Count.ToString(), ["door_id"] = _doorId?.ToString(), ["door_is_open"] = _door?.IsOpen.ToString(), ["door_revision"] = _door?.Revision.ToString()
+            });
+            return;
+        }
+
+        long localPeerValue = Multiplayer.GetUniqueId();
+        var observedPlayers = _world.Objects
+            .Select(networkObject => new { NetworkObject = networkObject, Player = networkObject.Host as RawPlayer })
+            .Where(item => item.Player is not null)
+            .ToArray();
+        var localPlayer = observedPlayers.FirstOrDefault(item => localPeerValue > 0 && item.NetworkObject.OwnerPeerId == new PeerId(localPeerValue));
+        var observedDoor = _world.Objects
+            .Select(networkObject => new { NetworkObject = networkObject, Door = networkObject.Host as RawDoor })
+            .FirstOrDefault(item => item.Door is not null);
         GameLog.Info("gameplay.snapshot", reason, fields: new Dictionary<string, string?>
         {
-            ["runtime_mode"] = _runtime.Mode.ToString(),
-            ["registered_peers"] = _peers.Count.ToString(),
-            ["registered_players"] = _players.Count.ToString(),
-            ["world_objects"] = _world.Count.ToString(),
-            ["door_id"] = _doorId?.ToString(),
-            ["door_is_open"] = _door?.IsOpen.ToString()
+            ["runtime_mode"] = _runtime.Mode.ToString(), ["local_peer_id"] = localPeerValue.ToString(), ["observed_players"] = observedPlayers.Length.ToString(),
+            ["network_objects"] = _world.Count.ToString(), ["local_player_id"] = localPlayer?.Player?.PlayerId.ToString(), ["local_player_object_id"] = localPlayer?.NetworkObject.Id.ToString(),
+            ["door_id"] = observedDoor?.NetworkObject.Id.ToString(), ["door_is_open"] = observedDoor?.Door?.IsOpen.ToString(), ["door_revision"] = observedDoor?.Door?.Revision.ToString()
         });
     }
 }

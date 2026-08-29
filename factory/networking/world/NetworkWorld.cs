@@ -16,6 +16,8 @@ public partial class NetworkWorld : Node
 
     /// <summary>Number of locally registered network objects in this world.</summary>
     public int Count => _objects.Count;
+    /// <summary>Read-only view of the objects registered in this process's world.</summary>
+    public IReadOnlyCollection<NetworkObject> Objects => _objects.Values;
 
     public override void _EnterTree()
     {

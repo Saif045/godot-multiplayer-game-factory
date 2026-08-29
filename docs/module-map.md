@@ -19,6 +19,7 @@ The project currently uses Godot .NET SDK 4.7.1, .NET 8, and conditional .NET 9 
 |---|---|---|
 | `GameLog` / `LogRun` / `GodotEngineLogger` | Process-local structured `game.jsonl`, raw Godot `engine.log`, and Godot-console mirroring. | Implemented; local unit coverage |
 | `LogEntry`, `LogLevel`, `DiagnosticsSessionId` | Small structured event and session identity model. | Implemented |
+| `replication/ReplicationConfirmationTracker` | Pure revision receipt/timeout acceptance diagnostics with read-only snapshots for future UI consumers. | Implemented; unit coverage |
 | `network/MasterLogWriter`, `SessionLogWriter`, `SessionManifestWriter` | Authoritative machine JSONL, concise human session flight recorder, and participant index. | Implemented; focused unit coverage |
 | `network/NetworkLogRelay` | Reliable bounded client forwarding, host-clock-normalized timeline metadata, session flight-recorder collection, and best-effort pre-teardown flush. | Implemented; real two-client acceptance pending |
 
