@@ -65,16 +65,6 @@ public partial class RawPlayer : Node3D, INetworkSpawnInitializable
             networkObject.OwnerPeerId ==
                 new PeerId(localPeerValue);
 
-        GD.Print(
-            $"[player][{phase}] " +
-            $"player={PlayerId} " +
-            $"object={networkObject.Id} " +
-            $"owner={networkObject.OwnerPeerId} " +
-            $"godot_authority={authority.AuthorityPeerId} " +
-            $"local_peer={localPeerValue} " +
-            $"is_local_owner={isLocalOwner} " +
-            $"has_godot_authority={authority.HasAuthority}");
-
         GameLog.Info("gameplay.player", phase, fields: new System.Collections.Generic.Dictionary<string, string?>
         {
             ["player_id"] = PlayerId.ToString(),

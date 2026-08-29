@@ -20,6 +20,8 @@ public partial class NetworkLogRelay : Node
     private readonly RelayBacklog _backlog = new();
     private readonly Dictionary<string, long> _highestReceived = [];
     private MasterLogWriter? _masterWriter;
+    private SessionLogWriter? _sessionWriter;
+    private SessionManifestWriter? _manifestWriter;
     private DiagnosticsSessionId? _hostSession;
     private long _hostUtcAnchorUnixMilliseconds;
     private long _sourceElapsedAnchorMilliseconds;
@@ -47,7 +49,9 @@ public partial class NetworkLogRelay : Node
         Multiplayer.ServerDisconnected -= OnServerDisconnected;
         GameLog.EntryWritten -= OnLocalEntry;
         _masterWriter?.Dispose();
+        _sessionWriter?.Dispose();
         _masterWriter = null;
+        _sessionWriter = null;
     }
 
     public void StartHostSession()
@@ -62,7 +66,10 @@ public partial class NetworkLogRelay : Node
         string directory = Path.Combine(GameLog.LogRoot, "sessions", sessionId.ToString());
         Directory.CreateDirectory(directory);
         _masterWriter?.Dispose();
+        _sessionWriter?.Dispose();
         _masterWriter = new MasterLogWriter(Path.Combine(directory, "master.jsonl"));
+        _sessionWriter = new SessionLogWriter(Path.Combine(directory, "session.log"));
+        _manifestWriter = new SessionManifestWriter(Path.Combine(directory, "manifest.json"), sessionId.ToString());
         _highestReceived.Clear();
         _backlog.BeginSession(sessionId);
         foreach (LogEntry entry in _backlog.Entries)
@@ -73,7 +80,10 @@ public partial class NetworkLogRelay : Node
     public void EndSession()
     {
         _masterWriter?.Dispose();
+        _sessionWriter?.Dispose();
         _masterWriter = null;
+        _sessionWriter = null;
+        _manifestWriter = null;
         _hostSession = null;
         SessionId = null;
         _hostUtcAnchorUnixMilliseconds = 0;
@@ -94,6 +104,17 @@ public partial class NetworkLogRelay : Node
 
         FlushClientBatch();
         _secondsUntilFlush = FlushIntervalSeconds;
+    }
+
+    /// <summary>Best-effort send while the application peer still exists; local files stay authoritative.</summary>
+    public void FlushBeforePeerTeardown()
+    {
+        if (SessionId is null || Multiplayer.IsServer() || !Multiplayer.HasMultiplayerPeer()) return;
+        try { FlushClientBatch(); }
+        catch (Exception)
+        {
+            // This is explicitly best effort: a teardown must never be held up by diagnostics.
+        }
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable, TransferChannel = DiagnosticsChannel)]
@@ -207,16 +228,19 @@ public partial class NetworkLogRelay : Node
     private void WriteMaster(LogEntry entry, PeerId peerId, string role, DateTimeOffset receivedUtc, DateTimeOffset? normalizedUtc = null)
     {
         IReadOnlyDictionary<string, string?>? sourceMetadata = SourceMetadataResolver?.Invoke(peerId);
+        DateTimeOffset normalized = normalizedUtc ?? entry.Utc;
         var master = new
         {
             source_role = role,
             source_peer_id = peerId.Value,
             source_metadata = sourceMetadata,
             host_received_utc = receivedUtc,
-            normalized_utc = normalizedUtc ?? entry.Utc,
+            normalized_utc = normalized,
             entry
         };
         _masterWriter?.Append(master);
+        _sessionWriter?.Append(normalized, role, peerId, entry);
+        _manifestWriter?.Record(role, peerId, entry.RunId, sourceMetadata);
     }
 
     private void WriteGap(string runId, PeerId peerId, long firstMissing, long droppedThrough)

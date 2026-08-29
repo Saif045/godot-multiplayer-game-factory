@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using GameFactory.Diagnostics;
 
 namespace GameFactory.Sandbox.Launcher;
 
@@ -24,6 +25,7 @@ public partial class SandboxLauncher : Node
 
     public override void _Ready()
     {
+        GameLog.EnsureInitialized();
         string target = ReadTarget(
             OS.GetCmdlineArgs()
                 .Concat(OS.GetCmdlineUserArgs()));

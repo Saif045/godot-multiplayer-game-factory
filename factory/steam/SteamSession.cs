@@ -20,6 +20,8 @@ public sealed class SteamSession : IDisposable
     public SteamLobby? Lobby => _adapter.CurrentLobby;
     public event Action<SteamSessionState, SteamSessionState>? StateChanged;
     public event Action<SteamLobbyId, SteamUserId>? LobbyJoinRequested;
+    /// <summary>Raised after the local closing event is recorded but before Godot's peer is removed.</summary>
+    public event Action? PeerTearingDown;
 
     public SteamSession(ISteamAdapter adapter, MultiplayerApi multiplayer)
     {
@@ -145,6 +147,11 @@ public sealed class SteamSession : IDisposable
         if (peer is null) return;
 
         GameLog.Info("steam.peer", "closing", peer.GetType().Name);
+        try { PeerTearingDown?.Invoke(); }
+        catch (Exception exception)
+        {
+            GameLog.Warning("steam.peer", "pre_teardown_hook_failed", exception.Message);
+        }
         try
         {
             peer.Close();

@@ -49,6 +49,7 @@ public partial class SteamGameplayProbe : Node
             _diagnostics.SourceMetadataResolver = ResolveSteamMetadata;
             _session = new SteamSession(_adapter, Multiplayer);
             _session.StateChanged += OnSessionStateChanged;
+            _session.PeerTearingDown += OnPeerTearingDown;
 
             await _session.InitializeAsync();
             GameLog.Info("gameplay.probe", "ready", "Use --steam-host or --steam-lobby=<id>. Keys: H host, R mutate door, P snapshot, L leave.");
@@ -105,7 +106,11 @@ public partial class SteamGameplayProbe : Node
         Multiplayer.PeerDisconnected -= OnPeerDisconnected;
         Multiplayer.ConnectedToServer -= OnConnectedToServer;
         _playerLifecycle?.Dispose();
-        if (_session is not null) _session.StateChanged -= OnSessionStateChanged;
+        if (_session is not null)
+        {
+            _session.StateChanged -= OnSessionStateChanged;
+            _session.PeerTearingDown -= OnPeerTearingDown;
+        }
         _session?.Dispose();
     }
 
@@ -186,9 +191,11 @@ public partial class SteamGameplayProbe : Node
 
     private void OnSessionStateChanged(SteamSessionState _, SteamSessionState next)
     {
-        if (next == SteamSessionState.Leaving && _diagnostics?.SessionId is not null)
+        if (next == SteamSessionState.Ready && _diagnostics?.SessionId is not null)
             _diagnostics.EndSession();
     }
+
+    private void OnPeerTearingDown() => _diagnostics?.FlushBeforePeerTeardown();
 
     private void ToggleDoor()
     {

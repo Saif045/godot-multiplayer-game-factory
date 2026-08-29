@@ -11,15 +11,19 @@ public static class GameLog
 {
     private static readonly object Gate = new();
     private static LogRun? _run;
+    private static GodotEngineLogger? _engineLogger;
 
     public static string RunId => Run.RunId;
     public static long ElapsedMilliseconds => Run.ElapsedMilliseconds;
     public static string LogRoot => Run.LogRoot;
+    public static string RunDirectory => Run.RunDirectory;
     public static string LocalFilePath => Run.FilePath;
+    public static string EngineFilePath => Run.EngineFilePath;
     public static event Action<LogEntry>? EntryWritten;
 
     public static void AssociateSession(DiagnosticsSessionId sessionId) => Run.AssociateSession(sessionId);
     public static void ClearSession() => Run.ClearSession();
+    public static void EnsureInitialized() => EnsureEngineLogger();
 
     public static LogEntry Info(string category, string eventName, string? message = null, IReadOnlyDictionary<string, string?>? fields = null)
         => Write(LogLevel.Info, category, eventName, message, fields);
@@ -32,9 +36,10 @@ public static class GameLog
 
     private static LogEntry Write(LogLevel level, string category, string eventName, string? message, IReadOnlyDictionary<string, string?>? fields)
     {
+        EnsureEngineLogger();
         LogEntry entry = Run.Write(level, category, eventName, message, fields);
         string fieldText = string.Join(" ", entry.Fields.Select(field => $"{field.Key}={field.Value}"));
-        string line = $"{entry.Utc:HH:mm:ss.fff}Z [{entry.Category}] {entry.Event}" +
+        string line = $"[GF] {entry.Utc:HH:mm:ss.fff}Z [{entry.Category}] {entry.Event}" +
             (string.IsNullOrWhiteSpace(entry.Message) ? string.Empty : $" {entry.Message}") +
             (string.IsNullOrWhiteSpace(fieldText) ? string.Empty : $" {fieldText}");
         switch (level)
@@ -46,6 +51,23 @@ public static class GameLog
 
         EntryWritten?.Invoke(entry);
         return entry;
+    }
+
+    private static void WriteEngine(EngineLogEntry engine)
+    {
+        LogEntry entry = Run.Write(engine.Level, "engine", engine.Level == LogLevel.Warning ? "warning" : "error", engine.Message, engine.ToGameLogFields());
+        EntryWritten?.Invoke(entry);
+    }
+
+    private static void EnsureEngineLogger()
+    {
+        lock (Gate)
+        {
+            if (_engineLogger is not null) return;
+            LogRun run = Run;
+            _engineLogger = new GodotEngineLogger(run, WriteEngine);
+            OS.AddLogger(_engineLogger);
+        }
     }
 
     private static LogRun Run

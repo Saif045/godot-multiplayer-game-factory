@@ -30,8 +30,7 @@ public partial class RawDoor : Node3D
 
         if (!Multiplayer.HasMultiplayerPeer())
         {
-            GD.Print(
-                "[door] no multiplayer peer available");
+            GameLog.Warning("gameplay.replication", "request_rejected", "No multiplayer peer is available.");
 
             return;
         }
@@ -43,16 +42,15 @@ public partial class RawDoor : Node3D
         // The host-side player case comes later.
         if (_authority.HasAuthority)
         {
-            GD.Print(
-                "[door][server] E pressed locally; " +
-                "B1 only tests remote client requests.");
+            GameLog.Info("gameplay.replication", "host_request_not_needed", "The authority already owns this door.");
 
             return;
         }
 
-        GD.Print(
-            $"[door][client] requesting open; " +
-            $"local IsOpen = {IsOpen}");
+        GameLog.Info("gameplay.replication", "open_requested", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(), ["is_open"] = IsOpen.ToString(), ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
+        });
 
         RpcId(
             1,
@@ -68,23 +66,21 @@ public partial class RawDoor : Node3D
     {
         int senderId = Multiplayer.GetRemoteSenderId();
 
-        GD.Print(
-            $"[door][server] RequestOpen received " +
-            $"from peer {senderId}");
+        GameLog.Info("gameplay.replication", "open_request_received", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(), ["sender_peer_id"] = senderId.ToString()
+        });
 
         if (!_authority.HasAuthority)
         {
-            GD.PushWarning(
-                "[door] RequestOpen executed " +
-                "on a non-server peer");
+            GameLog.Warning("gameplay.replication", "request_rejected", "Open request executed on a non-authoritative peer.");
 
             return;
         }
 
         if (IsOpen)
         {
-            GD.Print(
-                "[door][server] door already open");
+            GameLog.Info("gameplay.replication", "open_request_ignored", "Door is already open.");
 
             return;
         }
@@ -96,9 +92,10 @@ public partial class RawDoor : Node3D
     {
         IsOpen = true;
 
-        GD.Print(
-            $"[door][server] door opened; " +
-            $"IsOpen = {IsOpen}");
+        GameLog.Info("gameplay.replication", "door_opened", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(), ["is_open"] = IsOpen.ToString()
+        });
     }
 
     public void SetOpenOnAuthority(bool isOpen)
@@ -126,35 +123,26 @@ public partial class RawDoor : Node3D
         _authority =
             _network.GetComponent<INetworkAuthority>();
 
-        GD.Print(
-            $"[door][network] authority peer = {_authority.AuthorityPeerId}, " +
-            $"has authority = {_authority.HasAuthority}");
+        GameLog.Info("gameplay.replication", "door_network_ready", fields: new System.Collections.Generic.Dictionary<string, string?>
+        {
+            ["network_object_id"] = _network.Id.ToString(), ["authority_peer_id"] = _authority.AuthorityPeerId.ToString(), ["has_authority"] = _authority.HasAuthority.ToString()
+        });
 
         _replication.Synchronized += () =>
         {
-            GD.Print(
-                $"[door][sync] full sync received; " +
-                $"IsOpen = {IsOpen}");
             LogReplicationObservation("full_sync");
         };
 
         _replication.DeltaSynchronized += () =>
         {
-            GD.Print(
-                $"[door][sync] delta received; " +
-                $"IsOpen = {IsOpen}");
             LogReplicationObservation("delta_sync");
         };
-
-        GD.Print(
-            $"[door] created on peer " +
-            $"{Multiplayer.GetUniqueId()}");
 
         GameLog.Info("gameplay.world", "door_ready", fields: new System.Collections.Generic.Dictionary<string, string?>
         {
             ["network_object_id"] = _network.Id.ToString(),
             ["owner_peer_id"] = _network.OwnerPeerId.ToString(),
-            ["is_open"] = IsOpen.ToString()
+            ["is_open"] = IsOpen.ToString(), ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
         });
     }
 

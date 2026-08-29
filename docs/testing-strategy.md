@@ -13,8 +13,13 @@ The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `Ne
 3. **Multiprocess scenarios** are planned for multiple roles, connection loss, spawn/despawn, replication, late joining, timeouts, and child-process cleanup.
 4. **Manual probes** remain useful for exploration and diagnostics, but cannot be described as regression tests.
 
-Diagnostics writes one JSONL file per run under `<exe-dir>/logs/runs/`, falling
-back to `user://logs/` when the executable directory is not writable.
+Diagnostics writes one structured `game.jsonl` plus one raw `engine.log` per run
+under `<exe-dir>/logs/runs/<timestamp>_<run-id>/`, falling back to `user://logs/`
+when the executable directory is not writable. An authoritative session also
+creates `session.log` (human merged flight recorder), `master.jsonl` (machine
+truth), and `manifest.json` (participant index). Focused unit tests cover local
+file layout, engine evidence formatting, session-log source formatting, and
+manifest participant updates.
 `NetworkLogRelay` is exercised next through a real host/client session: it must
 preserve each local file and append host plus remote client events to the host
 session's `master.jsonl`, without a Godot RPC channel fallback warning. The relay

@@ -13,13 +13,16 @@ public sealed class LogRun : IDisposable
 {
     private readonly Stopwatch _elapsed = Stopwatch.StartNew();
     private readonly StreamWriter _writer;
+    private readonly StreamWriter _engineWriter;
     private readonly object _gate = new();
     private long _nextSequence;
     private bool _disposed;
 
     public string RunId { get; }
     public string LogRoot { get; }
+    public string RunDirectory { get; }
     public string FilePath { get; }
+    public string EngineFilePath { get; }
     public long ElapsedMilliseconds => _elapsed.ElapsedMilliseconds;
     public string? DiagnosticsSessionId { get; private set; }
     public event Action<LogEntry>? EntryWritten;
@@ -35,9 +38,22 @@ public sealed class LogRun : IDisposable
             : runId;
         string stamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd_HH-mm-ss.fff", CultureInfo.InvariantCulture);
         string directory = Path.Combine(LogRoot, "runs");
-        Directory.CreateDirectory(directory);
-        FilePath = Path.Combine(directory, $"{stamp}_{RunId}.jsonl");
+        RunDirectory = Path.Combine(directory, $"{stamp}_{RunId}");
+        Directory.CreateDirectory(RunDirectory);
+        FilePath = Path.Combine(RunDirectory, "game.jsonl");
+        EngineFilePath = Path.Combine(RunDirectory, "engine.log");
         _writer = new StreamWriter(new FileStream(FilePath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite));
+        _engineWriter = new StreamWriter(new FileStream(EngineFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite));
+    }
+
+    public void AppendEngine(EngineLogEntry entry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_gate)
+        {
+            _engineWriter.WriteLine(EngineLogFormatter.FormatLocal(entry));
+            _engineWriter.Flush();
+        }
     }
 
     public void AssociateSession(DiagnosticsSessionId sessionId) => DiagnosticsSessionId = sessionId.ToString();
@@ -80,6 +96,10 @@ public sealed class LogRun : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _writer.Dispose();
+        lock (_gate)
+        {
+            _writer.Dispose();
+            _engineWriter.Dispose();
+        }
     }
 }

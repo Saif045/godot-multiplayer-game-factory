@@ -1,23 +1,37 @@
 # Diagnostics
 
 GameFactory diagnostics is a small distributed debugging facility, not a
-general-purpose observability framework. Every process writes its own JSONL file
-beside the running executable when that location is writable:
+general-purpose observability framework. Every process writes its own local
+evidence beside the running executable when that location is writable:
 
 ```text
 <exe-dir>/logs/
-  runs/<utc-date>_<utc-time>_<run-id>.jsonl
-  sessions/<diagnostics-session-id>/master.jsonl
+  runs/<utc-date>_<utc-time>_<run-id>/
+    game.jsonl
+    engine.log
+  sessions/<diagnostics-session-id>/
+    session.log
+    master.jsonl
+    manifest.json
 ```
 
 If the executable directory cannot be written, `GameLog` warns and falls back to
 `user://logs`. A unique run ID and per-run sequence make local ordering
-unambiguous. Entries include UTC time, elapsed milliseconds, level, category,
-event name, message, fields, and the diagnostics session once known.
+unambiguous. `game.jsonl` contains GameFactory structured events: UTC time,
+elapsed milliseconds, level, category, event name, message, fields, and the
+diagnostics session once known. `engine.log` contains the local Godot logger
+stream, including ordinary engine messages plus warning/error source and
+backtrace information where Godot supplies it. Logger callbacks are local-first
+and thread-safe; they do not call Godot printing APIs, avoiding logging loops.
+Like all in-process logger registration, it cannot recover messages emitted
+before GameFactory's launcher has initialized diagnostics.
 
 `GameLog` preserves live Godot output: information uses `GD.Print`, warnings use
-`GD.PushWarning`, and errors use `GD.PushError`. Godot engine output remains
-independent and is not intercepted.
+`GD.PushWarning`, and errors use `GD.PushError`. Its lines are tagged so the
+engine logger keeps the raw local mirror without forwarding a duplicate into a
+session timeline. Engine-originated warnings and errors are converted into
+structured `engine.warning` / `engine.error` entries, while ordinary engine
+messages remain local in `engine.log`.
 
 For an authoritative multiplayer session, `NetworkLogRelay` creates a separate
 diagnostics session ID and host master file in the `sessions` location above.
@@ -66,7 +80,18 @@ including recorded sequence gaps, goes through one locked append path. The file
 allows concurrent readers but not a second writer, and each append serializes,
 writes one JSON object plus its newline, and flushes before returning.
 
-Structured JSONL contains only events emitted through `GameLog`. Raw Godot
-console output, native warnings, engine errors, and stack traces remain the
-responsibility of the process console capture; diagnostics does not intercept or
-replace them.
+`session.log` is the primary human view: it renders merged host and client
+INFO/WARNING/ERROR events with normalized time and short source labels (`H` and
+`C:<peer-id>`). It includes important engine warnings/errors but not duplicate
+GameLog console mirrors. `master.jsonl` is the complete machine-readable source;
+`manifest.json` maps the observed host/client run IDs, peer IDs, and available
+Steam IDs. Debugging normally starts with `session.log`, drills into
+`master.jsonl` for exact structured data, and uses a participant's `engine.log`
+for native or client-specific evidence.
+
+Before a Steam peer is removed, the sandbox asks the relay for one best-effort
+client flush after recording the peer-closing event. It is deliberately not a
+guaranteed-delivery protocol: the local `game.jsonl` and `engine.log` remain
+authoritative if the transport is already unavailable. After peer removal the
+relay becomes inactive/local-only and never attempts to log through a missing
+multiplayer peer.

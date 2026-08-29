@@ -38,11 +38,8 @@ public partial class SteamProbe : Node
                 if (!_adapter.TryGetSteamUserForPeer(peer, out SteamUserId user)) return null;
                 return new System.Collections.Generic.Dictionary<string, string?> { ["steam_id"] = user.ToString() };
             };
-            _session.StateChanged += (_, to) =>
-            {
-                if (to == SteamSessionState.Leaving && _diagnostics.SessionId is not null)
-                    _diagnostics.EndSession();
-            };
+            _session.PeerTearingDown += OnPeerTearingDown;
+            _session.StateChanged += OnSessionStateChanged;
             _session.LobbyJoinRequested += OnLobbyJoinRequested;
 
             await _session.InitializeAsync();
@@ -107,7 +104,15 @@ public partial class SteamProbe : Node
         }
     }
 
-    public override void _ExitTree() => _session?.Dispose();
+    public override void _ExitTree()
+    {
+        if (_session is not null)
+        {
+            _session.PeerTearingDown -= OnPeerTearingDown;
+            _session.StateChanged -= OnSessionStateChanged;
+            _session.Dispose();
+        }
+    }
 
     private async Task HostAsync()
     {
@@ -123,6 +128,14 @@ public partial class SteamProbe : Node
     {
         _requestedLobby = lobby;
         GameLog.Info("steam.lobby", "join_requested", $"lobby={lobby}, inviter={inviter}. Press J to join; no automatic active-session join.");
+    }
+
+    private void OnPeerTearingDown() => _diagnostics?.FlushBeforePeerTeardown();
+
+    private void OnSessionStateChanged(SteamSessionState _, SteamSessionState next)
+    {
+        if (next == SteamSessionState.Ready && _diagnostics?.SessionId is not null)
+            _diagnostics.EndSession();
     }
 
 }
