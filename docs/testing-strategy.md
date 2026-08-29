@@ -6,6 +6,8 @@
 
 There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner. `NetworkWorld`, scene/component lifecycle, `MultiplayerSynchronizer`, resource-UID resolution, Steam overlay behavior, and cross-process behavior therefore require manual evidence today.
 
+The Maaack shell has a headless Godot startup smoke for addon/script/autoload/scene-load failures. Visual UX remains manual acceptance: menu focus/navigation, settings persistence, input remapping, loading transition, pause/resume, and leave-to-menu/re-host must be checked in a normal exported run.
+
 ## Evidence layers
 
 1. **Engine-independent unit tests** cover deterministic values, policy, and diagnostic logic.

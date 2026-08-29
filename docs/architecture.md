@@ -15,6 +15,12 @@ Steam and Steam-gameplay probes
 
 Steam/Godot `MultiplayerPeer` is the accepted online session path. There is no generic transport or generic session coordinator: neither had a second concrete use and both duplicated the actual Steam/Godot lifecycle. `SteamSession` owns platform initialization, friends-only lobby creation/join/leave, and the peer assigned to Godot's `MultiplayerApi`. It is Steam-specific by design.
 
+## Application shell
+
+Maaack Game Template is the vendored GDScript application-shell dependency. It supplies maintained main/pause/options menus, persistent local settings, input remapping, loading UI, menu navigation, audio/UI helpers, credits, and local save/global-state/level patterns. `factory/shell/` is intentionally thin C# glue: bootstrap selects the normal shell or an explicit `--run` probe, the host flow composes the retained Steam gameplay probe, and leaving asks that probe to perform its existing `SteamSession` teardown before Maaack returns to the menu.
+
+Maaack facilities are local application/UI tools, not multiplayer authority. Future lobby/run phases, progression, win/loss, and results remain GameFactory-owned server-authoritative concepts. Maaack's corresponding example helpers are available for evaluation but are not composed into the current networked flow.
+
 Gameplay code is not coupled to GodotSteam. `ISteamAdapter` and `GodotSteamAdapter` isolate the bridge; raw Godot networking remains usable above that boundary. The current adapter covers lifecycle, local identity, lobbies, overlay/presence operations, and Steam-ID/peer mapping. Dedicated Steam servers and Steam authentication are not implemented APIs; `RuntimeMode.DedicatedServer` remains a valid future gameplay role.
 
 ## Runtime identities and gameplay layers
@@ -31,4 +37,4 @@ Gameplay code is not coupled to GodotSteam. `ISteamAdapter` and `GodotSteamAdapt
 
 The Steam-gameplay probe has been accepted in a real two-account listen-server run: peer join/leave, player lifecycle, NetworkWorld spawn/despawn, late join, server-authoritative door interaction, replicated-revision acknowledgement, and distributed diagnostic collection were observed. This is manual runtime evidence, not automated Godot integration coverage.
 
-Future work must be justified by playable co-op slices. Potential areas include dedicated Steam servers when there is a real deployment need, persistent identity, a game shell, Godot integration/multiprocess testing, CI, packaging, and gameplay primitives. Do not reintroduce a platform-neutral transport/session layer without a concrete second implementation that needs it.
+Future work must be justified by playable co-op slices. Potential areas include dedicated Steam servers when there is a real deployment need, persistent identity, Godot integration/multiprocess testing, CI, packaging, and gameplay primitives. Do not reintroduce a platform-neutral transport/session layer without a concrete second implementation that needs it.

@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://addons/maaacks_game_template/examples/scenes/windows/pause_menu.tscn" id="1"]
+[ext_resource type="Script" path="res://factory/shell/pause_menu.gd" id="2"]
+
+[node name="PauseMenu" instance=ExtResource("1")]
+script = ExtResource("2")
+main_menu_scene_path = "res://factory/shell/main_menu.tscn"
+
+[node name="RestartButton" parent="ContentContainer/BoxContainer/MenuButtonsMargin/MenuButtons" index="1"]
+visible = false
+
+[node name="MainMenuButton" parent="ContentContainer/BoxContainer/MenuButtonsMargin/MenuButtons" index="3"]
+text = "Leave Game"
+
+[node name="ExitButton" parent="ContentContainer/BoxContainer/MenuButtonsMargin/MenuButtons" index="4"]
+visible = false

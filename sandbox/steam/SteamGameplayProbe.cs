@@ -61,7 +61,7 @@ public partial class SteamGameplayProbe : Node
             string[] args = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
             if (args.Contains("--steam-host"))
             {
-                await HostAsync();
+                await HostGameAsync();
                 return;
             }
 
@@ -85,7 +85,7 @@ public partial class SteamGameplayProbe : Node
             switch (key.Keycode)
             {
                 case Key.H when _session.State == SteamSessionState.Ready:
-                    await HostAsync();
+                    await HostGameAsync();
                     break;
                 case Key.R:
                     ToggleDoor();
@@ -94,7 +94,7 @@ public partial class SteamGameplayProbe : Node
                     LogSnapshot("manual");
                     break;
                 case Key.L:
-                    await _session.LeaveAsync();
+                    await LeaveGameAsync();
                     break;
             }
         }
@@ -119,7 +119,7 @@ public partial class SteamGameplayProbe : Node
         _session?.Dispose();
     }
 
-    private async Task HostAsync()
+    public async Task HostGameAsync()
     {
         SteamLobby lobby = await _session!.HostAsync(new SteamLobbyCreateOptions(), new SteamListenServerOptions());
         _runtime.SetMode(RuntimeMode.ListenServer);
@@ -135,6 +135,8 @@ public partial class SteamGameplayProbe : Node
         _runtime.SetMode(RuntimeMode.Client);
         GameLog.Info("gameplay.session", "joining", $"lobby={lobbyId}");
     }
+
+    public Task LeaveGameAsync() => _session?.LeaveAsync() ?? Task.CompletedTask;
 
     private void InitializeAuthoritativeGameplay()
     {

@@ -13,6 +13,9 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
 | `factory/steam/` | Steam-specific session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
 | `factory/diagnostics/` | Structured process logs, replication confirmation, and distributed session evidence. | Implemented |
+| `factory/shell/` | Minimal C# bootstrap/host/leave flow around Maaack UI and retained Steam gameplay probe. | Implemented shell slice |
+| `addons/maaacks_game_template/` | Vendored Maaack Game Template: local menus, settings, remapping, loading, audio, and optional local game helpers. | Implemented dependency |
+| `addons/plugin_updater/` | Vendored Maaack Plugin Updater required by the full template's GDScript classes. | Implemented dependency |
 
 `factory/steam/SteamSession` owns current online lobby and `MultiplayerPeer` lifecycle. No generic transport or generic network-session module exists. `RuntimeMode.DedicatedServer` is retained as an intended gameplay role, but dedicated Steam hosting is not implemented.
 
@@ -25,8 +28,8 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `tests/GameFactory.Tests/` | Engine-independent xUnit tests for pure policy, values, registries, and diagnostics. | Automated baseline |
 | `tools/` | Local build and test-client helper scripts. | Developer tooling |
 
-The repository has no generic ENet adapter, Godot integration harness, multiprocess runner, persistent identity, game shell, packaging workflow, or CI configuration. Those absences are intentional current limits, not hidden APIs.
+The repository has no generic ENet adapter, Godot integration harness, multiprocess runner, persistent identity, packaging workflow, or CI configuration. Maaack's global-state/progression/win-loss helpers are installed but intentionally not authoritative multiplayer systems.
 
 ## Supporting files
 
-`GameFactory.csproj` configures Godot SDK 4.7.1, .NET 8, and conditional Android .NET 9. `project.godot` configures the development launcher. `docs/` contains the charter, architecture, terminology, testing strategy, coding standards, this map, Steam notes, and ADRs.
+`GameFactory.csproj` configures Godot SDK 4.7.1, .NET 8, and conditional Android .NET 9. `project.godot` configures the normal shell plus explicit probe routing. `docs/` contains the charter, architecture, terminology, testing strategy, coding standards, this map, Steam notes, and ADRs.

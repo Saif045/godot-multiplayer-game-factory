@@ -11,9 +11,20 @@ config_version=5
 [application]
 
 config/name="GameFactory"
-run/main_scene="res://sandbox/launcher/sandbox_launcher.tscn"
+run/main_scene="res://factory/shell/app_bootstrap.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 config/icon="res://icon.svg"
+
+[audio]
+
+default_bus_layout="res://factory/shell/default_bus_layout.tres"
+
+[autoload]
+
+GameShell="*res://factory/shell/game_shell.tscn"
+SceneLoader="*res://addons/maaacks_game_template/base/nodes/autoloads/scene_loader/scene_loader.tscn"
+ProjectMusicController="*res://addons/maaacks_game_template/base/nodes/autoloads/music_controller/project_music_controller.tscn"
+ProjectUISoundController="*res://addons/maaacks_game_template/base/nodes/autoloads/ui_sound_controller/project_ui_sound_controller.tscn"
 
 [display]
 
@@ -23,6 +34,20 @@ window/stretch/aspect="expand"
 [dotnet]
 
 project/assembly_name="GameFactory"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/plugin_updater/plugin.cfg", "res://addons/maaacks_game_template/plugin.cfg")
+
+[maaacks_game_template]
+
+copy_path="res://factory/shell/"
+disable_update_check=true
+disable_install_wizard=true
+main_menu_scene_path="res://factory/shell/main_menu.tscn"
+game_scene_path="res://factory/shell/host_gameplay.tscn"
+loading_scene_path="res://addons/maaacks_game_template/examples/scenes/loading_screen/loading_screen.tscn"
+disable_install_audio_busses=true
 
 [physics]
 

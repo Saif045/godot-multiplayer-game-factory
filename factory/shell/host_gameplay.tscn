@@ -1,0 +1,15 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://factory/shell/HostGameplayShell.cs" id="1"]
+[ext_resource type="PackedScene" path="res://sandbox/steam/steam_gameplay_probe.tscn" id="2"]
+[ext_resource type="Script" path="res://addons/maaacks_game_template/base/nodes/utilities/pause_menu_controller.gd" id="3"]
+[ext_resource type="PackedScene" path="res://factory/shell/pause_menu.tscn" id="4"]
+
+[node name="HostGameplayShell" type="Node"]
+script = ExtResource("1")
+
+[node name="SteamGameplayProbe" parent="." instance=ExtResource("2")]
+
+[node name="PauseMenuController" type="Node" parent="."]
+script = ExtResource("3")
+pause_menu_packed = ExtResource("4")
