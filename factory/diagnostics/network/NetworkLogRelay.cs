@@ -245,15 +245,17 @@ public partial class NetworkLogRelay : Node
 
     private void WriteGap(string runId, PeerId peerId, long firstMissing, long droppedThrough)
     {
+        DateTimeOffset observedUtc = DateTimeOffset.UtcNow;
         var gap = new
         {
             source_role = "client",
             source_peer_id = peerId.Value,
             source_metadata = SourceMetadataResolver?.Invoke(peerId),
-            host_received_utc = DateTimeOffset.UtcNow,
+            host_received_utc = observedUtc,
             diagnostics_gap = new { run_id = runId, missing_from_sequence = firstMissing, missing_through_sequence = droppedThrough }
         };
         _masterWriter?.Append(gap);
+        _sessionWriter?.AppendGap(observedUtc, peerId, runId, firstMissing, droppedThrough);
     }
 
     private void RequestDiagnosticsSession()

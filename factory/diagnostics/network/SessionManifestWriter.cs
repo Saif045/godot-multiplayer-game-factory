@@ -28,8 +28,16 @@ public sealed class SessionManifestWriter
         var participant = new Participant(runId, peerId.Value, metadata?.GetValueOrDefault("steam_id"));
         lock (_gate)
         {
-            if (role == "host") _host = participant;
-            else _clients[peerId.Value] = participant;
+            if (role == "host")
+            {
+                if (_host == participant) return;
+                _host = participant;
+            }
+            else
+            {
+                if (_clients.TryGetValue(peerId.Value, out Participant? existing) && existing == participant) return;
+                _clients[peerId.Value] = participant;
+            }
             Write();
         }
     }

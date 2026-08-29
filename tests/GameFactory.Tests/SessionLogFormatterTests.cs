@@ -25,4 +25,13 @@ public sealed class SessionLogFormatterTests
         Assert.Contains("WARNING", line);
         Assert.Contains("engine.warning peer missing retry peer_id=42", line);
     }
+
+    [Fact]
+    public void Formats_visible_diagnostics_gap_without_a_fake_event_sequence()
+    {
+        string line = SessionLogFormatter.FormatGap(DateTimeOffset.Parse("2026-08-29T06:12:04.921Z"), new PeerId(42), "run", 81, 96);
+
+        Assert.Contains("C:42", line);
+        Assert.Contains("WARNING diagnostics.gap run=run missing=81-96", line);
+    }
 }

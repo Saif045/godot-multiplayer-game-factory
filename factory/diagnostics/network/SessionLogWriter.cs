@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using GameFactory.Diagnostics;
 using GameFactory.Networking.Peers;
 
@@ -9,12 +11,13 @@ namespace GameFactory.Diagnostics.Network;
 public sealed class SessionLogWriter : IDisposable
 {
     private readonly object _gate = new();
-    private readonly StreamWriter _writer;
+    private readonly string _filePath;
+    private readonly List<Record> _records = [];
     private bool _disposed;
 
     public SessionLogWriter(string filePath)
     {
-        _writer = new StreamWriter(new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read));
+        _filePath = filePath;
     }
 
     public void Append(DateTimeOffset normalizedUtc, string role, PeerId peerId, LogEntry entry)
@@ -23,8 +26,19 @@ public sealed class SessionLogWriter : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_gate)
         {
-            _writer.WriteLine(SessionLogFormatter.Format(normalizedUtc, role, peerId, entry));
-            _writer.Flush();
+            _records.Add(new EventRecord(normalizedUtc, role, peerId, entry));
+            Rewrite();
+        }
+    }
+
+    /// <summary>Records a known relay gap without pretending it is a source LogEntry.</summary>
+    public void AppendGap(DateTimeOffset normalizedUtc, PeerId peerId, string runId, long firstMissing, long droppedThrough)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_gate)
+        {
+            _records.Add(new GapRecord(normalizedUtc, peerId, runId, firstMissing, droppedThrough));
+            Rewrite();
         }
     }
 
@@ -32,6 +46,34 @@ public sealed class SessionLogWriter : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        lock (_gate) _writer.Dispose();
+    }
+
+    private void Rewrite()
+    {
+        string temporary = _filePath + ".tmp";
+        File.WriteAllLines(temporary, _records
+            .OrderBy(record => record.Utc)
+            .ThenBy(record => record.Role, StringComparer.Ordinal)
+            .ThenBy(record => record.PeerId.Value)
+            .ThenBy(record => record.Sequence)
+            .Select(record => record.Format()));
+        File.Move(temporary, _filePath, overwrite: true);
+    }
+
+    private abstract record Record(DateTimeOffset Utc, string Role, PeerId PeerId, long Sequence)
+    {
+        public abstract string Format();
+    }
+
+    private sealed record EventRecord(DateTimeOffset Utc, string Role, PeerId PeerId, LogEntry Entry)
+        : Record(Utc, Role, PeerId, Entry.Sequence)
+    {
+        public override string Format() => SessionLogFormatter.Format(Utc, Role, PeerId, Entry);
+    }
+
+    private sealed record GapRecord(DateTimeOffset Utc, PeerId PeerId, string RunId, long FirstMissing, long DroppedThrough)
+        : Record(Utc, "client", PeerId, FirstMissing)
+    {
+        public override string Format() => SessionLogFormatter.FormatGap(Utc, PeerId, RunId, FirstMissing, DroppedThrough);
     }
 }

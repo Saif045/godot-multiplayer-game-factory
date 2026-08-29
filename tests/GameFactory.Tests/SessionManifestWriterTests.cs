@@ -23,6 +23,23 @@ public sealed class SessionManifestWriterTests : IDisposable
         Assert.Equal(42, document.RootElement.GetProperty("clients")[0].GetProperty("PeerId").GetInt64());
     }
 
+    [Fact]
+    public void Does_not_rewrite_when_participant_data_is_unchanged()
+    {
+        Directory.CreateDirectory(_root);
+        string path = Path.Combine(_root, "manifest.json");
+        var writer = new SessionManifestWriter(path, "session");
+        var metadata = new Dictionary<string, string?> { ["steam_id"] = "1" };
+        writer.Record("host", PeerId.Server, "host-run", metadata);
+        DateTime firstWrite = File.GetLastWriteTimeUtc(path);
+        File.SetLastWriteTimeUtc(path, firstWrite.AddSeconds(-5));
+        DateTime sentinel = File.GetLastWriteTimeUtc(path);
+
+        writer.Record("host", PeerId.Server, "host-run", metadata);
+
+        Assert.Equal(sentinel, File.GetLastWriteTimeUtc(path));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

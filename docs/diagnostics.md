@@ -80,10 +80,12 @@ including recorded sequence gaps, goes through one locked append path. The file
 allows concurrent readers but not a second writer, and each append serializes,
 writes one JSON object plus its newline, and flushes before returning.
 
-`session.log` is the primary human view: it renders merged host and client
-INFO/WARNING/ERROR events with normalized time and short source labels (`H` and
-`C:<peer-id>`). It includes important engine warnings/errors but not duplicate
-GameLog console mirrors. `master.jsonl` is the complete machine-readable source;
+`session.log` is the primary human view: it is atomically materialized in
+normalized chronological order (then stable source and source-sequence ties)
+from merged host and client INFO/WARNING/ERROR events, with short source labels
+(`H` and `C:<peer-id>`). It includes important engine warnings/errors and
+explicit relay-gap warnings, but not duplicate GameLog console mirrors.
+`master.jsonl` is the complete append-only machine-readable source;
 `manifest.json` maps the observed host/client run IDs, peer IDs, and available
 Steam IDs. Debugging normally starts with `session.log`, drills into
 `master.jsonl` for exact structured data, and uses a participant's `engine.log`

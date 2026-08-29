@@ -21,5 +21,8 @@ public static class SessionLogFormatter
         return $"{utc:HH:mm:ss.fff} {SourceLabel(role, peerId),-14} {entry.Level.ToString().ToUpperInvariant(),-5} {entry.Category}.{entry.Event}{message}{suffix}";
     }
 
+    public static string FormatGap(DateTimeOffset utc, PeerId peerId, string runId, long firstMissing, long droppedThrough) =>
+        $"{utc:HH:mm:ss.fff} {SourceLabel("client", peerId),-14} WARNING diagnostics.gap run={Sanitize(runId)} missing={firstMissing}-{droppedThrough}";
+
     private static string Sanitize(string value) => value.Replace('\r', ' ').Replace('\n', ' ').Trim();
 }
