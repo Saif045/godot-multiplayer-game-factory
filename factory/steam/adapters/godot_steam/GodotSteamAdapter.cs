@@ -27,7 +27,6 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     public SteamUser LocalUser { get; private set; } = null!;
     public bool IsOverlayAvailable => IsInitialized && _bridge.Call("is_overlay_enabled").AsBool();
     public SteamLobby? CurrentLobby { get; private set; }
-    public bool SupportsDedicatedServers => false;
     public bool IsLobbyOwner => CurrentLobby is { } lobby && lobby.OwnerId == LocalUser.Id;
 
     public event Action<SteamLobby>? LobbyCreated;
@@ -258,12 +257,6 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         return Task.FromResult(_activePeer);
     }
 
-    public Task<SteamDedicatedServer> StartDedicatedServerAsync(SteamDedicatedServerOptions options, CancellationToken cancellationToken = default) => throw UnsupportedDedicatedServers();
-    public Task StopDedicatedServerAsync() => throw UnsupportedDedicatedServers();
-    public Task<MultiplayerPeer> CreateDedicatedServerPeerAsync(CancellationToken cancellationToken = default) => throw UnsupportedDedicatedServers();
-    public Task<IReadOnlyList<SteamServerInfo>> FindDedicatedServersAsync(SteamServerSearchOptions options, CancellationToken cancellationToken = default) => throw UnsupportedDedicatedServers();
-    public Task<SteamAuthTicket> CreateAuthTicketAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException("Steam authentication tickets are a declared seam, not implemented in the first adapter.");
-
     public void Dispose()
     {
         if (_disposed) return;
@@ -416,6 +409,5 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     private void EnsureInitialized() { ThrowIfDisposed(); if (!IsInitialized) throw new InvalidOperationException("Steam is not initialized."); }
     private SteamLobby RequireLobby() => CurrentLobby ?? throw new InvalidOperationException("No Steam lobby is active.");
     private SteamAdapterError Report(string code, string message) { SteamAdapterError error = new(code, message); Error?.Invoke(error); return error; }
-    private static NotSupportedException UnsupportedDedicatedServers() => new("GodotSteamAdapter currently supports Steam listen servers only. Dedicated-server support is reserved behind this interface.");
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }

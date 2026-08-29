@@ -9,7 +9,7 @@
 
 Reusable infrastructure must make ordinary behavior inexpensive without trapping games whose requirements differ. A default-only abstraction is easy to begin with but becomes restrictive. A fully manual abstraction preserves flexibility but makes every game repeat standard setup and safety decisions.
 
-The charter identifies three intended levels of use. The current source only partially demonstrates them: session code supplies a coordinated path over a replaceable transport boundary, while sandbox code can still use Godot directly. The experimental replication component currently has an automatic annotation path and exposes its synchronizer, but it does not yet provide a complete explicit configuration mode and currently replaces authored replication configuration.
+The charter identifies three intended levels of use. The current source only partially demonstrates them: Steam session code supplies a coordinated platform path, while gameplay and sandboxes can still use Godot directly. The replication component currently has an automatic annotation path and exposes its synchronizer, but it does not yet provide a complete explicit configuration mode and currently replaces authored replication configuration.
 
 ## Decision
 
@@ -60,7 +60,7 @@ Small interfaces with custom implementations can be flexible, but requiring repl
 
 ## Validation and evidence
 
-Current evidence is architectural and partial. `INetworkTransport` provides an existing replacement boundary, and sandbox probes demonstrate direct Godot access. The replication experiment demonstrates convention but not the complete three-path model. No automated tests currently validate equivalent lifecycle or safety behavior across paths.
+Current evidence is architectural and partial. The Steam adapter isolates platform implementation, while gameplay and sandbox probes demonstrate direct Godot access. The replication experiment demonstrates convention but not the complete three-path model. No automated tests currently validate equivalent lifecycle or safety behavior across paths.
 
 Each completed subsystem should document its available paths and test shared invariants. Automated diagnostics or reports should verify consequential automatic choices where appropriate.
 

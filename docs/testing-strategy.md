@@ -2,65 +2,17 @@
 
 ## Current automated baseline
 
-`tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover `PeerId`, `NetworkPeer`, `PeerRegistry`, `PlayerId`, `PlayerRegistry`, `PlayerLifecycle`, `NetworkObjectId`, `NetworkSpawnGroupKind`, and `NetworkSession` using deterministic `FakeNetworkTransport`. They cover lifecycle results, transitions, cleanup, disposal, borrowed-transport ownership, stale events, startup reentrancy, positive ID validation, registry behavior, server/client player-lifecycle policy, and serialized spawn-group enum values. They do not launch Godot, create a scene tree, open sockets, or validate ENet.
+`tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover peer/player value types and registries, `PlayerLifecycle` role policy, `NetworkObjectId`, spawn-group values, diagnostics records and writers, replication-confirmation tracking, and distributed-log batching/sequence handling. They do not launch Godot, create a scene tree, open a Steam connection, or validate GodotSteam.
 
-The tests do not cover `NetworkWorld`, `NetworkSpawnGroup`, `NetworkObject`, `NetworkObjectComponent`, owner-peer or shared spawn-data payloads, authority, replication, Godot resource-UID resolution, Godot scene loading, or cross-process behavior. There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner.
+There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner. `NetworkWorld`, scene/component lifecycle, `MultiplayerSynchronizer`, resource-UID resolution, Steam overlay behavior, and cross-process behavior therefore require manual evidence today.
 
 ## Evidence layers
 
-1. **Engine-independent unit tests** cover value types and policy that do not require Godot.
-2. **Godot integration tests** are planned for scene lifecycle, component placement/initialization, synchronizer configuration, authority, and ENet adapter behavior.
-3. **Multiprocess scenarios** are planned for multiple roles, connection loss, spawn/despawn, replication, late joining, timeouts, and child-process cleanup.
-4. **Manual probes** remain useful for exploration and diagnostics, but cannot be described as regression tests.
+1. **Engine-independent unit tests** cover deterministic values, policy, and diagnostic logic.
+2. **Manual Steam dependency smoke** verifies vendored `SteamMultiplayerPeer` can host, close, and host again in one process.
+3. **Manual two-account Steam gameplay acceptance** verifies the actual online vertical slice: lobby join/leave, peers, player lifecycle, dynamic spawn/despawn, late join, server-authoritative door mutation, replication acknowledgement, and distributed diagnostics.
+4. **Future Godot integration and multiprocess tests** should automate scene lifecycle, authority, replication, teardown, and role behavior once a concrete repeatable harness is selected.
 
-Diagnostics writes one structured `game.jsonl` plus one raw `engine.log` per run
-under `<exe-dir>/logs/runs/<timestamp>_<run-id>/`, falling back to `user://logs/`
-when the executable directory is not writable. An authoritative session also
-creates `session.log` (human merged flight recorder), `master.jsonl` (machine
-truth), and `manifest.json` (participant index). Focused unit tests cover local
-file layout, engine evidence formatting, session-log source formatting, and
-manifest participant updates.
-`ReplicationConfirmationTracker` has pure tests for expected peers, duplicates,
-unexpected acknowledgements, independent revisions, late joins, timeouts, late
-acknowledgements, and zero-peer completion. Its Steam gameplay wiring remains a
-manual two-account acceptance exercise.
-`NetworkLogRelay` is exercised next through a real host/client session: it must
-preserve each local file and append host plus remote client events to the host
-session's `master.jsonl`, without a Godot RPC channel fallback warning. The relay
-records source, host-receive, and host-normalized timestamps for remote events.
-Its batching and acknowledgement behavior is deliberately bounded in memory; it
-is not durable offline upload.
+Diagnostics writes `game.jsonl` and `engine.log` per run. An authoritative session additionally materializes `session.log`, `master.jsonl`, and `manifest.json`; focused unit tests cover their pure/file-layout behavior. `NetworkLogRelay` is bounded best-effort telemetry, not durable offline upload.
 
-The Steam re-host smoke is a narrow exception: it is a permanent manual
-engine-level dependency smoke, not an automated integration test. It verifies
-the vendored `SteamMultiplayerPeer` can execute `create_host(0)`, `close()`,
-then `create_host(0)` again in one process. The real Steam probe additionally
-has a manual `H -> L -> H -> L -> H` acceptance flow. A two-account session,
-connection, and replication run remains required before Steam is accepted as
-end-to-end runtime evidence.
-
-`--run=steam-gameplay` is the separate manual two-account gameplay acceptance
-probe. It composes the existing `PlayerLifecycle`, `NetworkWorld`,
-`NetworkObject`, and replication paths over the Steam-backed Godot peer. Its
-required exercise is host-player creation, a pre-client world spawn, remote
-player creation and late join, an authoritative replicated door mutation, and
-remote disconnect cleanup. It does not establish automated gameplay evidence.
-
-As broader co-op capabilities are added, coverage should follow coherent playable slices rather than isolated speculative helpers. A future player-lifecycle slice, for example, should exercise join, spawn, ownership association, disconnect cleanup, late joining where relevant, and both listen-server and dedicated-server behavior.
-
-## Replication evidence and next coverage
-
-The replication sandbox was manually exercised for normal state change and late joining. That establishes bounded exploratory evidence only. Automated Godot tests should eventually cover:
-
-- direct-child validation and two-phase component registration/initialization;
-- capability lookup, duplicate capability diagnostics, and replaceable component scenes;
-- `[Replicated]` defaults (`OnChange`, spawn enabled) and use without `[Export]`;
-- `Never`, `Always`, and `OnChange` mapping;
-- host/synchronizer root targeting and lifecycle cleanup;
-- authority/non-authority mutation, initial/delta state, spawn/despawn, and late joining.
-
-Manual replacement paths and stable cross-project prefab definitions are not implemented contracts and should not be tested as though they exist. Godot integration coverage should eventually validate pre-tree shared spawn-data application, receiver validation, and server-only configuration ordering.
-
-## Test qualities
-
-Tests should be deterministic, explicit about process role and authority, repeatable without leaked handlers or child processes, independent of editor paths and public services, and honest about missing environments or evidence. A green local run is not CI evidence.
+New coverage should follow coherent playable slices rather than speculative helpers. Tests must be deterministic, explicit about authority and runtime role, and honest about external environment requirements.

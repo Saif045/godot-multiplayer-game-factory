@@ -2,57 +2,23 @@
 
 ## Status
 
-GameFactory has a build-validated Steam listen-server foundation. It is not yet accepted as runtime evidence: a manual two-account Steam test must prove host, invite or explicit lobby join, peer connection/disconnection, and existing replication/player lifecycle behavior before ENet is reconsidered.
+GameFactory has an accepted manual Steam listen-server path. A real two-account run exercised host/join/leave, Godot peer join/disconnect, player lifecycle, world spawning/despawning, late join, server-authoritative door interaction, replicated revision acknowledgement, and host-collected distributed diagnostics. This does not claim production App ID, shipping, or compatibility readiness.
 
-## Pinned dependency
+## Dependency and boundary
 
-- **GodotSteam GDExtension 4.22**, Steamworks SDK 1.65.
-- Source and release: <https://codeberg.org/godotsteam/godotsteam/releases/tag/v4.22-gde>.
-- The release states support for Godot 4.4 and up, including this project's Godot .NET SDK 4.7.1.
-- Files live in `addons/godotsteam/`, including the upstream `license.md` (MIT).
-- The Windows x86_64 debug and release binaries carry one GameFactory dependency
-  patch for `SteamMultiplayerPeer::_close()`. Its exact source delta, provenance,
-  rebuild command, and removal condition live in
-  [`third_party/patches/godotsteam/README.md`](../third_party/patches/godotsteam/README.md).
-- Development uses Steam App ID **480** only. It is not a production App ID or release configuration.
+- GodotSteam GDExtension 4.22, built against Steamworks SDK 1.65.
+- Source lives in `addons/godotsteam/` with the upstream MIT license.
+- Windows x86_64 binaries include the documented `SteamMultiplayerPeer::_close()` re-host patch in [`third_party/patches/godotsteam/README.md`](../third_party/patches/godotsteam/README.md).
+- Development uses Steam App ID 480 only.
 
-## Boundary and flow
+`SteamSession` calls `ISteamAdapter`; `GodotSteamAdapter` calls the project GDScript bridge, the only GameFactory code that knows GodotSteam's singleton and `SteamMultiplayerPeer`. The session installs the returned peer into Godot's `MultiplayerApi`. Existing Godot RPC, spawners, synchronizers, `NetworkWorld`, and player lifecycle remain above it and have no GodotSteam dependency.
 
-`SteamSession` calls the Steam-specific `ISteamAdapter`. The current adapter calls a small GDScript bridge, which is the sole location that knows GodotSteam's `Steam` singleton and `SteamMultiplayerPeer`. The bridge returns the peer to C#, and `SteamSession` assigns it to Godot's `MultiplayerApi`; existing Godot RPC, spawners, synchronizers, `NetworkWorld`, and player lifecycle remain above that point unchanged.
+The flow is explicit: initialize Steam, host or join a friends-only lobby, create/assign its Steam peer, then close the peer, clear it from Godot, and leave the lobby. Incoming invites are surfaced rather than silently joining an active session. Steam IDs and Godot peer IDs remain distinct.
 
-The initial flow is listen-server only:
+## Manual probes
 
-1. Initialize Steam and read local identity.
-2. Create a friends-only, four-member lobby by default.
-3. Create a `SteamMultiplayerPeer` for that lobby and assign it to Godot.
-4. Invite through the Steam overlay, or explicitly join a requested/supplied lobby.
-5. Leave explicitly closes the `SteamMultiplayerPeer`, clears it from Godot's
-   `MultiplayerApi`, then leaves the lobby. The patched GodotSteam close path
-   releases the listen socket so the same process can host another lobby.
+The exported development launcher defaults to `--run=steam-gameplay`; `--run=steam` selects the focused lobby probe. The probe supports `--steam-host`, `--steam-lobby=<id>`, and interactive host/invite/join/leave actions. The launcher intentionally selects registered scenes rather than unsupported arbitrary `--scene` overrides.
 
-Incoming invites are surfaced to the caller. They never auto-join an active session. Peer IDs and Steam IDs remain distinct and are mapped through the active Steam peer.
+`sandbox/steam/steam_native_rehost_probe.tscn` remains a dependency smoke: with Steam active, verify `create_host(0)`, `close()`, then `create_host(0)` succeeds. It validates the vendored peer's teardown independently of gameplay.
 
-## Manual acceptance procedure
-
-Run two Steam accounts with the Steam client active, using development App ID 480. On one, run `steam_probe.tscn` with `--steam-host`; it prints the lobby ID. On the other, run it with `--steam-lobby=<id>` or accept an invite. The exported project uses `sandbox_launcher.tscn` as its main scene and accepts `--run=steam`, `--run=connection`, or `--run=replication`. The launcher selects only these packed, registered sandbox scenes; it replaces unsupported arbitrary `--scene` path overrides. The interactive probe also supports `H` (host), `I` (invite overlay), `J` (explicitly accept the latest requested lobby), and `L` (leave). Record Godot peer-connected/disconnected behavior and run the existing replication probe against the assigned peer before calling Steam transport replacement proven.
-
-The probe is intentionally not a second world implementation. It establishes the platform/peer boundary; existing network-world, object, replication, and player slices must be exercised above it.
-
-## Re-host regression smoke
-
-`sandbox/steam/steam_native_rehost_probe.tscn` is a manual engine-level smoke
-for the vendored dependency. With Steam running, run the scene and verify:
-
-```text
-create host 0 #1 -> OK
-close #1
-create host 0 #2 -> OK
-```
-
-No timer or retry is part of the acceptance condition. Then run the real probe
-and verify `H -> L -> H -> L -> H` reaches `Hosting`, `Ready`, and `Hosting`.
-This confirms the dependency boundary and the GameFactory lifecycle separately.
-
-## Deferred seams
-
-`ISteamAdapter` declares dedicated-server discovery/peer/lifecycle and authentication-ticket seams. `GodotSteamAdapter` deliberately returns unsupported for them today. Host migration, production App ID setup, shipping/export configuration, and an application/menu shell are out of this slice.
+Dedicated Steam servers, Steam authentication, host migration, production App ID setup, export/shipping configuration, and an application/menu shell are planned only when a concrete need justifies them.

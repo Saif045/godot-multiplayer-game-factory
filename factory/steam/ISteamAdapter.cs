@@ -18,7 +18,6 @@ public interface ISteamAdapter : IDisposable
     SteamUser LocalUser { get; }
     bool IsOverlayAvailable { get; }
     SteamLobby? CurrentLobby { get; }
-    bool SupportsDedicatedServers { get; }
 
     event Action<SteamLobby>? LobbyCreated;
     event Action<SteamLobby>? LobbyJoined;
@@ -58,9 +57,4 @@ public interface ISteamAdapter : IDisposable
     bool TryGetPeerForSteamUser(SteamUserId userId, out PeerId peerId);
     Task<MultiplayerPeer> CreateListenServerPeerAsync(SteamListenServerOptions options, CancellationToken cancellationToken = default);
     Task<MultiplayerPeer> CreateLobbyClientPeerAsync(SteamLobbyId lobbyId, SteamClientOptions options, CancellationToken cancellationToken = default);
-    Task<SteamDedicatedServer> StartDedicatedServerAsync(SteamDedicatedServerOptions options, CancellationToken cancellationToken = default);
-    Task StopDedicatedServerAsync();
-    Task<MultiplayerPeer> CreateDedicatedServerPeerAsync(CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<SteamServerInfo>> FindDedicatedServersAsync(SteamServerSearchOptions options, CancellationToken cancellationToken = default);
-    Task<SteamAuthTicket> CreateAuthTicketAsync(CancellationToken cancellationToken = default);
 }

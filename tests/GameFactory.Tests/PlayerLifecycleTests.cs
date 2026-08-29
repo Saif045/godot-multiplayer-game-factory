@@ -1,10 +1,7 @@
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Peers;
 using GameFactory.Networking.Players;
-using GameFactory.Networking.Sessions;
-using GameFactory.Networking.Transport;
 using GameFactory.Runtime;
-using GameFactory.Tests.TestDoubles;
 
 namespace GameFactory.Tests;
 
@@ -13,7 +10,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Listen_server_creates_player_for_already_present_local_server_peer()
     {
-        ServerFixture fixture = CreateServer(HostMode.Listen);
+        ServerFixture fixture = CreateServer(RuntimeMode.ListenServer);
         var players = new PlayerRegistry();
         var spawned = new List<(NetworkPeer Peer, PlayerId PlayerId)>();
 
@@ -30,7 +27,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Dedicated_server_skips_local_server_peer_but_creates_remote_player()
     {
-        ServerFixture fixture = CreateServer(HostMode.Dedicated);
+        ServerFixture fixture = CreateServer(RuntimeMode.DedicatedServer);
         var players = new PlayerRegistry();
         var spawned = new List<(NetworkPeer Peer, PlayerId PlayerId)>();
 
@@ -46,7 +43,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Listen_server_creates_player_for_remote_peer()
     {
-        ServerFixture fixture = CreateServer(HostMode.Listen);
+        ServerFixture fixture = CreateServer(RuntimeMode.ListenServer);
         var players = new PlayerRegistry();
         var spawned = new List<(NetworkPeer Peer, PlayerId PlayerId)>();
 
@@ -61,7 +58,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Disconnect_despawns_and_removes_player_even_if_despawn_throws()
     {
-        ServerFixture fixture = CreateServer(HostMode.Dedicated);
+        ServerFixture fixture = CreateServer(RuntimeMode.DedicatedServer);
         var players = new PlayerRegistry();
         fixture.Peers.Add(new PeerId(8), isLocal: false);
         int despawnCalls = 0;
@@ -88,7 +85,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Disconnect_despawns_and_removes_player()
     {
-        ServerFixture fixture = CreateServer(HostMode.Dedicated);
+        ServerFixture fixture = CreateServer(RuntimeMode.DedicatedServer);
         var players = new PlayerRegistry();
         fixture.Peers.Add(new PeerId(8), isLocal: false);
         var despawned = new List<NetworkObjectId>();
@@ -110,7 +107,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Construction_reconciles_all_already_present_eligible_peers()
     {
-        ServerFixture fixture = CreateServer(HostMode.Listen);
+        ServerFixture fixture = CreateServer(RuntimeMode.ListenServer);
         fixture.Peers.Add(new PeerId(8), isLocal: false);
         fixture.Peers.Add(new PeerId(9), isLocal: false);
         var players = new PlayerRegistry();
@@ -127,7 +124,7 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Dispose_unsubscribes_from_peer_events()
     {
-        ServerFixture fixture = CreateServer(HostMode.Listen);
+        ServerFixture fixture = CreateServer(RuntimeMode.ListenServer);
         var players = new PlayerRegistry();
         var spawned = new List<(NetworkPeer Peer, PlayerId PlayerId)>();
         PlayerLifecycle lifecycle = CreateLifecycle(fixture, players, spawned);
@@ -142,15 +139,8 @@ public sealed class PlayerLifecycleTests
     [Fact]
     public void Client_runtime_does_not_authoritatively_spawn_players()
     {
-        var transport = new FakeNetworkTransport
-        {
-            LocalPeerId = new PeerId(8)
-        };
-        var runtime = new RuntimeContext();
+        var runtime = new RuntimeContext(RuntimeMode.Client);
         var peers = new PeerRegistry();
-        using var session = new NetworkSession(transport, runtime, peers);
-        session.Join("127.0.0.1", 7000);
-        transport.RaiseConnectedToServer();
         var players = new PlayerRegistry();
         int spawnCount = 0;
 
@@ -188,24 +178,16 @@ public sealed class PlayerLifecycleTests
             _ => { });
     }
 
-    private static ServerFixture CreateServer(HostMode hostMode)
+    private static ServerFixture CreateServer(RuntimeMode mode)
     {
-        var transport = new FakeNetworkTransport
-        {
-            LocalPeerId = PeerId.Server
-        };
-        var runtime = new RuntimeContext();
+        var runtime = new RuntimeContext(mode);
         var peers = new PeerRegistry();
-        var session = new NetworkSession(transport, runtime, peers);
+        peers.Add(PeerId.Server, isLocal: true);
 
-        SessionResult result = session.Host(7000, 8, hostMode);
-        Assert.True(result.Success);
-
-        return new ServerFixture(runtime, peers, session);
+        return new ServerFixture(runtime, peers);
     }
 
     private sealed record ServerFixture(
         RuntimeContext Runtime,
-        PeerRegistry Peers,
-        NetworkSession Session);
+        PeerRegistry Peers);
 }

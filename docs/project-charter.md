@@ -116,6 +116,6 @@ The decisive measure is how quickly a new small co-op game can become playable a
 
 ## Decision discipline
 
-Architectural decisions belong in reviewed architecture decision records when they become durable. Open questions must remain visibly open rather than being smuggled into documentation as settled design. Current open questions include the eventual composition-root form and the shape and maturity of structured error codes. `NetworkSession` transport ownership is settled: the session borrows the injected transport and its caller disposes it.
+Architectural decisions belong in reviewed architecture decision records when they become durable. Open questions must remain visibly open rather than being smuggled into documentation as settled design. Current open questions include the eventual composition-root form and the shape and maturity of structured error codes. The current Steam session owns its lobby and peer lifecycle; a generic transport/session layer is not retained without a second concrete need.
 
 See [decisions/README.md](decisions/README.md) for the ADR process.

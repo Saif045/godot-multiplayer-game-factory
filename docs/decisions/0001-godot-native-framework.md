@@ -9,13 +9,13 @@
 
 GameFactory needs to remove repeated multiplayer and application work without becoming a second game engine or networking stack. Godot already supplies scene composition, node lifecycles, multiplayer authority, RPCs, spawning, synchronization, and transport integration.
 
-The current repository follows those boundaries. `ENetTransport` adapts Godot's ENet and multiplayer APIs, the replication experiment configures `MultiplayerSynchronizer`, and sandbox code uses `MultiplayerSpawner` and RPCs directly. The framework does not currently wrap every Godot capability, and its existing abstractions are not yet complete or production-ready.
+The current repository follows those boundaries. `SteamSession` installs a GodotSteam `SteamMultiplayerPeer` into Godot's multiplayer API, the replication layer configures `MultiplayerSynchronizer`, and sandbox code uses `MultiplayerSpawner` and RPCs directly. The framework does not wrap every Godot capability.
 
 ## Decision
 
 GameFactory will be a Godot-native framework. It may add policy, coordination, validation, diagnostics, and reusable workflows around Godot APIs, but it will not recreate Godot's scene, node, multiplayer, or transport systems as competing infrastructure.
 
-Framework boundaries must preserve practical access to the relevant Godot capability. A subsystem may expose a focused abstraction when that abstraction isolates policy or enables testing, as `INetworkTransport` currently does, but an abstraction must have a concrete responsibility beyond renaming Godot concepts.
+Framework boundaries must preserve practical access to the relevant Godot capability. A subsystem may expose a focused abstraction when it isolates real policy or ownership, but an abstraction must have a concrete responsibility beyond renaming Godot concepts.
 
 This decision does not require every framework type to depend directly on Godot. Engine-independent policy and value types remain desirable where they create clear boundaries.
 
@@ -35,7 +35,7 @@ A comprehensive facade could make all access look uniform. It would add pass-thr
 
 ### Use Godot APIs directly everywhere
 
-This minimizes framework code, but leaves session policy, failure handling, reusable validation, and engine-independent testing duplicated across games. The existing session and transport separation already demonstrates a useful middle boundary.
+This minimizes framework code, but can leave reusable lifecycle policy, validation, and diagnostics duplicated across games. Focused boundaries such as `SteamSession` remain useful when they own real lifecycle work.
 
 ## Consequences
 
@@ -58,7 +58,7 @@ This minimizes framework code, but leaves session policy, failure handling, reus
 
 ## Validation and evidence
 
-Current evidence includes repository structure, engine-independent tests for peer/session policy, and manual sandbox probes: session policy depends on `INetworkTransport`, the ENet adapter owns Godot-specific transport work, and object components compose native Godot multiplayer nodes. There are no automated Godot integration tests or multiprocess scenarios yet.
+Current evidence includes repository structure, engine-independent tests for policy, and manual two-account Steam probes: `SteamSession` owns platform/lobby/peer lifecycle, and object components compose native Godot multiplayer nodes. There are no automated Godot integration tests or multiprocess scenarios yet.
 
 Future changes should be checked for continued raw Godot access, focused abstraction responsibilities, and executable integration evidence where engine behavior is involved.
 

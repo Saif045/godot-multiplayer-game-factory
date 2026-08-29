@@ -1,55 +1,48 @@
 # GameFactory
 
-GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games. It is intended to make the recurring production work behind games in the general shape of *PEAK* cheaper to start and safer to evolve: player-hosted/listen-server and dedicated-server sessions, networked world lifecycle, and eventually the surrounding game shell.
+GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games. It supports player-hosted/listen-server and future dedicated-server games, with server-authoritative shared gameplay as the default.
 
-It is not merely a networking framework, and it is not a custom game engine. GameFactory supplies reusable infrastructure and primitives while each game keeps its distinctive mechanics, rules, content, progression, balance, and art direction. Server-authoritative shared gameplay is the default direction; specialized behavior remains explicit and raw Godot APIs remain available.
-
-The repository is an early foundation, not a production-ready framework. It has no platform-support, compatibility, release, or licensing guarantee.
+It is infrastructure, not a custom engine or a game: individual games retain their mechanics, content, progression, balance, and art. The factory preserves normal Godot workflows and direct Godot access where a reusable layer is not justified.
 
 ## What exists today
 
-- process roles, typed transient `PeerId`, peer registry, session lifecycle, and an ENet transport adapter;
-- engine-independent xUnit coverage for the peer and session foundation through a deterministic test-only fake transport;
-- a compositional `NetworkObject` host with replaceable authority and replication component scenes;
-- `[Replicated]` metadata that configures a component-owned `MultiplayerSynchronizer` for host properties; and
-- server-allocated `NetworkObjectId`, owner-peer metadata, and automatic `NetworkWorld` spawn routing;
-- session-scoped `PlayerId`, player registry, and server-side player lifecycle orchestration; and
-- manual connection, replication, and Steam listen-server sandbox probes; and
-- a Steam-specific session boundary backed by the pinned GodotSteam 4.22 GDExtension, with one documented re-host teardown patch.
+- runtime roles, typed transient `PeerId`, and a process-local `PeerRegistry`;
+- session-scoped `PlayerId`, player registry, and server-side player lifecycle orchestration;
+- compositional `NetworkObject`, authority/replication components, and dynamic `NetworkWorld` spawning;
+- Steam listen-server flow: `SteamSession` -> `ISteamAdapter` -> `GodotSteamAdapter` -> GDScript bridge -> `SteamMultiplayerPeer`;
+- structured local and distributed diagnostics; and
+- manual Steam gameplay probes plus engine-independent xUnit coverage for pure policy and data layers.
 
-`NetworkSession` borrows its injected transport: it can close active session use, but its caller owns transport disposal. `NetworkObject` is not a universal gameplay base class. `NetworkObjectId` is runtime object identity, while `PlayerId` is session-scoped player identity rather than persistent account or Steam identity. `OwnerPeerId` identifies the peer a spawned object represents; it does not transfer Godot multiplayer authority from the server. `NetworkWorld` currently covers dynamic runtime spawning, including pre-tree shared `Variant` spawn data for opted-in gameplay roots and server-only off-tree configuration through `Spawn<T>`. Persistent/account identity, authored/static network objects, menus, settings, loading, Godot integration tests, multiprocess scenarios, CI, packaging, and an application shell remain planned. Steam listen-server code exists but has not yet been accepted through a real two-account Steam run.
+`NetworkObjectId` is runtime object identity; `PlayerId` is session-scoped player identity; `PeerId` is the transient Godot multiplayer peer identity. They are deliberately distinct. `NetworkObject` is not a universal gameplay base class.
 
-The replication sandbox has been manually exercised for normal state change and late joining. That is exploratory evidence, not automated Godot test coverage.
+The accepted online path is Steam/Godot `MultiplayerPeer`, not a generic transport framework. `SteamSession` owns Steam lobby and peer lifecycle. Gameplay remains above Godot's `MultiplayerApi`, `PeerRegistry`, `PlayerLifecycle`, `NetworkWorld`, and object components, and does not call GodotSteam directly.
+
+Real two-account listen-server acceptance has exercised peer join/leave, player lifecycle, dynamic world spawn/despawn, late join, server-authoritative door interaction, replicated revision acknowledgement, and distributed diagnostics. This is strong manual evidence, not a release or compatibility guarantee. Persistent identity, authored/static network objects, menus, settings, CI, packaging, a general application shell, and dedicated Steam servers remain planned.
 
 ## Current configuration
 
-The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for Android. It vendors GodotSteam 4.22 GDExtension, MIT licensed, under `addons/godotsteam/`; the pinned release supports Godot 4.4 and later. The Windows x86_64 debug and release binaries are rebuilt from Steamworks SDK 1.65 with one explicit GodotSteam re-host teardown patch; see [the patch record](third_party/patches/godotsteam/README.md). The configured main scene is the development-only sandbox launcher. It recognizes `--run=connection`, `--run=replication`, and `--run=steam`; connection is the default. The Steam probe uses development App ID `480` only and recognizes `--steam-host` or `--steam-lobby=<id>`. These probes are foundation evidence, not a complete co-op game flow.
+The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for Android. It vendors GodotSteam 4.22 under `addons/godotsteam/`; Windows binaries are rebuilt from Steamworks SDK 1.65 with the documented re-host teardown patch in `third_party/patches/godotsteam/`.
+
+The development launcher defaults to `--run=steam-gameplay` and also supports `--run=steam`. The latter is a focused Steam/lobby probe. Both use development App ID 480 only; `--steam-host` and `--steam-lobby=<id>` select the Steam probe flow. These are development probes, not a complete game flow.
 
 ## Design philosophy
 
-1. **Convention** for common, low-boilerplate behavior.
-2. **Explicit configuration** for recognized variations.
-3. **Replacement or raw Godot access** for advanced behavior.
+1. Convention for common behavior.
+2. Explicit configuration for recognized variations.
+3. Replacement or raw Godot access where the domain warrants it.
 
-The project prefers composition over a required gameplay hierarchy, keeps peer/player/object identities separate, treats server-authoritative shared state as the default direction, and keeps game-specific mechanics outside the factory.
-
-For recurring, already-solved problems, the project investigates existing Godot libraries, plugins, templates, and open-source projects before building a new subsystem. The outcome should be a deliberate choice to use, adapt/learn from, or build. Dependencies are worthwhile when they save substantial work, are compatible and maintained, fit the architecture, and preserve a reasonable replacement path; they are not introduced merely to avoid trivial code. Steam is a first-class, Steam-specific online/platform direction; GodotSteam was selected after compatibility and maintenance review rather than reimplementing Steam APIs.
-
-Development is driven by coherent, playable co-op slices rather than speculative framework layers. For example, player lifecycle should be proved as a complete join, spawn, ownership, disconnect, and cleanup flow across listen and dedicated hosting before adjacent abstractions are generalized.
+The project prefers composition over mandatory gameplay inheritance, small settled vertical slices over speculative abstractions, and deliberate investigation of useful Godot libraries/plugins/templates before rebuilding common subsystems.
 
 ## Repository map
 
 - `factory/runtime/` — process role and runtime context.
-- `factory/networking/peers/` — peer value and peer registry.
-- `factory/networking/sessions/` — session lifecycle policy.
-- `factory/networking/transport/` — transport contract and ENet adapter.
-- `factory/networking/objects/` — generic component host and default object components.
-- `factory/networking/world/` — runtime object registry and automatic spawn routing.
-- `sandbox/` — manual connection, replication, and Steam probes.
-- `tests/GameFactory.Tests/` — engine-independent xUnit tests and fake transport.
-- `docs/` — architecture and engineering records.
-
-Directories, scenes, resources, and assets use lowercase or snake_case. C# namespaces, types, and filenames use PascalCase.
+- `factory/networking/peers/` — peer value and registry.
+- `factory/networking/players/` — session-scoped player identity and lifecycle.
+- `factory/networking/objects/` and `world/` — compositional objects and dynamic world spawning.
+- `factory/steam/` — Steam-specific platform/session boundary.
+- `factory/diagnostics/` — local and distributed diagnostic records.
+- `sandbox/steam/` — manual Steam and Steam-gameplay acceptance probes.
+- `tests/GameFactory.Tests/` — engine-independent xUnit tests.
 
 ## Documentation
 
@@ -62,4 +55,3 @@ Directories, scenes, resources, and assets use lowercase or snake_case. C# names
 - [Architecture decision records](docs/decisions/README.md)
 - [Networking foundation](docs/networking-foundation.md)
 - [Steam integration](docs/steam-integration.md)
-- [Agent working guidance](AGENTS.md)

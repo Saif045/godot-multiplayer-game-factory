@@ -12,13 +12,11 @@ namespace GameFactory.Sandbox.Launcher;
 /// </summary>
 public partial class SandboxLauncher : Node
 {
-    private const string DefaultTarget = "connection";
+    private const string DefaultTarget = "steam-gameplay";
 
     private static readonly IReadOnlyDictionary<string, string> ScenePaths =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["connection"] = "res://sandbox/connection/network_probe.tscn",
-            ["replication"] = "res://sandbox/replication/replication_probe.tscn",
             ["steam"] = "res://sandbox/steam/steam_probe.tscn",
             ["steam-gameplay"] = "res://sandbox/steam/steam_gameplay_probe.tscn"
         };

@@ -42,11 +42,11 @@ Until an automated formatter is adopted, avoid large formatting-only changes alo
 
 ## Dependency direction
 
-- Runtime, identity, peer, and session policy should remain independent of Godot where their contracts do not require engine types.
-- Concrete transport adapters may depend on Godot or a transport library; session policy should depend on `INetworkTransport`.
-- Sandbox code may compose concrete adapters and use raw Godot APIs.
+- Runtime, identity, peer, and player policy should remain independent of Godot where their contracts do not require engine types.
+- Steam session code may depend on its focused Steam adapter and Godot multiplayer peer; do not introduce a generic transport/session layer without a concrete second use.
+- Sandbox code may compose the Steam session path and use raw Godot APIs.
 - Higher-level factory modules must not depend on sandbox code.
-- Avoid leaking ENet-specific types across the transport boundary.
+- Keep GodotSteam-specific calls inside the Steam bridge/adapter boundary.
 
 ## Lifecycle, ownership, and events
 
@@ -57,7 +57,7 @@ Until an automated formatter is adopted, avoid large formatting-only changes alo
 - Define and test legal state transitions rather than relying only on call order.
 - Do not assume a remote disconnect event will perform required local cleanup.
 
-`NetworkSession` borrows its injected transport. Its caller owns disposal; the session may close active session use but never disposes the transport.
+`SteamSession` owns the Steam lobby and multiplayer-peer lifecycle it creates. It must clear a closing peer from Godot's `MultiplayerApi` before disposing it.
 
 ## Identity and authority
 

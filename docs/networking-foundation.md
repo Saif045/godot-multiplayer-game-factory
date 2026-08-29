@@ -1,43 +1,19 @@
 # Networking Foundation
 
-## Layering
+GameFactory's implemented online path is Steam listen-server networking through Godot's `MultiplayerApi` and GodotSteam's `SteamMultiplayerPeer`.
 
-```text
-Game / sandbox
--> GameFactory object components and NetworkSession
--> INetworkTransport
--> Godot Multiplayer API / MultiplayerPeer
--> transport
-```
+## Session path
 
-Higher session policy does not depend on ENet. `ENetTransport` is the current adapter. `NetworkSession` borrows its transport and never disposes it.
+`SteamSession` coordinates explicit Steam initialization, lobby creation/join/leave, and the peer assigned to the active Godot multiplayer API. It calls `ISteamAdapter`; `GodotSteamAdapter` is the typed C# facade over the project-owned GDScript bridge, which is the only layer calling GodotSteam.
 
-## Runtime and peers
+This is intentionally a Steam-specific boundary. A former generic ENet transport and generic `NetworkSession` were removed because they had no useful second implementation and obscured ownership. The session's actual owner is now clear: `SteamSession` owns its Steam lobby and `MultiplayerPeer` lifecycle.
 
-A process is offline, client, listen server, or dedicated server. `PeerId` is a positive transport ID; `1` is the server. `PeerRegistry` records process-visible peers. Locality and server status are separate, and peer identity is not player identity.
+## Gameplay path
 
-## Session lifecycle
+Once the peer is installed, gameplay uses ordinary Godot multiplayer facilities. `PeerRegistry` tracks process-local peers; `PlayerLifecycle` translates authoritative peer changes into session-scoped players; `NetworkWorld` dynamically spawns registered `NetworkObject` gameplay roots; component-owned synchronizers and direct RPC provide replication.
 
-Transport events are facts; `NetworkSession` supplies lifecycle meaning. Remote client disconnect does not fail a server session, client server loss does fail the client session, and local cleanup does not depend on a remote disconnect. Session transitions, cleanup, disposal, and stale-event guards have engine-independent automated coverage via a fake transport.
+The server remains authoritative for shared world state. A represented object owner peer is metadata, not a transfer of Godot authority. The explicit split between peer, player, and network-object IDs prevents platform account identity from leaking into gameplay identity.
 
-## Object composition and replication
+## Evidence and limits
 
-Gameplay nodes retain their own inheritance. A direct-child `NetworkObject` hosts an open set of `NetworkObjectComponent` children. Components register in `_EnterTree` and initialize after sibling registration in `NetworkObject._Ready`.
-
-Default authority and replication scenes implement `INetworkAuthority` and `INetworkReplication`. Those interfaces are the capability-facing communication contracts; concrete default components can be replaced. `ReplicationComponent` owns the `MultiplayerSynchronizer` and configures host properties marked `[Replicated]`. The metadata defaults to `OnChange` and spawn enabled; `[Export]` is not required.
-
-The replication sandbox retains raw Godot RPC and spawning access. It was manually exercised for normal state change and late join, but component/replication behavior has no automated Godot evidence yet.
-
-## Dynamic world and spawning
-
-`NetworkWorld` now coordinates dynamic object identity, registry, lookup, spawn, and despawn. The server allocates positive `NetworkObjectId` values globally within the world. `NetworkSpawnGroupKind` is the single list of groups; the world creates a direct-child `NetworkSpawnGroup` and its `MultiplayerSpawner` for each kind. The groups share the world's ID sequence.
-
-`NetworkObject` exposes exported `SpawnGroup` metadata, defaulting to `WorldObjects`, so gameplay calls `NetworkWorld.Spawn(scene)` without selecting a group. Ownership-aware overloads identify the owning peer; older overloads default it to the server peer. The typed spawn-data overload accepts a shared Godot `Variant` and optional server-only configuration. The local spawner path reuses the authoritative host; remote peers resolve the prefab's Godot resource UID and instantiate their own copies. The payload carries the runtime ID, prefab UID, owner peer ID, and shared spawn data, not a resource path. The spawned host is bound to its world, ID, and owner peer before `INetworkSpawnInitializable` receives non-nil data; only then does server-only configuration run. All of this occurs before tree entry. Owner peer metadata does not change Godot multiplayer authority. Manual sandbox runs exercised off-tree configuration, automatic multi-group routing, global IDs, spawn/despawn, and late join; automated Godot and multiprocess coverage does not exist.
-
-## Player lifecycle
-
-`PlayerLifecycle` is an engine-independent server-side coordinator. It turns eligible peer presence into a session-scoped `PlayerId`, a gameplay-supplied spawned object, and a `NetworkPlayer` registry relationship. A listen server creates a player for its local server peer; a dedicated server skips that peer; remote peers receive players in both modes. Clients do not create players authoritatively. On disconnect, the lifecycle requests despawn and removes the association even if despawn reports a failure.
-
-## Future work
-
-Stable prefab definitions, persistent players/account identity, authored/static objects, Godot integration tests, and multiprocess scenarios remain future work. Do not infer them from the current dynamic path.
+Two-account Steam listen-server acceptance has exercised lobby join/leave, player and object lifecycle, late join, authority, replication acknowledgement, and diagnostics. Automated tests cover engine-independent policies; Godot integration and multiprocess automation remain planned. Dedicated servers and authentication are future work, not declared adapter seams.
