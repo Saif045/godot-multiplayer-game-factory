@@ -6,7 +6,7 @@
 
 There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner. `NetworkWorld`, scene/component lifecycle, `MultiplayerSynchronizer`, resource-UID resolution, Steam overlay behavior, and cross-process behavior therefore require manual evidence today.
 
-The Maaack shell has a headless Godot startup smoke for addon/script/autoload/scene-load failures. Visual UX remains manual acceptance: menu focus/navigation, settings persistence, input remapping, loading transition, pause/resume, first-click leave-to-menu, and host/leave/re-host without a Steam reinitialization must be checked in a normal exported run.
+The Maaack shell has a headless Godot startup smoke for addon/script/autoload/scene-load failures. Visual UX remains manual acceptance: menu focus/navigation, settings persistence, keyboard/mouse/controller remapping and reset persistence, loading transition, pause/resume, first-click leave-to-menu, and host/leave/re-host without a Steam reinitialization must be checked in a normal exported run. Maaack's physical-key display support requires a normal display server, so loading its Controls scene headlessly can emit expected display-server warnings while input labels are formatted.
 
 ## Evidence layers
 

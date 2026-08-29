@@ -26,6 +26,8 @@ The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for An
 
 Normal launch enters the Maaack-backed main menu. `Host Game` uses Maaack's loading path to enter the retained Steam gameplay acceptance scene. `Esc` opens Maaack's pause/options UI; leaving first calls the existing Steam-session teardown then returns to the menu. Explicit `--run=steam-gameplay` and `--run=steam` still bypass the shell for focused development probes. Both use development App ID 480 only.
 
+The project supplies configurable default input actions—`move_forward`, `move_backward`, `move_left`, `move_right`, `jump`, `sprint`, `crouch`, `interact`, `primary_action`, `secondary_action`, `drop_item`, and `ping`—with keyboard/mouse and controller bindings. Maaack's Controls UI owns remapping, reset, and local persistence; its startup configuration autoload reapplies saved bindings on the next launch. These are defaults for future co-op games, not implemented movement or mandatory gameplay APIs; individual games may add, remove, or reinterpret actions.
+
 The project vendors Maaack Game Template `bd17ed931190dd32f15d97b5d9d1e0ecc94f3844` (version `1.6.0-dev-2`, MIT) and its required Maaack Plugin Updater `b3908ffe0e336500156fe1cfca2b30bbd0e18484` (version `0.5.1`, MIT) under `addons/`. Update by reviewing a pinned upstream revision, replacing only the upstream addon folders, rerunning the Godot smoke, and preserving each upstream license/attribution. Maaack owns local shell/UI features; it does not define authoritative multiplayer lobby, run, progression, win/loss, or results state.
 
 ## Design philosophy
