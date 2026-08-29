@@ -15,6 +15,7 @@ public partial class GameShell : Node
     }
 
     public void GameStartRequested() => GameLog.Info("shell", "game_start_requested");
+    public void MainMenuShown() => GameLog.Info("shell", "main_menu");
     public void GameEntered() => GameLog.Info("shell", "game_entered");
     public void PauseOpened() => GameLog.Info("shell", "pause_opened");
     public void PauseClosed() => GameLog.Info("shell", "pause_closed");
