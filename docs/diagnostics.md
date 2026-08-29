@@ -95,8 +95,10 @@ for native or client-specific evidence.
 
 The Steam gameplay acceptance probe can attach a pure
 `ReplicationConfirmationTracker` to selected replicated state. The host records
-the peers present for an authoritative revision; a non-authoritative client
-acknowledges after it applies that revision. The tracker exposes in-memory
+the peers present for an authoritative revision; each expectation carries its
+own start time, so a later joining peer is measured from its join expectation,
+not from the original revision. A non-authoritative client acknowledges after it
+applies that revision. The tracker exposes in-memory
 read-only snapshots and change events alongside `GameLog.EntryWritten` and
 `NetworkWorld.Objects`, so a future debug overlay can inspect live state without
 tailing files. No overlay is implemented yet.

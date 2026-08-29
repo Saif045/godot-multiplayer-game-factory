@@ -44,7 +44,7 @@ public sealed class ReplicationConfirmationTracker
 
         var pending = new PendingRevision(objectId, revision, elapsedMilliseconds);
         foreach (PeerId peer in expectedPeers.Where(peer => !peer.IsServer).Distinct())
-            pending.Expect(peer, reason);
+            pending.Expect(peer, reason, elapsedMilliseconds);
         _revisions.Add(key, pending);
         ReplicationConfirmationSnapshot snapshot = pending.Snapshot();
         Changed?.Invoke(new ReplicationConfirmationEvent(ReplicationConfirmationEventKind.Began, snapshot));
@@ -57,7 +57,7 @@ public sealed class ReplicationConfirmationTracker
     {
         PendingRevision pending = Require(objectId, revision);
         if (peerId.IsServer) return pending.Snapshot();
-        if (!pending.Expect(peerId, reason)) return pending.Snapshot();
+        if (!pending.Expect(peerId, reason, elapsedMilliseconds)) return pending.Snapshot();
         ReplicationConfirmationSnapshot snapshot = pending.Snapshot();
         Changed?.Invoke(new ReplicationConfirmationEvent(ReplicationConfirmationEventKind.Expected, snapshot, peerId, Reason: reason));
         return snapshot;
@@ -72,7 +72,7 @@ public sealed class ReplicationConfirmationTracker
         if (pending.IsConfirmed(peerId))
             return new ReplicationConfirmationEvent(ReplicationConfirmationEventKind.Duplicate, pending.Snapshot(), peerId);
 
-        long latency = elapsedMilliseconds - pending.StartedElapsedMilliseconds;
+        long latency = elapsedMilliseconds - pending.ExpectedAt(peerId);
         bool late = pending.IsTimedOut(peerId);
         pending.Confirm(peerId, latency);
         ReplicationConfirmationSnapshot snapshot = pending.Snapshot();
@@ -89,11 +89,12 @@ public sealed class ReplicationConfirmationTracker
         foreach (PendingRevision pending in _revisions.Values)
         {
             if (elapsedMilliseconds - pending.StartedElapsedMilliseconds < timeoutMilliseconds) continue;
-            PeerId[] missing = pending.MarkTimedOut();
-            if (missing.Length == 0) continue;
-            var result = new ReplicationConfirmationEvent(ReplicationConfirmationEventKind.TimedOut, pending.Snapshot(), Reason: pending.ReasonsFor(missing), MissingPeers: missing, ElapsedMilliseconds: elapsedMilliseconds - pending.StartedElapsedMilliseconds);
-            results.Add(result);
-            Changed?.Invoke(result);
+            foreach ((PeerId peerId, long elapsed) in pending.MarkTimedOut(elapsedMilliseconds, timeoutMilliseconds))
+            {
+                var result = new ReplicationConfirmationEvent(ReplicationConfirmationEventKind.TimedOut, pending.Snapshot(), peerId, Reason: pending.ReasonFor(peerId), MissingPeers: [peerId], ElapsedMilliseconds: elapsed);
+                results.Add(result);
+                Changed?.Invoke(result);
+            }
         }
         return results;
     }
@@ -107,7 +108,7 @@ public sealed class ReplicationConfirmationTracker
 
     private sealed class PendingRevision
     {
-        private readonly Dictionary<PeerId, string> _expected = [];
+        private readonly Dictionary<PeerId, ReplicationExpectation> _expected = [];
         private readonly Dictionary<PeerId, long> _confirmed = [];
         private readonly HashSet<PeerId> _timedOut = [];
 
@@ -121,21 +122,26 @@ public sealed class ReplicationConfirmationTracker
         public NetworkObjectId ObjectId { get; }
         public long Revision { get; }
         public long StartedElapsedMilliseconds { get; }
-        public bool Expect(PeerId peerId, string reason) => _expected.TryAdd(peerId, reason);
+        public bool Expect(PeerId peerId, string reason, long expectedAtElapsedMilliseconds) => _expected.TryAdd(peerId, new ReplicationExpectation(reason, expectedAtElapsedMilliseconds));
         public bool IsExpected(PeerId peerId) => _expected.ContainsKey(peerId);
         public bool IsConfirmed(PeerId peerId) => _confirmed.ContainsKey(peerId);
         public bool IsTimedOut(PeerId peerId) => _timedOut.Contains(peerId);
         public void Confirm(PeerId peerId, long latency) => _confirmed[peerId] = latency;
-        public string? ReasonFor(PeerId peerId) => _expected.GetValueOrDefault(peerId);
-        public string ReasonsFor(IEnumerable<PeerId> peers) => string.Join(",", peers.Select(ReasonFor).Where(reason => !string.IsNullOrWhiteSpace(reason)).Distinct());
-        public PeerId[] MarkTimedOut()
+        public string? ReasonFor(PeerId peerId) => _expected.GetValueOrDefault(peerId)?.Reason;
+        public long ExpectedAt(PeerId peerId) => _expected.TryGetValue(peerId, out ReplicationExpectation? expectation)
+            ? expectation.ExpectedAtElapsedMilliseconds
+            : throw new InvalidOperationException($"Peer {peerId} is not expected.");
+        public IEnumerable<(PeerId PeerId, long ElapsedMilliseconds)> MarkTimedOut(long nowElapsedMilliseconds, long timeoutMilliseconds)
         {
-            PeerId[] missing = _expected.Keys.Where(peer => !_confirmed.ContainsKey(peer) && _timedOut.Add(peer)).ToArray();
-            return missing;
+            return _expected
+                .Where(pair => !_confirmed.ContainsKey(pair.Key) && nowElapsedMilliseconds - pair.Value.ExpectedAtElapsedMilliseconds >= timeoutMilliseconds && _timedOut.Add(pair.Key))
+                .Select(pair => (pair.Key, nowElapsedMilliseconds - pair.Value.ExpectedAtElapsedMilliseconds))
+                .ToArray();
         }
         public ReplicationConfirmationSnapshot Snapshot() => new(
             ObjectId, Revision, StartedElapsedMilliseconds,
             new ReadOnlyCollection<PeerId>(_expected.Keys.OrderBy(peer => peer.Value).ToArray()),
+            new ReadOnlyDictionary<PeerId, ReplicationExpectation>(new Dictionary<PeerId, ReplicationExpectation>(_expected)),
             new ReadOnlyDictionary<PeerId, long>(new Dictionary<PeerId, long>(_confirmed)),
             new ReadOnlyCollection<PeerId>(_timedOut.OrderBy(peer => peer.Value).ToArray()),
             _expected.Count == _confirmed.Count);
@@ -147,9 +153,12 @@ public sealed record ReplicationConfirmationSnapshot(
     long Revision,
     long StartedElapsedMilliseconds,
     IReadOnlyCollection<PeerId> ExpectedPeers,
+    IReadOnlyDictionary<PeerId, ReplicationExpectation> Expectations,
     IReadOnlyDictionary<PeerId, long> ConfirmedLatencyMilliseconds,
     IReadOnlyCollection<PeerId> TimedOutPeers,
     bool IsComplete);
+
+public sealed record ReplicationExpectation(string Reason, long ExpectedAtElapsedMilliseconds);
 
 public enum ReplicationConfirmationEventKind
 {

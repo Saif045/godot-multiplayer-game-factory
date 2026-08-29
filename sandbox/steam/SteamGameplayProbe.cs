@@ -219,8 +219,9 @@ public partial class SteamGameplayProbe : Node
 
     public override void _Process(double delta)
     {
-        if (Multiplayer.IsServer())
-            _confirmations.Expire(GameLog.ElapsedMilliseconds, ConfirmationTimeoutMilliseconds);
+        if (!Multiplayer.HasMultiplayerPeer()) return;
+        if (!Multiplayer.IsServer()) return;
+        _confirmations.Expire(GameLog.ElapsedMilliseconds, ConfirmationTimeoutMilliseconds);
     }
 
     private void ToggleDoor()

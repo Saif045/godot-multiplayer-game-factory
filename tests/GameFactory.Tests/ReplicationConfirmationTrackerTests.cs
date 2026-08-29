@@ -105,6 +105,50 @@ public sealed class ReplicationConfirmationTrackerTests
     }
 
     [Fact]
+    public void Late_join_to_an_old_revision_uses_its_own_expectation_time()
+    {
+        var tracker = new ReplicationConfirmationTracker();
+        tracker.Begin(Door, 7, [First], 1000);
+        tracker.Confirm(Door, 7, First, 1040);
+        tracker.Expect(Door, 7, Second, 120000, "late_join");
+
+        Assert.Empty(tracker.Expire(120001, 1500));
+        ReplicationConfirmationEvent result = tracker.Confirm(Door, 7, Second, 120035);
+
+        Assert.Equal(ReplicationConfirmationEventKind.Confirmed, result.Kind);
+        Assert.Equal(35, result.LatencyMilliseconds);
+        Assert.Equal(120000, result.Snapshot!.Expectations[Second].ExpectedAtElapsedMilliseconds);
+    }
+
+    [Fact]
+    public void Existing_peer_timeout_is_not_delayed_by_a_late_join()
+    {
+        var tracker = new ReplicationConfirmationTracker();
+        tracker.Begin(Door, 7, [First], 1000);
+        tracker.Expect(Door, 7, Second, 120000, "late_join");
+
+        ReplicationConfirmationEvent timeout = Assert.Single(tracker.Expire(120000, 1500));
+
+        Assert.Equal(First, timeout.PeerId);
+        Assert.Equal(119000, timeout.ElapsedMilliseconds);
+        Assert.Empty(tracker.Expire(120001, 1500));
+    }
+
+    [Fact]
+    public void Peers_on_the_same_revision_can_have_different_expectation_starts()
+    {
+        var tracker = new ReplicationConfirmationTracker();
+        tracker.Begin(Door, 7, [First], 1000);
+        tracker.Expect(Door, 7, Second, 5000, "late_join");
+
+        ReplicationConfirmationEvent first = tracker.Confirm(Door, 7, First, 1040);
+        ReplicationConfirmationEvent second = tracker.Confirm(Door, 7, Second, 5060);
+
+        Assert.Equal(40, first.LatencyMilliseconds);
+        Assert.Equal(60, second.LatencyMilliseconds);
+    }
+
+    [Fact]
     public void Zero_remote_peers_is_immediately_complete()
     {
         var tracker = new ReplicationConfirmationTracker();
