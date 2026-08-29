@@ -18,7 +18,7 @@ public partial class NetworkLogRelay : Node
     private const double FlushIntervalSeconds = 0.1;
 
     private readonly RelayBacklog _backlog = new();
-    private readonly Dictionary<string, long> _highestReceived = [];
+    private readonly ReceivedSequenceLedger _receivedSequences = new();
     private MasterLogWriter? _masterWriter;
     private SessionLogWriter? _sessionWriter;
     private SessionManifestWriter? _manifestWriter;
@@ -70,7 +70,7 @@ public partial class NetworkLogRelay : Node
         _masterWriter = new MasterLogWriter(Path.Combine(directory, "master.jsonl"));
         _sessionWriter = new SessionLogWriter(Path.Combine(directory, "session.log"));
         _manifestWriter = new SessionManifestWriter(Path.Combine(directory, "manifest.json"), sessionId.ToString());
-        _highestReceived.Clear();
+        _receivedSequences.Clear();
         _backlog.BeginSession(sessionId);
         foreach (LogEntry entry in _backlog.Entries)
             WriteMaster(entry with { DiagnosticsSessionId = sessionId.ToString() }, PeerId.Server, "host", entry.Utc);
@@ -88,7 +88,7 @@ public partial class NetworkLogRelay : Node
         SessionId = null;
         _hostUtcAnchorUnixMilliseconds = 0;
         _sourceElapsedAnchorMilliseconds = 0;
-        _highestReceived.Clear();
+        _receivedSequences.Clear();
         _backlog.EndSession();
         GameLog.ClearSession();
     }
@@ -156,26 +156,27 @@ public partial class NetworkLogRelay : Node
 
         string runId = batch.RunId;
         if (batch.Entries.Any(entry => entry.RunId != runId || entry.DiagnosticsSessionId != batch.DiagnosticsSessionId)) return;
-        bool hasAcceptedEntry = _highestReceived.TryGetValue(runId, out long highest);
+        bool hasAcceptedEntry = _receivedSequences.TryGetHighest(runId, out long highest);
         if (batch.DroppedThroughSequence > highest)
         {
             WriteGap(runId, new PeerId(sender), highest + 1, batch.DroppedThroughSequence);
             highest = batch.DroppedThroughSequence;
+            _receivedSequences.Commit(runId, highest);
             hasAcceptedEntry = true;
         }
         foreach (LogEntry entry in batch.Entries.OrderBy(entry => entry.Sequence))
         {
             if (entry.Sequence <= highest) continue;
             if (hasAcceptedEntry && entry.Sequence != highest + 1) break;
-            highest = entry.Sequence;
-            hasAcceptedEntry = true;
             WriteMaster(entry, new PeerId(sender), role: "client", DateTimeOffset.UtcNow,
                 ClockAlignment.NormalizeToHostUtc(
                     DateTimeOffset.FromUnixTimeMilliseconds(batch.HostUtcAnchorUnixMilliseconds),
                     batch.SourceElapsedAnchorMilliseconds,
                     entry.ElapsedMilliseconds));
+            highest = entry.Sequence;
+            _receivedSequences.Commit(runId, highest);
+            hasAcceptedEntry = true;
         }
-        _highestReceived[runId] = highest;
         RpcId(sender, MethodName.AcknowledgeBatchRpc, runId, highest);
     }
 
@@ -240,7 +241,7 @@ public partial class NetworkLogRelay : Node
         };
         _masterWriter?.Append(master);
         _sessionWriter?.Append(normalized, role, peerId, entry);
-        _manifestWriter?.Record(role, peerId, entry.RunId, sourceMetadata);
+        TryRecordManifest(role, peerId, entry.RunId, sourceMetadata);
     }
 
     private void WriteGap(string runId, PeerId peerId, long firstMissing, long droppedThrough)
@@ -256,6 +257,15 @@ public partial class NetworkLogRelay : Node
         };
         _masterWriter?.Append(gap);
         _sessionWriter?.AppendGap(observedUtc, peerId, runId, firstMissing, droppedThrough);
+    }
+
+    private void TryRecordManifest(string role, PeerId peerId, string runId, IReadOnlyDictionary<string, string?>? metadata)
+    {
+        try { _manifestWriter?.Record(role, peerId, runId, metadata); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The manifest is navigation metadata, never a reason to abort authoritative ingestion.
+        }
     }
 
     private void RequestDiagnosticsSession()

@@ -91,6 +91,13 @@ Steam IDs. Debugging normally starts with `session.log`, drills into
 `master.jsonl` for exact structured data, and uses a participant's `engine.log`
 for native or client-specific evidence.
 
+`session.log` is deliberately best effort. If a reader temporarily locks its
+destination, the writer retains its in-memory records, skips that replacement,
+and retries on a later record. A derived-view failure never aborts master-log
+ingestion or client acknowledgement; remote `RunId`/sequence high-water marks
+are committed after the authoritative append so retries do not duplicate an
+entry in `master.jsonl`.
+
 ## Replication acceptance confirmation
 
 The Steam gameplay acceptance probe can attach a pure

@@ -51,13 +51,31 @@ public sealed class SessionLogWriter : IDisposable
     private void Rewrite()
     {
         string temporary = _filePath + ".tmp";
-        File.WriteAllLines(temporary, _records
-            .OrderBy(record => record.Utc)
-            .ThenBy(record => record.Role, StringComparer.Ordinal)
-            .ThenBy(record => record.PeerId.Value)
-            .ThenBy(record => record.Sequence)
-            .Select(record => record.Format()));
-        File.Move(temporary, _filePath, overwrite: true);
+        try
+        {
+            File.WriteAllLines(temporary, _records
+                .OrderBy(record => record.Utc)
+                .ThenBy(record => record.Role, StringComparer.Ordinal)
+                .ThenBy(record => record.PeerId.Value)
+                .ThenBy(record => record.Sequence)
+                .Select(record => record.Format()));
+            File.Move(temporary, _filePath, overwrite: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // session.log is a replaceable materialized view. Retain records and retry later.
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A temporary lock only delays the next best-effort render.
+            }
+        }
     }
 
     private abstract record Record(DateTimeOffset Utc, string Role, PeerId PeerId, long Sequence)

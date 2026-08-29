@@ -39,6 +39,28 @@ public sealed class SessionLogWriterTests : IDisposable
         Assert.Contains("WARNING diagnostics.gap run=run missing=81-96", File.ReadAllText(path));
     }
 
+    [Fact]
+    public void Locked_destination_does_not_throw_and_later_append_recovers_the_complete_view()
+    {
+        Directory.CreateDirectory(_root);
+        string path = Path.Combine(_root, "session.log");
+        File.WriteAllText(path, "stale");
+        using var writer = new SessionLogWriter(path);
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            writer.Append(DateTimeOffset.UnixEpoch, "client", new PeerId(42), Entry("run", 1));
+        }
+
+        writer.Append(DateTimeOffset.UnixEpoch.AddSeconds(1), "client", new PeerId(42), Entry("run", 2));
+        string[] lines = File.ReadAllLines(path);
+
+        Assert.Equal(2, lines.Length);
+        Assert.Contains("test.event", lines[0]);
+        Assert.Contains("test.event", lines[1]);
+        Assert.False(File.Exists(path + ".tmp"));
+    }
+
     private static LogEntry Entry(string runId, long sequence) => new(
         DateTimeOffset.UnixEpoch, sequence, sequence, runId, LogLevel.Info, "test", "event", null,
         new Dictionary<string, string?>(), null);
