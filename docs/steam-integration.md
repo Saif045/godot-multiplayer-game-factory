@@ -11,9 +11,9 @@ GameFactory has an accepted manual Steam listen-server path. A real two-account 
 - Windows x86_64 binaries include the documented `SteamMultiplayerPeer::_close()` re-host patch in [`third_party/patches/godotsteam/README.md`](../third_party/patches/godotsteam/README.md).
 - Development uses Steam App ID 480 only.
 
-`SteamSession` calls `ISteamAdapter`; `GodotSteamAdapter` calls the project GDScript bridge, the only GameFactory code that knows GodotSteam's singleton and `SteamMultiplayerPeer`. The session installs the returned peer into Godot's `MultiplayerApi`. Existing Godot RPC, spawners, synchronizers, `NetworkWorld`, and player lifecycle remain above it and have no GodotSteam dependency.
+`SteamPlatform` is a process-lifetime autoload that owns the `GodotSteamAdapter` and shuts the Steam singleton down only on application exit. Each scene-local `SteamSession` calls that shared `ISteamAdapter`; `GodotSteamAdapter` calls the project GDScript bridge, the only GameFactory code that knows GodotSteam's singleton and `SteamMultiplayerPeer`. A session installs the returned peer into Godot's `MultiplayerApi`. Existing Godot RPC, spawners, synchronizers, `NetworkWorld`, and player lifecycle remain above it and have no GodotSteam dependency.
 
-The flow is explicit: initialize Steam, host or join a friends-only lobby, create/assign its Steam peer, then close the peer, clear it from Godot, and leave the lobby. Incoming invites are surfaced rather than silently joining an active session. Steam IDs and Godot peer IDs remain distinct.
+The flow is explicit: initialize Steam once per application, then for every session host or join a friends-only lobby, create/assign its Steam peer, close and clear that peer from Godot, and leave the lobby. Peer teardown is idempotent: an already-disposed peer is treated as clean state, and a close/dispose error is recorded without preventing lobby leave. Incoming invites are surfaced rather than silently joining an active session. Steam IDs and Godot peer IDs remain distinct.
 
 ## Manual probes
 

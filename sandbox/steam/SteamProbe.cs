@@ -27,7 +27,7 @@ public partial class SteamProbe : Node
         {
             _diagnostics = new NetworkLogRelay { Name = "NetworkLogRelay" };
             AddChild(_diagnostics);
-            _adapter = GodotSteamAdapter.Create(this);
+            _adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
             // GD.Print("_adapter:", _adapter);
 
             _session = new SteamSession(_adapter, Multiplayer);

@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using GameFactory.Diagnostics;
 
@@ -7,6 +8,7 @@ namespace GameFactory.Shell;
 public partial class GameShell : Node
 {
     public const string MainMenuScenePath = "res://factory/shell/main_menu.tscn";
+    private bool _leaveInProgress;
 
     public override void _Ready()
     {
@@ -22,11 +24,25 @@ public partial class GameShell : Node
 
     public async void LeaveGame()
     {
-        GameLog.Info("shell", "leave_requested");
-        if (GetTree().CurrentScene is HostGameplayShell gameplay)
-            await gameplay.LeaveGameAsync();
+        if (_leaveInProgress)
+            return;
 
-        GetNode("/root/SceneLoader").Call("load_scene", MainMenuScenePath);
-        GameLog.Info("shell", "returned_to_menu");
+        _leaveInProgress = true;
+        GameLog.Info("shell", "leave_requested");
+        try
+        {
+            if (GetTree().CurrentScene is HostGameplayShell gameplay)
+                await gameplay.LeaveGameAsync();
+        }
+        catch (Exception exception)
+        {
+            GameLog.Error("shell", "leave_failed", exception.Message);
+        }
+        finally
+        {
+            GetNode("/root/SceneLoader").Call("load_scene", MainMenuScenePath);
+            GameLog.Info("shell", "returned_to_menu");
+            _leaveInProgress = false;
+        }
     }
 }

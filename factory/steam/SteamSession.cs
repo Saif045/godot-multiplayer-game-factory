@@ -7,7 +7,7 @@ using GameFactory.Steam.Models;
 
 namespace GameFactory.Steam;
 
-/// <summary>Coordinates Steam lobby lifecycle and assigns its peer to Godot.</summary>
+/// <summary>Coordinates one Steam lobby/peer lifecycle and assigns its peer to Godot.</summary>
 public sealed class SteamSession : IDisposable
 {
     private readonly ISteamAdapter _adapter;
@@ -131,7 +131,6 @@ public sealed class SteamSession : IDisposable
         finally
         {
             _ = _adapter.LeaveLobbyAsync();
-            _adapter.Dispose();
         }
     }
 
@@ -144,6 +143,7 @@ public sealed class SteamSession : IDisposable
     private void TearDownActivePeer()
     {
         MultiplayerPeer? peer = _activePeer;
+        _activePeer = null;
         if (peer is null) return;
 
         GameLog.Info("steam.peer", "closing", peer.GetType().Name);
@@ -152,28 +152,48 @@ public sealed class SteamSession : IDisposable
         {
             GameLog.Warning("steam.peer", "pre_teardown_hook_failed", exception.Message);
         }
-        try
+        if (GodotObject.IsInstanceValid(peer))
         {
-            peer.Close();
-            GameLog.Info("steam.peer", "closed");
-        }
-        finally
-        {
-            if (ReferenceEquals(_multiplayer.MultiplayerPeer, peer))
-            {
-                _multiplayer.MultiplayerPeer = null;
-                GameLog.Info("steam.peer", "cleared_from_multiplayer_api");
-            }
-
             try
             {
-                peer.Dispose();
-                GameLog.Info("steam.peer", "disposed");
+                peer.Close();
+                GameLog.Info("steam.peer", "closed");
             }
-            finally
+            catch (ObjectDisposedException)
             {
-                _activePeer = null;
+                GameLog.Info("steam.peer", "already_disposed");
             }
+            catch (Exception exception)
+            {
+                GameLog.Warning("steam.peer", "close_failed", exception.Message);
+            }
+        }
+        else
+        {
+            GameLog.Info("steam.peer", "already_disposed");
+        }
+
+        if (ReferenceEquals(_multiplayer.MultiplayerPeer, peer))
+        {
+            _multiplayer.MultiplayerPeer = null;
+            GameLog.Info("steam.peer", "cleared_from_multiplayer_api");
+        }
+
+        if (!GodotObject.IsInstanceValid(peer))
+            return;
+
+        try
+        {
+            peer.Dispose();
+            GameLog.Info("steam.peer", "disposed");
+        }
+        catch (ObjectDisposedException)
+        {
+            GameLog.Info("steam.peer", "already_disposed");
+        }
+        catch (Exception exception)
+        {
+            GameLog.Warning("steam.peer", "dispose_failed", exception.Message);
         }
     }
 

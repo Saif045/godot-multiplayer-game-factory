@@ -13,7 +13,7 @@ Steam and Steam-gameplay probes
         └── gameplay RPC, MultiplayerSpawner, and MultiplayerSynchronizer
 ```
 
-Steam/Godot `MultiplayerPeer` is the accepted online session path. There is no generic transport or generic session coordinator: neither had a second concrete use and both duplicated the actual Steam/Godot lifecycle. `SteamSession` owns platform initialization, friends-only lobby creation/join/leave, and the peer assigned to Godot's `MultiplayerApi`. It is Steam-specific by design.
+Steam/Godot `MultiplayerPeer` is the accepted online session path. There is no generic transport or generic session coordinator: neither had a second concrete use and both duplicated the actual Steam/Godot lifecycle. The `SteamPlatform` autoload owns the process-lifetime GodotSteam adapter and shuts Steam down once at application exit. Each `SteamSession` owns one friends-only lobby and the peer it assigns to Godot's `MultiplayerApi`; leaving a gameplay scene does not reinitialize Steam. This is Steam-specific by design.
 
 ## Application shell
 

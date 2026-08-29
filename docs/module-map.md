@@ -11,13 +11,13 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/players/` | Session-scoped player IDs, registry, and server-side lifecycle delegates. | Implemented |
 | `factory/networking/objects/` | Compositional network object host, authority, and replication components. | Implemented |
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
-| `factory/steam/` | Steam-specific session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
+| `factory/steam/` | Process-lifetime Steam platform owner plus scene-local session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
 | `factory/diagnostics/` | Structured process logs, replication confirmation, and distributed session evidence. | Implemented |
 | `factory/shell/` | Minimal C# bootstrap/host/leave flow around Maaack UI and retained Steam gameplay probe. | Implemented shell slice |
 | `addons/maaacks_game_template/` | Vendored Maaack Game Template: local menus, settings, remapping, loading, audio, and optional local game helpers. | Implemented dependency |
 | `addons/plugin_updater/` | Vendored Maaack Plugin Updater required by the full template's GDScript classes. | Implemented dependency |
 
-`factory/steam/SteamSession` owns current online lobby and `MultiplayerPeer` lifecycle. No generic transport or generic network-session module exists. `RuntimeMode.DedicatedServer` is retained as an intended gameplay role, but dedicated Steam hosting is not implemented.
+`factory/steam/SteamPlatform` owns the process-lifetime GodotSteam adapter; `SteamSession` owns one current online lobby and `MultiplayerPeer` lifecycle. No generic transport or generic network-session module exists. `RuntimeMode.DedicatedServer` is retained as an intended gameplay role, but dedicated Steam hosting is not implemented.
 
 ## Development and verification
 

@@ -49,7 +49,7 @@ public partial class SteamGameplayProbe : Node
 
             _diagnostics = new NetworkLogRelay { Name = "NetworkLogRelay" };
             AddChild(_diagnostics);
-            _adapter = GodotSteamAdapter.Create(this);
+            _adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
             _diagnostics.SourceMetadataResolver = ResolveSteamMetadata;
             _session = new SteamSession(_adapter, Multiplayer);
             _session.StateChanged += OnSessionStateChanged;
