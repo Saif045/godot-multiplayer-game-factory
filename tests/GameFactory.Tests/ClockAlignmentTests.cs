@@ -5,21 +5,36 @@ namespace GameFactory.Tests;
 public sealed class ClockAlignmentTests
 {
     [Fact]
-    public void Estimate_offset_normalizes_source_time_to_host_time()
+    public void Normal_progression_uses_elapsed_time_from_host_anchor()
     {
-        DateTimeOffset hostUtc = DateTimeOffset.Parse("2026-08-28T10:05:04Z");
-        DateTimeOffset sourceUtc = DateTimeOffset.Parse("2026-08-28T10:16:05Z");
+        DateTimeOffset hostAnchor = DateTimeOffset.Parse("2026-08-28T10:05:04Z");
 
-        long offset = ClockAlignment.EstimateHostOffsetMilliseconds(hostUtc, sourceUtc);
-
-        Assert.Equal(hostUtc, ClockAlignment.NormalizeToHostUtc(sourceUtc, offset));
+        Assert.Equal(
+            hostAnchor.AddMilliseconds(250),
+            ClockAlignment.NormalizeToHostUtc(hostAnchor, 1_000, 1_250));
     }
 
     [Fact]
-    public void Zero_offset_preserves_source_time()
+    public void Pre_anchor_event_extrapolates_backwards_from_elapsed_anchor()
     {
-        DateTimeOffset sourceUtc = DateTimeOffset.Parse("2026-08-28T10:05:04Z");
+        DateTimeOffset hostAnchor = DateTimeOffset.Parse("2026-08-28T10:05:04Z");
 
-        Assert.Equal(sourceUtc, ClockAlignment.NormalizeToHostUtc(sourceUtc, 0));
+        Assert.Equal(
+            hostAnchor.AddMilliseconds(-250),
+            ClockAlignment.NormalizeToHostUtc(hostAnchor, 1_000, 750));
+    }
+
+    [Fact]
+    public void Source_wall_clock_changes_do_not_affect_normalized_timeline()
+    {
+        DateTimeOffset hostAnchor = DateTimeOffset.Parse("2026-08-28T10:05:04Z");
+        DateTimeOffset sourceClockBeforeAdjustment = DateTimeOffset.Parse("2026-08-28T10:16:05Z");
+        DateTimeOffset sourceClockAfterAdjustment = sourceClockBeforeAdjustment.AddMinutes(10);
+
+        DateTimeOffset normalizedBefore = ClockAlignment.NormalizeToHostUtc(hostAnchor, 5_000, 5_200);
+        DateTimeOffset normalizedAfter = ClockAlignment.NormalizeToHostUtc(hostAnchor, 5_000, 5_200);
+
+        Assert.NotEqual(sourceClockBeforeAdjustment, sourceClockAfterAdjustment);
+        Assert.Equal(normalizedBefore, normalizedAfter);
     }
 }

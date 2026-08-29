@@ -20,6 +20,7 @@ public sealed class LogRun : IDisposable
     public string RunId { get; }
     public string LogRoot { get; }
     public string FilePath { get; }
+    public long ElapsedMilliseconds => _elapsed.ElapsedMilliseconds;
     public string? DiagnosticsSessionId { get; private set; }
     public event Action<LogEntry>? EntryWritten;
 

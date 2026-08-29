@@ -42,12 +42,16 @@ The relay is transport/platform independent. Steam peer-to-user mapping is
 optional enrichment supplied by the Steam sandbox; the diagnostics layer itself
 does not reference Steam. The session ID is not a Steam lobby ID.
 
-When the host assigns a diagnostics session, it includes its current UTC time.
-The client estimates a host-clock offset from that message and includes it with
-each batch. `master.jsonl` retains the source `entry.Utc`, source elapsed time,
-and source sequence, and adds both `host_received_utc` and `normalized_utc`.
-This is a lightweight debugging estimate rather than NTP-grade synchronization.
-Durable upload after process restart remains intentionally deferred.
+When the host assigns a diagnostics session, it includes its current UTC time and
+the client records its current monotonic elapsed milliseconds as the matching
+source anchor. Each batch carries those anchors. `master.jsonl` retains the
+source `entry.Utc`, source elapsed time, and source sequence, and adds both
+`host_received_utc` and `normalized_utc`. The normalized time is derived from
+the host UTC anchor plus the entry's elapsed-time delta, including backwards
+extrapolation for pre-session backlog. It does not depend on source wall-clock
+changes after assignment. This is a debugging timeline, not NTP-grade
+synchronization. Durable upload after process restart remains intentionally
+deferred.
 
 Session assignment is client-initiated: after Godot reports
 `ConnectedToServer`, the client defers a reliable diagnostics-session request by
@@ -61,3 +65,8 @@ The host is the sole writer of its `master.jsonl`. Every host or remote entry,
 including recorded sequence gaps, goes through one locked append path. The file
 allows concurrent readers but not a second writer, and each append serializes,
 writes one JSON object plus its newline, and flushes before returning.
+
+Structured JSONL contains only events emitted through `GameLog`. Raw Godot
+console output, native warnings, engine errors, and stack traces remain the
+responsibility of the process console capture; diagnostics does not intercept or
+replace them.

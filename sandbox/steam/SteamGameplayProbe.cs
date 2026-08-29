@@ -173,18 +173,20 @@ public partial class SteamGameplayProbe : Node
         }
     }
 
-    private void OnPeerDisconnected(long peerValue)
+    private async void OnPeerDisconnected(long peerValue)
     {
         if (!Multiplayer.IsServer()) return;
         _peers.Remove(new PeerId(peerValue));
-        CallDeferred(nameof(LogDisconnectSnapshot));
+        LogSnapshot("remote_peer_disconnect_started");
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        LogSnapshot("remote_peer_cleanup_complete");
     }
 
     private void OnConnectedToServer() => LogSnapshot("connected_to_server");
 
     private void OnSessionStateChanged(SteamSessionState _, SteamSessionState next)
     {
-        if (next == SteamSessionState.Ready && _diagnostics?.SessionId is not null)
+        if (next == SteamSessionState.Leaving && _diagnostics?.SessionId is not null)
             _diagnostics.EndSession();
     }
 
@@ -237,6 +239,4 @@ public partial class SteamGameplayProbe : Node
             ["door_is_open"] = _door?.IsOpen.ToString()
         });
     }
-
-    private void LogDisconnectSnapshot() => LogSnapshot("remote_peer_disconnected");
 }

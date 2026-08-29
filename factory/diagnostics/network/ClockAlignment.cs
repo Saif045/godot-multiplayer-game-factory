@@ -2,12 +2,12 @@ using System;
 
 namespace GameFactory.Diagnostics.Network;
 
-/// <summary>Provides a deliberately lightweight host-clock offset estimate for debug timelines.</summary>
+/// <summary>Creates a host timeline from a UTC anchor and source monotonic elapsed time.</summary>
 public static class ClockAlignment
 {
-    public static long EstimateHostOffsetMilliseconds(DateTimeOffset hostUtc, DateTimeOffset localUtc)
-        => hostUtc.ToUnixTimeMilliseconds() - localUtc.ToUnixTimeMilliseconds();
-
-    public static DateTimeOffset NormalizeToHostUtc(DateTimeOffset sourceUtc, long hostOffsetMilliseconds)
-        => sourceUtc.AddMilliseconds(hostOffsetMilliseconds);
+    public static DateTimeOffset NormalizeToHostUtc(
+        DateTimeOffset hostUtcAnchor,
+        long sourceElapsedAnchorMilliseconds,
+        long sourceElapsedMilliseconds)
+        => hostUtcAnchor.AddMilliseconds(sourceElapsedMilliseconds - sourceElapsedAnchorMilliseconds);
 }

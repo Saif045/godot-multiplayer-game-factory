@@ -51,6 +51,19 @@ public sealed class RelayBacklogTests
         Assert.Equal(next.ToString(), batch.DiagnosticsSessionId);
     }
 
+    [Fact]
+    public void Batch_carries_timeline_anchors_with_its_entries()
+    {
+        var backlog = new RelayBacklog();
+        backlog.BeginSession(DiagnosticsSessionId.New());
+        backlog.Record(Entry(1));
+
+        LogBatch batch = Assert.IsType<LogBatch>(backlog.CreateBatch("run", 32, 1234, 5678));
+
+        Assert.Equal(1234, batch.HostUtcAnchorUnixMilliseconds);
+        Assert.Equal(5678, batch.SourceElapsedAnchorMilliseconds);
+    }
+
     private static LogEntry Entry(long sequence) => new(
         DateTimeOffset.UnixEpoch,
         sequence,

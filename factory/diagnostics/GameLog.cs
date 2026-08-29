@@ -13,6 +13,7 @@ public static class GameLog
     private static LogRun? _run;
 
     public static string RunId => Run.RunId;
+    public static long ElapsedMilliseconds => Run.ElapsedMilliseconds;
     public static string LogRoot => Run.LogRoot;
     public static string LocalFilePath => Run.FilePath;
     public static event Action<LogEntry>? EntryWritten;

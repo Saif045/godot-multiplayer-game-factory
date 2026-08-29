@@ -6,5 +6,6 @@ public sealed record LogBatch(
     string DiagnosticsSessionId,
     string RunId,
     long DroppedThroughSequence,
-    long HostClockOffsetMilliseconds,
+    long HostUtcAnchorUnixMilliseconds,
+    long SourceElapsedAnchorMilliseconds,
     IReadOnlyList<LogEntry> Entries);

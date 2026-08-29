@@ -21,7 +21,8 @@ public partial class NetworkLogRelay : Node
     private readonly Dictionary<string, long> _highestReceived = [];
     private MasterLogWriter? _masterWriter;
     private DiagnosticsSessionId? _hostSession;
-    private long _hostClockOffsetMilliseconds;
+    private long _hostUtcAnchorUnixMilliseconds;
+    private long _sourceElapsedAnchorMilliseconds;
     private double _secondsUntilFlush;
 
     public Func<PeerId, IReadOnlyDictionary<string, string?>?>? SourceMetadataResolver { get; set; }
@@ -75,7 +76,8 @@ public partial class NetworkLogRelay : Node
         _masterWriter = null;
         _hostSession = null;
         SessionId = null;
-        _hostClockOffsetMilliseconds = 0;
+        _hostUtcAnchorUnixMilliseconds = 0;
+        _sourceElapsedAnchorMilliseconds = 0;
         _highestReceived.Clear();
         _backlog.EndSession();
         GameLog.ClearSession();
@@ -83,6 +85,9 @@ public partial class NetworkLogRelay : Node
 
     public override void _Process(double delta)
     {
+        if (SessionId is null || !Multiplayer.HasMultiplayerPeer())
+            return;
+
         _secondsUntilFlush -= delta;
         if (_secondsUntilFlush > 0 || Multiplayer.IsServer())
             return;
@@ -98,14 +103,14 @@ public partial class NetworkLogRelay : Node
         DiagnosticsSessionId assigned = new(raw);
         if (SessionId is not null && SessionId.Value == assigned) return;
         SessionId = assigned;
-        _hostClockOffsetMilliseconds = ClockAlignment.EstimateHostOffsetMilliseconds(
-            DateTimeOffset.FromUnixTimeMilliseconds(hostUtcUnixMilliseconds),
-            DateTimeOffset.UtcNow);
+        _hostUtcAnchorUnixMilliseconds = hostUtcUnixMilliseconds;
+        _sourceElapsedAnchorMilliseconds = GameLog.ElapsedMilliseconds;
         _backlog.BeginSession(assigned);
         GameLog.AssociateSession(assigned);
         GameLog.Info("diagnostics.session", "assigned", $"session={SessionId}", new Dictionary<string, string?>
         {
-            ["host_clock_offset_ms"] = _hostClockOffsetMilliseconds.ToString()
+            ["host_utc_anchor_ms"] = _hostUtcAnchorUnixMilliseconds.ToString(),
+            ["source_elapsed_anchor_ms"] = _sourceElapsedAnchorMilliseconds.ToString()
         });
     }
 
@@ -144,7 +149,10 @@ public partial class NetworkLogRelay : Node
             highest = entry.Sequence;
             hasAcceptedEntry = true;
             WriteMaster(entry, new PeerId(sender), role: "client", DateTimeOffset.UtcNow,
-                ClockAlignment.NormalizeToHostUtc(entry.Utc, batch.HostClockOffsetMilliseconds));
+                ClockAlignment.NormalizeToHostUtc(
+                    DateTimeOffset.FromUnixTimeMilliseconds(batch.HostUtcAnchorUnixMilliseconds),
+                    batch.SourceElapsedAnchorMilliseconds,
+                    entry.ElapsedMilliseconds));
         }
         _highestReceived[runId] = highest;
         RpcId(sender, MethodName.AcknowledgeBatchRpc, runId, highest);
@@ -169,7 +177,11 @@ public partial class NetworkLogRelay : Node
         CallDeferred(nameof(RequestDiagnosticsSession));
     }
     private void OnConnectionFailed() => GameLog.Warning("network.connection", "connection_failed");
-    private void OnServerDisconnected() => GameLog.Warning("network.connection", "server_disconnected");
+    private void OnServerDisconnected()
+    {
+        GameLog.Warning("network.connection", "server_disconnected");
+        EndSession();
+    }
 
     private void OnLocalEntry(LogEntry entry)
     {
@@ -182,7 +194,12 @@ public partial class NetworkLogRelay : Node
 
     private void FlushClientBatch()
     {
-        LogBatch? batch = _backlog.CreateBatch(GameLog.RunId, BatchLimit, _hostClockOffsetMilliseconds);
+        if (SessionId is null || !Multiplayer.HasMultiplayerPeer()) return;
+        LogBatch? batch = _backlog.CreateBatch(
+            GameLog.RunId,
+            BatchLimit,
+            _hostUtcAnchorUnixMilliseconds,
+            _sourceElapsedAnchorMilliseconds);
         if (batch is null) return;
         RpcId(PeerId.Server.Value, MethodName.ReceiveBatchRpc, JsonSerializer.Serialize(batch));
     }
@@ -217,6 +234,7 @@ public partial class NetworkLogRelay : Node
 
     private void RequestDiagnosticsSession()
     {
+        if (!Multiplayer.HasMultiplayerPeer()) return;
         if (Multiplayer.IsServer()) return;
         RpcId(PeerId.Server.Value, MethodName.RequestDiagnosticsSessionRpc);
     }
