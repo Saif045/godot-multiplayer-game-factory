@@ -16,4 +16,4 @@ The server remains authoritative for shared world state. A represented object ow
 
 ## Evidence and limits
 
-Two-account Steam listen-server acceptance has exercised lobby join/leave, player and object lifecycle, late join, authority, replication acknowledgement, and diagnostics. Automated tests cover engine-independent policies; Godot integration and multiprocess automation remain planned. Dedicated servers and authentication are future work, not declared adapter seams.
+Two-account Steam listen-server acceptance has exercised lobby join/leave, player and object lifecycle, late join, authority, replication acknowledgement, and diagnostics. Engine-independent policies have xUnit coverage; the concrete host-PC-to-VM Steam scenario is externally automated with build-parity and staged diagnostics, while a generic Godot integration framework and CI remain planned. Dedicated servers and authentication are future work, not declared adapter seams.

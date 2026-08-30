@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
@@ -18,6 +19,7 @@ public sealed class SteamSession : IDisposable
     public SteamSessionState State { get; private set; } = SteamSessionState.Offline;
     public string? LastError { get; private set; }
     public SteamLobby? Lobby => _adapter.CurrentLobby;
+    public MultiplayerPeer? ActivePeer => _activePeer;
     public event Action<SteamSessionState, SteamSessionState>? StateChanged;
     public event Action<SteamLobbyId, SteamUserId>? LobbyJoinRequested;
     /// <summary>Raised after the local closing event is recorded but before Godot's peer is removed.</summary>
@@ -59,8 +61,10 @@ public sealed class SteamSession : IDisposable
         try
         {
             SteamLobby lobby = await _adapter.CreateLobbyAsync(lobbyOptions, cancellationToken);
+            LogLifecycle("lobby_created", "host", lobby);
             MultiplayerPeer peer = await _adapter.CreateListenServerPeerAsync(peerOptions, cancellationToken);
-            InstallPeer(peer);
+            LogPeer("created", "host", peer, lobby);
+            InstallPeer(peer, "host", lobby);
             TransitionTo(SteamSessionState.Hosting);
             return lobby;
         }
@@ -82,8 +86,10 @@ public sealed class SteamSession : IDisposable
         try
         {
             SteamLobby lobby = await _adapter.JoinLobbyAsync(lobbyId, cancellationToken);
+            LogLifecycle("lobby_joined", "client", lobby);
             MultiplayerPeer peer = await _adapter.CreateLobbyClientPeerAsync(lobbyId, peerOptions, cancellationToken);
-            InstallPeer(peer);
+            LogPeer("created", "client", peer, lobby);
+            InstallPeer(peer, "client", lobby);
             TransitionTo(SteamSessionState.Connected);
             return lobby;
         }
@@ -134,11 +140,32 @@ public sealed class SteamSession : IDisposable
         }
     }
 
-    private void InstallPeer(MultiplayerPeer peer)
+    private void InstallPeer(MultiplayerPeer peer, string role, SteamLobby lobby)
     {
         _activePeer = peer;
         _multiplayer.MultiplayerPeer = peer;
+        LogPeer("assigned_to_multiplayer_api", role, peer, lobby);
     }
+
+    private static void LogLifecycle(string eventName, string role, SteamLobby lobby) =>
+        GameLog.Info("steam.lifecycle", eventName, fields: new Dictionary<string, string?>
+        {
+            ["role"] = role,
+            ["lobby_id"] = lobby.Id.ToString(),
+            ["owner_steam_id"] = lobby.OwnerId.ToString(),
+            ["member_count"] = lobby.Members.Count.ToString()
+        });
+
+    private static void LogPeer(string eventName, string role, MultiplayerPeer peer, SteamLobby lobby) =>
+        GameLog.Info("steam.peer", eventName, fields: new Dictionary<string, string?>
+        {
+            ["role"] = role,
+            ["peer_type"] = peer.GetType().Name,
+            ["connection_status"] = peer.GetConnectionStatus().ToString(),
+            ["lobby_id"] = lobby.Id.ToString(),
+            ["owner_steam_id"] = lobby.OwnerId.ToString(),
+            ["member_count"] = lobby.Members.Count.ToString()
+        });
 
     private void TearDownActivePeer()
     {

@@ -35,6 +35,6 @@ Gameplay code is not coupled to GodotSteam. `ISteamAdapter` and `GodotSteamAdapt
 
 ## Evidence and direction
 
-The Steam-gameplay probe has been accepted in a real two-account listen-server run: peer join/leave, player lifecycle, NetworkWorld spawn/despawn, late join, server-authoritative door interaction, replicated-revision acknowledgement, and distributed diagnostic collection were observed. This is manual runtime evidence, not automated Godot integration coverage.
+The Steam-gameplay probe has both manual two-account evidence and a concrete host-PC-to-VM acceptance scenario covering lobby membership, native/Godot connection, player lifecycle, NetworkWorld spawn/despawn, server-authoritative door mutation, replicated-revision acknowledgement, and distributed diagnostics. The external harness requires two real Steam accounts and is not a generic Godot integration framework or CI coverage.
 
 Future work must be justified by playable co-op slices. Potential areas include dedicated Steam servers when there is a real deployment need, persistent identity, Godot integration/multiprocess testing, CI, packaging, and gameplay primitives. Do not reintroduce a platform-neutral transport/session layer without a concrete second implementation that needs it.

@@ -24,6 +24,7 @@ public partial class SandboxLauncher : Node
     public override void _Ready()
     {
         GameLog.EnsureInitialized();
+        BuildIdentity.LogCurrent();
         string target = ReadTarget(
             OS.GetCmdlineArgs()
                 .Concat(OS.GetCmdlineUserArgs()));

@@ -36,6 +36,9 @@ public partial class SteamGameplayProbe : Node
     private NetworkObjectId? _doorId;
     private string? _testScenario;
     private string? _testRunId;
+    private string? _testRole;
+    private MultiplayerPeer.ConnectionStatus? _lastPeerConnectionStatus;
+    private double _peerStatusSampleSeconds;
     private bool _scenarioDoorMutationStarted;
     private bool _scenarioClientWorldReported;
     private bool _scenarioClientDoorReported;
@@ -68,6 +71,7 @@ public partial class SteamGameplayProbe : Node
             string[] args = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
             _testScenario = ReadArgument(args, "--test-scenario=");
             _testRunId = ReadArgument(args, "--test-run-id=");
+            _testRole = args.Contains("--steam-host") ? "host" : args.Any(argument => argument.StartsWith("--steam-lobby=", StringComparison.Ordinal)) ? "client" : null;
             if (_testScenario is not null && !string.Equals(_testScenario, "steam_basic", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException($"Unknown test scenario '{_testScenario}'. Available scenarios: steam_basic.");
             if (args.Contains("--steam-host"))
@@ -120,6 +124,8 @@ public partial class SteamGameplayProbe : Node
         Multiplayer.PeerConnected -= OnPeerConnected;
         Multiplayer.PeerDisconnected -= OnPeerDisconnected;
         Multiplayer.ConnectedToServer -= OnConnectedToServer;
+        Multiplayer.ConnectionFailed -= OnConnectionFailed;
+        Multiplayer.ServerDisconnected -= OnServerDisconnected;
         _confirmations.Changed -= OnConfirmationChanged;
         _playerLifecycle?.Dispose();
         if (_session is not null)
@@ -138,6 +144,7 @@ public partial class SteamGameplayProbe : Node
         _diagnostics?.StartHostSession();
         GameLog.Info("gameplay.session", "hosting", $"lobby={lobby.Id}");
         LogScenario("host_ready", new Dictionary<string, string?> { ["lobby_id"] = lobby.Id.ToString() });
+        LogPeerStatus("initial");
         LogSnapshot("host_initialized");
     }
 
@@ -147,6 +154,7 @@ public partial class SteamGameplayProbe : Node
         _runtime.SetMode(RuntimeMode.Client);
         GameLog.Info("gameplay.session", "joining", $"lobby={lobbyId}");
         LogScenario("client_joined_lobby", new Dictionary<string, string?> { ["lobby_id"] = lobbyId.ToString() });
+        LogPeerStatus("initial");
     }
 
     public Task LeaveGameAsync() => _session?.LeaveAsync() ?? Task.CompletedTask;
@@ -222,7 +230,24 @@ public partial class SteamGameplayProbe : Node
         LogSnapshot("remote_peer_cleanup_complete");
     }
 
-    private void OnConnectedToServer() => LogSnapshot("connected_to_server");
+    private void OnConnectedToServer()
+    {
+        LogScenario("godot_connected_to_server");
+        LogPeerStatus("godot_signal");
+        LogSnapshot("connected_to_server");
+    }
+
+    private void OnConnectionFailed()
+    {
+        LogScenarioFailure("godot_connection_failed");
+        LogPeerStatus("godot_signal");
+    }
+
+    private void OnServerDisconnected()
+    {
+        LogScenarioFailure("godot_server_disconnected");
+        LogPeerStatus("godot_signal");
+    }
 
     private void OnSessionStateChanged(SteamSessionState _, SteamSessionState next)
     {
@@ -234,6 +259,13 @@ public partial class SteamGameplayProbe : Node
 
     public override void _Process(double delta)
     {
+        _peerStatusSampleSeconds -= delta;
+        if (_peerStatusSampleSeconds <= 0)
+        {
+            LogPeerStatus("periodic");
+            _peerStatusSampleSeconds = 1.0;
+        }
+
         if (!Multiplayer.HasMultiplayerPeer()) return;
         if (Multiplayer.IsServer())
         {
@@ -262,6 +294,8 @@ public partial class SteamGameplayProbe : Node
         Multiplayer.PeerConnected += OnPeerConnected;
         Multiplayer.PeerDisconnected += OnPeerDisconnected;
         Multiplayer.ConnectedToServer += OnConnectedToServer;
+        Multiplayer.ConnectionFailed += OnConnectionFailed;
+        Multiplayer.ServerDisconnected += OnServerDisconnected;
     }
 
     private void SubscribeToRegistries()
@@ -460,8 +494,45 @@ public partial class SteamGameplayProbe : Node
             : new Dictionary<string, string?>(fields);
         scenarioFields["scenario"] = _testScenario;
         scenarioFields["test_run_id"] = _testRunId;
-        scenarioFields["role"] = Multiplayer.IsServer() ? "host" : "client";
+        scenarioFields["role"] = _testRole ?? (Multiplayer.IsServer() ? "host" : "client");
         GameLog.Info("ab_test.scenario", eventName, fields: scenarioFields);
+    }
+
+    private void LogScenarioFailure(string eventName)
+    {
+        if (!IsSteamBasicScenario) return;
+        GameLog.Warning("ab_test.scenario", eventName, fields: new Dictionary<string, string?>
+        {
+            ["scenario"] = _testScenario,
+            ["test_run_id"] = _testRunId,
+            ["role"] = _testRole ?? (Multiplayer.IsServer() ? "host" : "client")
+        });
+    }
+
+    private void LogPeerStatus(string reason)
+    {
+        MultiplayerPeer? peer = _session?.ActivePeer;
+        if (peer is null || !GodotObject.IsInstanceValid(peer)) return;
+
+        MultiplayerPeer.ConnectionStatus status = peer.GetConnectionStatus();
+        bool changed = _lastPeerConnectionStatus != status;
+        _lastPeerConnectionStatus = status;
+        SteamLobby? lobby = _session?.Lobby;
+        long uniqueId = 0;
+        try { uniqueId = Multiplayer.GetUniqueId(); }
+        catch (Exception) { }
+        GameLog.Info("steam.peer_status", changed ? "changed" : "sampled", fields: new Dictionary<string, string?>
+        {
+            ["reason"] = reason,
+            ["role"] = _testRole,
+            ["peer_type"] = peer.GetType().Name,
+            ["connection_status"] = status.ToString(),
+            ["local_unique_id"] = uniqueId.ToString(),
+            ["lobby_id"] = lobby?.Id.ToString(),
+            ["local_steam_id"] = _adapter?.LocalUser.Id.ToString(),
+            ["owner_steam_id"] = lobby?.OwnerId.ToString(),
+            ["member_count"] = lobby?.Members.Count.ToString()
+        });
     }
 
     private static string? ReadArgument(IEnumerable<string> arguments, string prefix)

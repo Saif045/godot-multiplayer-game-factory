@@ -95,7 +95,7 @@ public partial class NetworkLogRelay : Node
 
     public override void _Process(double delta)
     {
-        if (SessionId is null || !Multiplayer.HasMultiplayerPeer())
+        if (SessionId is null || !HasConnectedPeer())
             return;
 
         _secondsUntilFlush -= delta;
@@ -109,7 +109,7 @@ public partial class NetworkLogRelay : Node
     /// <summary>Best-effort send while the application peer still exists; local files stay authoritative.</summary>
     public void FlushBeforePeerTeardown()
     {
-        if (SessionId is null || Multiplayer.IsServer() || !Multiplayer.HasMultiplayerPeer()) return;
+        if (SessionId is null || Multiplayer.IsServer() || !HasConnectedPeer()) return;
         try { FlushClientBatch(); }
         catch (Exception)
         {
@@ -216,7 +216,7 @@ public partial class NetworkLogRelay : Node
 
     private void FlushClientBatch()
     {
-        if (SessionId is null || !Multiplayer.HasMultiplayerPeer()) return;
+        if (SessionId is null || !HasConnectedPeer()) return;
         LogBatch? batch = _backlog.CreateBatch(
             GameLog.RunId,
             BatchLimit,
@@ -270,8 +270,13 @@ public partial class NetworkLogRelay : Node
 
     private void RequestDiagnosticsSession()
     {
-        if (!Multiplayer.HasMultiplayerPeer()) return;
+        if (!HasConnectedPeer()) return;
         if (Multiplayer.IsServer()) return;
         RpcId(PeerId.Server.Value, MethodName.RequestDiagnosticsSessionRpc);
     }
+
+    private bool HasConnectedPeer() =>
+        Multiplayer.HasMultiplayerPeer() &&
+        Multiplayer.MultiplayerPeer is { } peer &&
+        peer.GetConnectionStatus() == MultiplayerPeer.ConnectionStatus.Connected;
 }

@@ -12,7 +12,7 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/objects/` | Compositional network object host, authority, and replication components. | Implemented |
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
 | `factory/steam/` | Process-lifetime Steam platform owner plus scene-local session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
-| `factory/diagnostics/` | Structured process logs, replication confirmation, and distributed session evidence. | Implemented |
+| `factory/diagnostics/` | Structured process logs, exported-build identity, replication confirmation, and distributed session evidence. | Implemented |
 | `factory/shell/` | Minimal C# bootstrap/host/leave flow plus project-owned Maaack options composition around the retained Steam gameplay probe. | Implemented shell slice |
 | `addons/maaacks_game_template/` | Vendored Maaack Game Template: local menus, settings, remapping, loading, audio, and optional local game helpers. | Implemented dependency |
 | `addons/plugin_updater/` | Vendored Maaack Plugin Updater required by the full template's GDScript classes. | Implemented dependency |
@@ -26,7 +26,7 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `sandbox/steam/` | Steam/lobby smoke, native re-host dependency smoke, and manual or test-only two-account gameplay acceptance probe. | Steam acceptance laboratory |
 | `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam` or `--run=steam-gameplay` |
 | `tests/GameFactory.Tests/` | Engine-independent xUnit tests for pure policy, values, registries, and diagnostics. | Automated baseline |
-| `tools/` | Local build helpers plus the host-PC-to-VM Steam A/B acceptance harness. | Developer tooling / external-environment acceptance |
+| `tools/` | Clean/configurable export and manifest helpers plus the build-parity-gated host-PC-to-VM Steam A/B acceptance harness. | Developer tooling / external-environment acceptance |
 
 The repository has no generic ENet adapter, Godot integration harness, multiprocess runner, persistent identity, packaging workflow, or CI configuration. Maaack's global-state/progression/win-loss helpers are installed but intentionally not authoritative multiplayer systems.
 
