@@ -1,5 +1,6 @@
 param(
-    [string]$Godot = "D:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe"
+    [string]$Godot = "D:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe",
+    [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,6 +8,11 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $OutputDir = Join-Path $RepoRoot "build\test_steam"
 $OutputExe = Join-Path $OutputDir "GameFactory.exe"
+
+if ($Clean -and (Test-Path -LiteralPath $OutputDir)) {
+    Write-Host "Removing previous generated export: $OutputDir"
+    Remove-Item -LiteralPath $OutputDir -Recurse -Force
+}
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 

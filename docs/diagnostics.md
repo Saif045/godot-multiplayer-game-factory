@@ -26,6 +26,11 @@ and thread-safe; they do not call Godot printing APIs, avoiding logging loops.
 Like all in-process logger registration, it cannot recover messages emitted
 before GameFactory's launcher has initialized diagnostics.
 
+An acceptance command may pass `--test-run-id=<id>`. When present, that value is
+used as the local run ID so host and VM artifacts can be correlated without
+changing the normal logging model. It is a test-run correlation value, not a
+Steam lobby ID or diagnostics-session ID.
+
 `GameLog` preserves live Godot output: information uses `GD.Print`, warnings use
 `GD.PushWarning`, and errors use `GD.PushError`. Its lines are tagged so the
 engine logger keeps the raw local mirror without forwarding a duplicate into a

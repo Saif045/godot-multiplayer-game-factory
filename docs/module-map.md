@@ -23,10 +23,10 @@ This inventory describes tracked paths and current responsibilities. Directories
 
 | Path | Responsibility | Evidence |
 |---|---|---|
-| `sandbox/steam/` | Steam/lobby smoke, native re-host dependency smoke, and two-account gameplay acceptance probe. | Manual Steam acceptance |
+| `sandbox/steam/` | Steam/lobby smoke, native re-host dependency smoke, and manual or test-only two-account gameplay acceptance probe. | Steam acceptance laboratory |
 | `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam` or `--run=steam-gameplay` |
 | `tests/GameFactory.Tests/` | Engine-independent xUnit tests for pure policy, values, registries, and diagnostics. | Automated baseline |
-| `tools/` | Local build and test-client helper scripts. | Developer tooling |
+| `tools/` | Local build helpers plus the host-PC-to-VM Steam A/B acceptance harness. | Developer tooling / external-environment acceptance |
 
 The repository has no generic ENet adapter, Godot integration harness, multiprocess runner, persistent identity, packaging workflow, or CI configuration. Maaack's global-state/progression/win-loss helpers are installed but intentionally not authoritative multiplayer systems.
 

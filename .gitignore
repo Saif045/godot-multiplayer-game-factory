@@ -4,6 +4,8 @@
 .vscode/
 steam_appid.txt
 build
+/artifacts/
+/tools/ab_test/.runtime/
 /.tmp-*/
 /addons/godotsteam/win64/~*.TMP
 

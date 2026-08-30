@@ -34,6 +34,13 @@ public partial class SteamGameplayProbe : Node
     private NetworkWorld _world = null!;
     private RawDoor? _door;
     private NetworkObjectId? _doorId;
+    private string? _testScenario;
+    private string? _testRunId;
+    private bool _scenarioDoorMutationStarted;
+    private bool _scenarioClientWorldReported;
+    private bool _scenarioClientDoorReported;
+    private bool _scenarioHostPassed;
+    private long? _scenarioDoorRevision;
 
     [Export] public PackedScene DoorScene { get; set; } = null!;
     [Export] public PackedScene PlayerScene { get; set; } = null!;
@@ -59,6 +66,10 @@ public partial class SteamGameplayProbe : Node
             GameLog.Info("gameplay.probe", "ready", "Use --steam-host or --steam-lobby=<id>. Keys: H host, R mutate door, P snapshot, L leave.");
 
             string[] args = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
+            _testScenario = ReadArgument(args, "--test-scenario=");
+            _testRunId = ReadArgument(args, "--test-run-id=");
+            if (_testScenario is not null && !string.Equals(_testScenario, "steam_basic", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"Unknown test scenario '{_testScenario}'. Available scenarios: steam_basic.");
             if (args.Contains("--steam-host"))
             {
                 await HostGameAsync();
@@ -126,6 +137,7 @@ public partial class SteamGameplayProbe : Node
         InitializeAuthoritativeGameplay();
         _diagnostics?.StartHostSession();
         GameLog.Info("gameplay.session", "hosting", $"lobby={lobby.Id}");
+        LogScenario("host_ready", new Dictionary<string, string?> { ["lobby_id"] = lobby.Id.ToString() });
         LogSnapshot("host_initialized");
     }
 
@@ -134,6 +146,7 @@ public partial class SteamGameplayProbe : Node
         await _session!.JoinAsync(lobbyId, new SteamClientOptions());
         _runtime.SetMode(RuntimeMode.Client);
         GameLog.Info("gameplay.session", "joining", $"lobby={lobbyId}");
+        LogScenario("client_joined_lobby", new Dictionary<string, string?> { ["lobby_id"] = lobbyId.ToString() });
     }
 
     public Task LeaveGameAsync() => _session?.LeaveAsync() ?? Task.CompletedTask;
@@ -222,8 +235,14 @@ public partial class SteamGameplayProbe : Node
     public override void _Process(double delta)
     {
         if (!Multiplayer.HasMultiplayerPeer()) return;
-        if (!Multiplayer.IsServer()) return;
-        _confirmations.Expire(GameLog.ElapsedMilliseconds, ConfirmationTimeoutMilliseconds);
+        if (Multiplayer.IsServer())
+        {
+            _confirmations.Expire(GameLog.ElapsedMilliseconds, ConfirmationTimeoutMilliseconds);
+            TryRunHostScenario();
+            return;
+        }
+
+        TryReportClientScenarioState();
     }
 
     private void ToggleDoor()
@@ -287,6 +306,14 @@ public partial class SteamGameplayProbe : Node
                 break;
             case ReplicationConfirmationEventKind.Completed:
                 GameLog.Info("gameplay.replication", "confirmation_complete", fields: ConfirmationFields(snapshot));
+                if (IsSteamBasicScenario && !_scenarioHostPassed && snapshot.Revision == _scenarioDoorRevision)
+                {
+                    _scenarioHostPassed = true;
+                    LogScenario("host_passed", new Dictionary<string, string?>(ConfirmationFields(snapshot))
+                    {
+                        ["assertion"] = "authoritative_door_revision_confirmed"
+                    });
+                }
                 break;
             case ReplicationConfirmationEventKind.TimedOut:
                 var fields = new Dictionary<string, string?>(ConfirmationFields(snapshot))
@@ -357,5 +384,92 @@ public partial class SteamGameplayProbe : Node
             ["network_objects"] = _world.Count.ToString(), ["local_player_id"] = localPlayer?.Player?.PlayerId.ToString(), ["local_player_object_id"] = localPlayer?.NetworkObject.Id.ToString(),
             ["door_id"] = observedDoor?.NetworkObject.Id.ToString(), ["door_is_open"] = observedDoor?.Door?.IsOpen.ToString(), ["door_revision"] = observedDoor?.Door?.Revision.ToString()
         });
+    }
+
+    private bool IsSteamBasicScenario => string.Equals(_testScenario, "steam_basic", StringComparison.OrdinalIgnoreCase);
+
+    private void TryRunHostScenario()
+    {
+        if (!IsSteamBasicScenario || _scenarioDoorMutationStarted || _door is null || _doorId is null)
+            return;
+
+        NetworkPeer[] remotePeers = _peers.Peers.Where(peer => !peer.IsLocal).ToArray();
+        if (remotePeers.Length != 1 || _players.Count < 2 || _world.Count < 3)
+            return;
+
+        _scenarioDoorMutationStarted = true;
+        LogScenario("host_world_ready", new Dictionary<string, string?>
+        {
+            ["remote_peer_id"] = remotePeers[0].Id.ToString(),
+            ["players"] = _players.Count.ToString(),
+            ["network_objects"] = _world.Count.ToString()
+        });
+        SetDoorOpenForScenario();
+    }
+
+    private void SetDoorOpenForScenario()
+    {
+        if (_door is null) return;
+        _door.SetOpenOnAuthority(true);
+        _scenarioDoorRevision = _door.Revision;
+        LogScenario("host_door_mutated", new Dictionary<string, string?>
+        {
+            ["network_object_id"] = _doorId?.ToString(),
+            ["revision"] = _door.Revision.ToString(),
+            ["is_open"] = _door.IsOpen.ToString()
+        });
+    }
+
+    private void TryReportClientScenarioState()
+    {
+        if (!IsSteamBasicScenario) return;
+
+        RawDoor? observedDoor = _world.Objects
+            .Select(networkObject => networkObject.Host as RawDoor)
+            .FirstOrDefault(door => door is not null);
+        int playerCount = _world.Objects.Count(networkObject => networkObject.Host is RawPlayer);
+        if (!_scenarioClientWorldReported && observedDoor is not null && playerCount >= 2)
+        {
+            _scenarioClientWorldReported = true;
+            LogScenario("client_world_ready", new Dictionary<string, string?>
+            {
+                ["players"] = playerCount.ToString(),
+                ["network_objects"] = _world.Count.ToString(),
+                ["door_id"] = observedDoor.GetNode<NetworkObject>("NetworkObject").Id.ToString()
+            });
+        }
+
+        if (_scenarioClientDoorReported || observedDoor is null || !observedDoor.IsOpen || observedDoor.Revision < 1)
+            return;
+
+        _scenarioClientDoorReported = true;
+        LogScenario("client_passed", new Dictionary<string, string?>
+        {
+            ["assertion"] = "authoritative_door_revision_observed",
+            ["revision"] = observedDoor.Revision.ToString(),
+            ["is_open"] = observedDoor.IsOpen.ToString()
+        });
+    }
+
+    private void LogScenario(string eventName, IReadOnlyDictionary<string, string?>? fields = null)
+    {
+        if (!IsSteamBasicScenario) return;
+
+        var scenarioFields = fields is null
+            ? new Dictionary<string, string?>()
+            : new Dictionary<string, string?>(fields);
+        scenarioFields["scenario"] = _testScenario;
+        scenarioFields["test_run_id"] = _testRunId;
+        scenarioFields["role"] = Multiplayer.IsServer() ? "host" : "client";
+        GameLog.Info("ab_test.scenario", eventName, fields: scenarioFields);
+    }
+
+    private static string? ReadArgument(IEnumerable<string> arguments, string prefix)
+    {
+        string? argument = arguments.FirstOrDefault(value => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        if (argument is null) return null;
+
+        string value = argument[prefix.Length..].Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 }

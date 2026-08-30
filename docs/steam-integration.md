@@ -19,6 +19,8 @@ The flow is explicit: initialize Steam once per application, then for every sess
 
 The exported development launcher defaults to `--run=steam-gameplay`; `--run=steam` selects the focused lobby probe. The probe supports `--steam-host`, `--steam-lobby=<id>`, and interactive host/invite/join/leave actions. The launcher intentionally selects registered scenes rather than unsupported arbitrary `--scene` overrides.
 
+`tools/ab_test/run.ps1` can run the existing gameplay probe as a two-account acceptance scenario before future networking work begins. It extracts the active host lobby ID from `ab_test.scenario/host_ready` structured diagnostics, generates and SCPs a per-run client configuration, then triggers a preconfigured interactive VM task. The test-only `--test-scenario=steam_basic` path waits for actual peer/player/world state, mutates the authoritative probe door, and records host/client completion markers. It does not add production gameplay behavior or automate Steam through GUI input.
+
 `sandbox/steam/steam_native_rehost_probe.tscn` remains a dependency smoke: with Steam active, verify `create_host(0)`, `close()`, then `create_host(0)` succeeds. It validates the vendored peer's teardown independently of gameplay.
 
 Dedicated Steam servers, Steam authentication, host migration, production App ID setup, export/shipping configuration, and an application/menu shell are planned only when a concrete need justifies them.

@@ -4,7 +4,7 @@
 
 `tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover peer/player value types and registries, `PlayerLifecycle` role policy, `NetworkObjectId`, spawn-group values, diagnostics records and writers, replication-confirmation tracking, and distributed-log batching/sequence handling. They do not launch Godot, create a scene tree, open a Steam connection, or validate GodotSteam.
 
-There is no CI workflow, Godot integration-test harness, or multiprocess scenario runner. `NetworkWorld`, scene/component lifecycle, `MultiplayerSynchronizer`, resource-UID resolution, Steam overlay behavior, and cross-process behavior therefore require manual evidence today.
+There is no CI workflow or generic Godot integration-test framework. `tools/ab_test/run.ps1` is a concrete two-account Steam scenario runner: it exports the current build, hosts on the PC, discovers the current lobby ID from structured diagnostics, sends a generated client configuration to a configured Windows VM over SCP, and triggers that VM's interactive scheduled task. It is deliberately a laboratory harness for the existing Steam gameplay slice, not a generic multiplayer test framework or a substitute for CI.
 
 The Maaack shell has a headless Godot startup smoke for addon/script/autoload/scene-load failures. Visual UX remains manual acceptance: menu focus/navigation, settings persistence, keyboard/mouse/controller remapping and reset persistence, loading transition, pause/resume, first-click leave-to-menu, and host/leave/re-host without a Steam reinitialization must be checked in a normal exported run. Maaack's physical-key display support requires a normal display server, so loading its Controls scene headlessly can emit expected display-server warnings while input labels are formatted.
 
@@ -12,9 +12,12 @@ The Maaack shell has a headless Godot startup smoke for addon/script/autoload/sc
 
 1. **Engine-independent unit tests** cover deterministic values, policy, and diagnostic logic.
 2. **Manual Steam dependency smoke** verifies vendored `SteamMultiplayerPeer` can host, close, and host again in one process.
-3. **Manual two-account Steam gameplay acceptance** verifies the actual online vertical slice: lobby join/leave, peers, player lifecycle, dynamic spawn/despawn, late join, server-authoritative door mutation, replication acknowledgement, and distributed diagnostics.
-4. **Future Godot integration and multiprocess tests** should automate scene lifecycle, authority, replication, teardown, and role behavior once a concrete repeatable harness is selected.
+3. **Automated two-account Steam A/B acceptance** runs the existing `steam_basic` scenario across a host PC and a VM: lobby creation/join, Godot connection, player/world lifecycle, server-authoritative door mutation, replicated revision acknowledgement, diagnostics relay, and cleanup. It requires real logged-in Steam accounts and the documented VM control prerequisites.
+4. **Manual two-account Steam gameplay acceptance** remains useful for invite overlays, UX, arbitrary join/leave exploration, and conditions not represented by a deterministic scenario.
+5. **Future Godot integration and multiprocess scenarios** should add focused coverage when another repeatable contract justifies it; the A/B harness is the starting execution path, not a claim that all engine behavior is covered.
 
 Diagnostics writes `game.jsonl` and `engine.log` per run. An authoritative session additionally materializes `session.log`, `master.jsonl`, and `manifest.json`; focused unit tests cover their pure/file-layout behavior. `NetworkLogRelay` is bounded best-effort telemetry, not durable offline upload.
+
+The A/B harness creates a unique `--test-run-id`, stores harness artifacts under `artifacts/ab_tests/<test-run-id>/`, and writes `result.json` with `result`, `layer`, `stage`, and `reason`. It relies on the existing per-process and host-collected diagnostic files for networking truth. Its test-only `steam_basic` scenario is activated only by `--test-scenario=steam_basic`; normal and manual probe runs do not execute it.
 
 New coverage should follow coherent playable slices rather than speculative helpers. Tests must be deterministic, explicit about authority and runtime role, and honest about external environment requirements.

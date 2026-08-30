@@ -88,21 +88,34 @@ public static class GameLog
     private static LogRun CreateRun(out string? fallbackWarning)
     {
         fallbackWarning = null;
+        string? configuredRunId = ReadConfiguredRunId();
         string fallbackRoot = ProjectSettings.GlobalizePath("user://logs");
         string executablePath = OS.GetExecutablePath();
         string? executableDirectory = Path.GetDirectoryName(executablePath);
         if (string.IsNullOrWhiteSpace(executableDirectory))
-            return new LogRun(fallbackRoot);
+            return new LogRun(fallbackRoot, configuredRunId);
 
         string preferredRoot = Path.Combine(executableDirectory, "logs");
         try
         {
-            return new LogRun(preferredRoot);
+            return new LogRun(preferredRoot, configuredRunId);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             fallbackWarning = $"Could not create a diagnostics log beside the executable; using user://logs instead. {exception.Message}";
-            return new LogRun(fallbackRoot);
+            return new LogRun(fallbackRoot, configuredRunId);
         }
+    }
+
+    private static string? ReadConfiguredRunId()
+    {
+        const string prefix = "--test-run-id=";
+        string? argument = OS.GetCmdlineArgs()
+            .Concat(OS.GetCmdlineUserArgs())
+            .FirstOrDefault(value => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        if (argument is null) return null;
+
+        string value = argument[prefix.Length..].Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 }

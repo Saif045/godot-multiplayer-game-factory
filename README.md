@@ -12,7 +12,7 @@ It is infrastructure, not a custom engine or a game: individual games retain the
 - Steam listen-server flow: `SteamSession` -> `ISteamAdapter` -> `GodotSteamAdapter` -> GDScript bridge -> `SteamMultiplayerPeer`;
 - structured local and distributed diagnostics; and
 - Maaack Game Template shell infrastructure (menus, settings, input remapping, loading, pause, UI audio, and local save helpers); and
-- manual Steam gameplay probes plus engine-independent xUnit coverage for pure policy and data layers.
+- a host-PC-to-VM Steam A/B acceptance harness, manual Steam gameplay probes, and engine-independent xUnit coverage for pure policy and data layers.
 
 `NetworkObjectId` is runtime object identity; `PlayerId` is session-scoped player identity; `PeerId` is the transient Godot multiplayer peer identity. They are deliberately distinct. `NetworkObject` is not a universal gameplay base class.
 
@@ -50,6 +50,7 @@ The project prefers composition over mandatory gameplay inheritance, small settl
 - `addons/maaacks_game_template/` — vendored generic shell dependency; `addons/plugin_updater/` is its required updater dependency.
 - `sandbox/steam/` — manual Steam and Steam-gameplay acceptance probes.
 - `tests/GameFactory.Tests/` — engine-independent xUnit tests.
+- `tools/ab_test/run.ps1` — host-PC-to-VM Steam acceptance harness (requires the documented local VM/Steam setup).
 
 ## Documentation
 
