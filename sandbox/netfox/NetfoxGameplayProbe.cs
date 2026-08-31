@@ -43,6 +43,7 @@ public partial class NetfoxGameplayProbe : Node
     private long _clientPeerId;
     private bool _scenarioStarted;
     private bool _scenarioCompleted;
+    private bool _clientPassedReported;
     private long _scenarioStartTick = -1;
     private string? _role;
     private string? _testRunId;
@@ -96,6 +97,14 @@ public partial class NetfoxGameplayProbe : Node
             RpcId(PeerId.Server.Value, MethodName.ClientReadyRpc);
         }
 
+        if (!Multiplayer.IsServer() && !_clientPassedReported && ClientEvidenceComplete())
+        {
+            _clientPassedReported = true;
+            NetfoxGameplayPlayer owner = GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>().First(player => player.GetNode<NetworkObject>("NetworkObject").OwnerPeerId.Value == Multiplayer.GetUniqueId());
+            RpcId(PeerId.Server.Value, MethodName.ClientScenarioPassedRpc, owner.PlayerId);
+            Log("netfox.gameplay", "client_scenario_passed", TopologyFields());
+        }
+
         if (!Multiplayer.IsServer() || _scenarioCompleted || !_scenarioStarted) return;
         long scenarioTick = ReadTick() - _scenarioStartTick;
         if (scenarioTick < ScenarioCompletionTick) return;
@@ -132,6 +141,16 @@ public partial class NetfoxGameplayProbe : Node
         _clientPeerId = Multiplayer.GetRemoteSenderId();
         Log("netfox.gameplay", "client_ready_received", TopologyFields());
         TryStartScenario();
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ClientScenarioPassedRpc(long playerId)
+    {
+        if (!Multiplayer.IsServer() || _scenarioCompleted) return;
+        _scenarioCompleted = true;
+        Log("netfox.gameplay", "client_scenario_passed_received", new Dictionary<string, string?> { ["player_id"] = playerId.ToString() });
+        Log("netfox.gameplay", "scenario_complete", ScenarioFields());
+        CallDeferred(nameof(LeaveAfterScenario));
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
@@ -215,6 +234,20 @@ public partial class NetfoxGameplayProbe : Node
         _scenarioStartTick = startTick;
         foreach (NetfoxGameplayPlayer player in GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>())
             player.StartScenario(startTick);
+    }
+
+    private async void LeaveAfterScenario()
+    {
+        try { await _session!.LeaveAsync(); Log("netfox.gameplay", "session_leave_requested", ScenarioFields()); }
+        catch (Exception exception) { Log("netfox.gameplay", "session_leave_failed", new Dictionary<string, string?> { ["error"] = exception.Message }); }
+    }
+
+    private bool ClientEvidenceComplete()
+    {
+        NetfoxGameplayPlayer[] players = GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>().ToArray();
+        NetfoxServerStateProbe? state = GetTree().GetNodesInGroup("netfox_server_state_probe").OfType<NetfoxServerStateProbe>().FirstOrDefault();
+        return players.Any(player => player.GetNode<NetworkObject>("NetworkObject").OwnerPeerId.Value == Multiplayer.GetUniqueId() && player.ClientEvidenceComplete) &&
+            players.Any(player => player.PlayerInterpolationConfirmed) && state is { RemoteStateReceived: true, StateInterpolationConfirmed: true };
     }
 
     private bool WorldTopologyReady()

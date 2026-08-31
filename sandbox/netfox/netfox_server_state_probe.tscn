@@ -8,6 +8,7 @@
 
 [node name="NetfoxServerStateProbe" type="Node2D"]
 script = ExtResource("1_probe")
+groups = ["netfox_server_state_probe"]
 
 [node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
 SpawnGroup = 1
@@ -18,7 +19,7 @@ script = ExtResource("3_state")
 [node name="StateSynchronizer" type="Node" parent="."]
 script = ExtResource("4_sync")
 root = NodePath("..")
-properties = ["State:authoritative_position"]
+properties = ["State:position"]
 
 [node name="TickInterpolator" type="Node" parent="."]
 script = ExtResource("5_interpolator")

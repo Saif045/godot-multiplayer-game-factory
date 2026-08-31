@@ -1,7 +1,7 @@
 extends Node2D
 
 const SERVER_SPEED := 5.0
-const TEST_CLIENT_SPEED := 6.0
+const TEST_CLIENT_SPEED := 12.0
 const MISPREDICTION_START_TICK := 70
 const MISPREDICTION_END_TICK := 90
 
@@ -18,3 +18,4 @@ func _rollback_tick(delta: float, tick: int, _is_fresh: bool) -> void:
 
 	simulated_position += input.normalized() * speed * delta
 	position = simulated_position
+	get_parent().call("ObserveSimulationTick", tick, simulated_position, _is_fresh)

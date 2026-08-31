@@ -359,6 +359,20 @@ function Wait-ForLogEvent([string]$Category, [string]$Event, [string]$Role, [int
     Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event ($Role)."
 }
 
+function Wait-ForLogEventAfter([string]$Category, [string]$Event, [string]$Role, [long]$AfterElapsedMilliseconds, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne $Category -or $entry.Event -ne $Event) { continue }
+            if ($Role -and $entry.Fields.role -ne $Role) { continue }
+            if ([long]$entry.ElapsedMilliseconds -gt $AfterElapsedMilliseconds) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event after elapsed=$AfterElapsedMilliseconds."
+}
+
 function Wait-ForLogFieldValue([string]$Category, [string]$Event, [string]$Role, [string]$Field, [string]$Value, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
@@ -532,12 +546,10 @@ try {
     Complete-Stage "E_native_handshake"
 
     $result.stage = "client_connection"
-    $godotConnected = if ($Scenario -like "netfox_*") {
-        Wait-ForLogEvent "netfox.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
-    }
-    elseif ($Scenario -eq "netfox_time_sync") {
-        Wait-ForLogEvent "network.connection" "connected_to_server" "" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
-    }
+    $godotConnected = if ($Scenario -eq "steam_basic") { Wait-ForLogEvent "ab_test.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
+    elseif ($Scenario -eq "netfox_time_sync") { Wait-ForLogEvent "netfox.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
+    elseif ($Scenario -eq "netfox_gameplay") { Wait-ForLogEvent "netfox.gameplay" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
+    else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
     $result.timings_ms["client_process_to_godot_connected"] = [long]$godotConnected.ElapsedMilliseconds
     Complete-Stage "F_godot_signals"
@@ -548,7 +560,7 @@ try {
         [void](Wait-ForLogEvent "ab_test.scenario" "host_passed" "host" $ScenarioTimeoutSeconds "replication" "host_door_confirmation")
         Complete-Stage "H_replication"
     }
-    else {
+    elseif ($Scenario -eq "netfox_time_sync") {
         $hostTimeSync = Wait-ForLogEvent "netfox.time" "initial_sync_complete" "host" $ScenarioTimeoutSeconds "netfox" "host_time_sync"
         Complete-Stage "G_netfox_host_time_sync"
         $clientTimeSync = Wait-ForLogEvent "netfox.time" "initial_sync_complete" "client" $ScenarioTimeoutSeconds "netfox" "time_sync"
@@ -568,7 +580,7 @@ try {
         [void](Wait-ForLogEvent "netfox.time" "stopped" "client" $ScenarioTimeoutSeconds "netfox" "time_stop")
         Complete-Stage "K_netfox_lifecycle_stop"
     }
-    else {
+    elseif ($Scenario -eq "netfox_gameplay") {
         # Gameplay has its own explicit checkpoints. These are intentionally
         # stronger than process startup: each represents a layer boundary
         # between Steam/Godot transport, GameFactory spawning, and Netfox.
@@ -581,13 +593,34 @@ try {
         Complete-Stage "I_gamefactory_world_topology"
         [void](Wait-ForLogEvent "netfox.gameplay" "scenario_started" "host" $ScenarioTimeoutSeconds "simulation" "scenario_start")
         Complete-Stage "J_prediction_schedule"
-        [void](Wait-ForLogEvent "netfox.gameplay" "misprediction_started" "client" $ScenarioTimeoutSeconds "netfox" "forced_divergence")
-        [void](Wait-ForLogEvent "netfox.rollback" "started" "client" $ScenarioTimeoutSeconds "netfox" "rollback")
-        [void](Wait-ForLogEvent "netfox.rollback" "completed" "client" $ScenarioTimeoutSeconds "netfox" "replay")
-        Complete-Stage "K_rollback_replay"
-        [void](Wait-ForLogEvent "netfox.gameplay" "scenario_complete" "host" $ScenarioTimeoutSeconds "simulation" "convergence")
-        Complete-Stage "L_convergence_and_state_sync"
+        [void](Wait-ForLogEvent "netfox.prediction" "prediction_confirmed" "client" $ScenarioTimeoutSeconds "netfox.prediction" "prediction")
+        Complete-Stage "J_prediction_confirmed"
+        [void](Wait-ForLogEvent "netfox.interpolation" "player_interpolation_confirmed" "client" $ScenarioTimeoutSeconds "netfox.interpolation" "player_interpolation")
+        Complete-Stage "K_player_interpolation"
+        $stateSync = Wait-ForLogEvent "netfox.state_sync" "remote_state_received" "client" $ScenarioTimeoutSeconds "netfox.state_sync" "state_delivery"
+        [void](Wait-ForLogEventAfter "netfox.interpolation" "state_probe_interpolation_confirmed" "client" ([long]$stateSync.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.interpolation" "state_interpolation")
+        Complete-Stage "L_state_sync_and_interpolation"
+        $misprediction = Wait-ForLogEvent "netfox.gameplay" "misprediction_started" "client" $ScenarioTimeoutSeconds "test_scenario" "forced_divergence"
+        Complete-Stage "M_misprediction_started"
+        $divergence = Wait-ForLogEventAfter "netfox.gameplay" "divergence_confirmed" "client" ([long]$misprediction.ElapsedMilliseconds) $ScenarioTimeoutSeconds "test_scenario" "divergence"
+        Complete-Stage "N_divergence_confirmed"
+        $rollback = Wait-ForLogEventAfter "netfox.rollback" "started" "client" ([long]$divergence.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.rollback" "rollback"
+        Complete-Stage "O_rollback_started"
+        $replay = Wait-ForLogEventAfter "netfox.gameplay" "replay_observed" "client" ([long]$rollback.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.rollback" "replay"
+        Complete-Stage "P_player_replay"
+        $rollbackComplete = Wait-ForLogEventAfter "netfox.rollback" "completed" "client" ([long]$replay.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.rollback" "rollback_complete"
+        Complete-Stage "Q_rollback_completed"
+        $convergence = Wait-ForLogEventAfter "netfox.reconciliation" "convergence_confirmed" "client" ([long]$rollbackComplete.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.reconciliation" "convergence"
+        Complete-Stage "R_convergence"
+        $clientPassed = Wait-ForLogEventAfter "netfox.gameplay" "client_scenario_passed_received" "host" ([long]$convergence.ElapsedMilliseconds) $ScenarioTimeoutSeconds "simulation" "client_result"
+        Complete-Stage "S_client_result"
+        [void](Wait-ForLogEventAfter "netfox.gameplay" "scenario_complete" "host" ([long]$clientPassed.ElapsedMilliseconds) $ScenarioTimeoutSeconds "simulation" "scenario_complete")
+        Complete-Stage "T_scenario_complete"
+        $netfoxShutdownExpected = $true
+        [void](Wait-ForLogEventAfter "netfox.gameplay" "session_leave_requested" "host" ([long]$clientPassed.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox" "graceful_leave")
+        Complete-Stage "U_graceful_shutdown"
     }
+    else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 
     $result.result = "passed"
     $result.layer = $null

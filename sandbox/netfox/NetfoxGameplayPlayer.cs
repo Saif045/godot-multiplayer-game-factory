@@ -23,9 +23,20 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private long _rollbackStartTick;
     private bool _mispredictionStarted;
     private bool _mispredictionEnded;
+    private bool _predictionConfirmed;
+    private bool _divergenceConfirmed;
+    private bool _replayObserved;
+    private bool _convergenceConfirmed;
+    private float _maxDivergence;
+    private int _replayCount;
+    private long _presentationTick = -1;
+    private Vector2 _presentationPosition;
+    private bool _playerInterpolationConfirmed;
 
     public long ScenarioStartTick { get; private set; } = -1;
     public bool AuthorityConfigured { get; private set; }
+    public bool ClientEvidenceComplete => _predictionConfirmed && _divergenceConfirmed && _replayObserved && _convergenceConfirmed;
+    public bool PlayerInterpolationConfirmed => _playerInterpolationConfirmed;
 
     public void ApplyNetworkSpawnData(Variant data)
     {
@@ -60,6 +71,21 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         bool isOwningClient = !Multiplayer.IsServer() &&
             networkObject.OwnerPeerId.Value == Multiplayer.GetUniqueId();
 
+        if (!Multiplayer.IsServer() && !isOwningClient && !_playerInterpolationConfirmed)
+        {
+            Vector2 presentation = GetNode<Node2D>("Presentation").Position;
+            if (_presentationTick == tick && presentation != _presentationPosition)
+            {
+                _playerInterpolationConfirmed = true;
+                GameLog.Info("netfox.interpolation", "player_interpolation_confirmed", fields: new Dictionary<string, string?>
+                {
+                    ["role"] = "client", ["network_tick"] = tick.ToString(), ["previous_presentation_position"] = _presentationPosition.ToString(), ["current_presentation_position"] = presentation.ToString()
+                });
+            }
+            _presentationTick = tick;
+            _presentationPosition = presentation;
+        }
+
         if (isOwningClient && !_mispredictionStarted && scenarioTick >= 70)
         {
             _mispredictionStarted = true;
@@ -87,11 +113,13 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     {
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
         Node input = GetNode<Node>("Input");
+        Node simulation = GetNode<Node>("Simulation");
         Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
 
         // State stays server-authoritative. Only the input property belongs to
         // the owning peer; Netfox uses the split when it records/replays ticks.
         SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
+        simulation.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
         input.SetMultiplayerAuthority((int)networkObject.OwnerPeerId.Value, recursive: false);
         rollbackSynchronizer.Call("process_settings");
         AuthorityConfigured = true;
@@ -102,6 +130,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             ["network_object_id"] = networkObject.Id.ToString(),
             ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
             ["root_multiplayer_authority"] = GetMultiplayerAuthority().ToString(),
+            ["simulation_multiplayer_authority"] = simulation.GetMultiplayerAuthority().ToString(),
             ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString()
         });
     }
@@ -115,6 +144,62 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
         LogGameplay("scenario_player_started", networkObject, ReadTick(), 0);
     }
+
+    // Called by the rollback simulation. It observes state only; it never
+    // feeds values back into Netfox, correction, or gameplay simulation.
+    public void ObserveSimulationTick(long tick, Vector2 position, bool isFresh)
+    {
+        if (ScenarioStartTick < 0 || Multiplayer.IsServer()) return;
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        if (networkObject.OwnerPeerId.Value != Multiplayer.GetUniqueId()) return;
+        long scenarioTick = tick - ScenarioStartTick;
+        Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
+        long lastKnown = rollbackSynchronizer.Call("get_last_known_state").AsInt64();
+        Vector2 expected = ExpectedAuthoritativePosition(scenarioTick);
+        float error = position.DistanceTo(expected);
+        _maxDivergence = Math.Max(_maxDivergence, error);
+        if (!_predictionConfirmed && scenarioTick >= 20 && position != Vector2.Zero && tick > lastKnown)
+        {
+            _predictionConfirmed = true;
+            LogObservation("prediction_confirmed", networkObject, tick, scenarioTick, position, expected, error, lastKnown);
+        }
+        if (!_divergenceConfirmed && scenarioTick >= 70 && scenarioTick < 90 && error >= 0.10f)
+        {
+            _divergenceConfirmed = true;
+            LogObservation("divergence_confirmed", networkObject, tick, scenarioTick, position, expected, error, lastKnown);
+        }
+        if (_divergenceConfirmed && !isFresh && !_replayObserved)
+        {
+            _replayObserved = true;
+            _replayCount++;
+            LogObservation("replay_observed", networkObject, tick, scenarioTick, position, expected, error, lastKnown);
+        }
+        if (_divergenceConfirmed && _replayObserved && !_convergenceConfirmed && scenarioTick >= 90 && scenarioTick <= 130 && error <= 0.10f)
+        {
+            _convergenceConfirmed = true;
+            LogObservation("convergence_confirmed", networkObject, tick, scenarioTick, position, expected, error, lastKnown);
+        }
+    }
+
+    private Vector2 ExpectedAuthoritativePosition(long scenarioTick)
+    {
+        Vector2 position = Vector2.Zero;
+        for (long tick = 20; tick < Math.Min(scenarioTick, 140); tick++)
+        {
+            Vector2 move = tick < 60 ? Vector2.Right : tick < 100 ? Vector2.Down : Vector2.Left;
+            position += move * (5f / 30f);
+        }
+        return position;
+    }
+
+    private void LogObservation(string eventName, NetworkObject networkObject, long tick, long scenarioTick, Vector2 actual, Vector2 expected, float error, long lastKnown)
+        => GameLog.Info(eventName == "prediction_confirmed" ? "netfox.prediction" : eventName == "convergence_confirmed" ? "netfox.reconciliation" : "netfox.gameplay", eventName, fields: new Dictionary<string, string?>
+        {
+            ["role"] = "client", ["network_object_id"] = networkObject.Id.ToString(), ["scenario_tick"] = scenarioTick.ToString(),
+            ["network_tick"] = tick.ToString(), ["predicted_position"] = actual.ToString(), ["expected_authoritative_position"] = expected.ToString(),
+            ["divergence"] = error.ToString("F3", System.Globalization.CultureInfo.InvariantCulture), ["max_divergence"] = _maxDivergence.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["last_known_authoritative_state_tick"] = lastKnown.ToString(), ["replay_count"] = _replayCount.ToString()
+        });
 
     private void OnRollbackStarted()
     {

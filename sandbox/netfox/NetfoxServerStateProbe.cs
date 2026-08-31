@@ -13,6 +13,10 @@ public partial class NetfoxServerStateProbe : Node2D
     private Node2D _state = null!;
     private bool _authoritativeProgressReported;
     private bool _remoteStateReported;
+    private long _presentationTick = -1;
+    private Vector2 _presentationPosition;
+    public bool StateInterpolationConfirmed { get; private set; }
+    public bool RemoteStateReceived => _remoteStateReported;
 
     public override void _Ready() => CallDeferred(nameof(ConfigureAuthority));
 
@@ -20,7 +24,7 @@ public partial class NetfoxServerStateProbe : Node2D
     {
         if (_networkTime is null || _state is null) return;
         long tick = _networkTime.Get("tick").AsInt64();
-        Vector2 value = _state.Get("authoritative_position").AsVector2();
+        Vector2 value = _state.Position;
         if (Multiplayer.IsServer() && !_authoritativeProgressReported && tick >= 10)
         {
             _authoritativeProgressReported = true;
@@ -30,7 +34,16 @@ public partial class NetfoxServerStateProbe : Node2D
         {
             _remoteStateReported = true;
             Log("remote_state_received", tick, value);
-            GameLog.Info("netfox.interpolation", "state_probe_interpolation_confirmed", fields: Fields(tick, value));
+        }
+        if (!Multiplayer.IsServer() && _remoteStateReported && !StateInterpolationConfirmed)
+        {
+            if (_presentationTick == tick && value != _presentationPosition)
+            {
+                StateInterpolationConfirmed = true;
+                GameLog.Info("netfox.interpolation", "state_probe_interpolation_confirmed", fields: Fields(tick, value));
+            }
+            _presentationTick = tick;
+            _presentationPosition = value;
         }
     }
 
@@ -39,6 +52,7 @@ public partial class NetfoxServerStateProbe : Node2D
         _networkTime = GetNode<Node>("/root/NetworkTime");
         _state = GetNode<Node2D>("State");
         SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
+        _state.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
         Node stateSynchronizer = GetNode<Node>("StateSynchronizer");
         stateSynchronizer.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
         stateSynchronizer.Call("process_settings");
