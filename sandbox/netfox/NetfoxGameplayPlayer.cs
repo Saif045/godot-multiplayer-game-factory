@@ -50,6 +50,12 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         PlayerId = (long)values["player_id"];
     }
 
+    public override void _EnterTree()
+    {
+        GetNode<Node>("RollbackSynchronizer").Set("root", this);
+        GetNode<Node>("TickInterpolator").Set("root", this);
+    }
+
     public override void _Ready()
     {
         _networkTime = GetNode<Node>("/root/NetworkTime");
@@ -115,6 +121,8 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         Node input = GetNode<Node>("Input");
         Node simulation = GetNode<Node>("Simulation");
         Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
+        AssertConfiguredRoot(rollbackSynchronizer, "RollbackSynchronizer");
+        AssertConfiguredRoot(GetNode<Node>("TickInterpolator"), "TickInterpolator");
 
         // State stays server-authoritative. Only the input property belongs to
         // the owning peer; Netfox uses the split when it records/replays ticks.
@@ -133,6 +141,17 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             ["simulation_multiplayer_authority"] = simulation.GetMultiplayerAuthority().ToString(),
             ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString()
         });
+    }
+
+    private void AssertConfiguredRoot(Node synchronizer, string type)
+    {
+        Variant configuredRoot = synchronizer.Get("root");
+        if (configuredRoot.VariantType != Variant.Type.Object || configuredRoot.AsGodotObject() is not Node root || root != this)
+        {
+            GameLog.Error("netfox.configuration", "invalid_root", fields: new Dictionary<string, string?> { ["node"] = Name, ["synchronizer"] = type, ["expected_root"] = GetPath(), ["actual_root"] = configuredRoot.ToString() });
+            throw new InvalidOperationException($"{type} root was not configured to its host node.");
+        }
+        GameLog.Info("netfox.configuration", "configured", fields: new Dictionary<string, string?> { ["node"] = Name, ["synchronizer"] = type, ["root"] = root.GetPath() });
     }
 
     /// <summary>Starts the deterministic schedule at a host-selected Netfox tick.</summary>

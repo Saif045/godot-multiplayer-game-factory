@@ -26,12 +26,10 @@ script = ExtResource("6_presentation")
 
 [node name="TickInterpolator" type="Node" parent="."]
 script = ExtResource("7_interpolator")
-root = NodePath("..")
 properties = ["Presentation:position"]
 
 [node name="RollbackSynchronizer" type="Node" parent="."]
 script = ExtResource("5_rollback")
-root = NodePath("..")
 enable_prediction = true
 state_properties = ["Simulation:simulated_position"]
 input_properties = ["Input:move"]

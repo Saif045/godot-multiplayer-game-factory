@@ -18,10 +18,8 @@ script = ExtResource("3_state")
 
 [node name="StateSynchronizer" type="Node" parent="."]
 script = ExtResource("4_sync")
-root = NodePath("..")
 properties = ["State:position"]
 
 [node name="TickInterpolator" type="Node" parent="."]
 script = ExtResource("5_interpolator")
-root = NodePath("..")
 properties = ["State:position"]

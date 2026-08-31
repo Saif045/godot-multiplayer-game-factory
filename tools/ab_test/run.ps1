@@ -90,7 +90,7 @@ $result = [ordered]@{
     completed_utc = $null
 }
 $runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } else { "steam-gameplay" }
-$scenarioCategory = if ($Scenario -like "netfox_*") { "netfox.scenario" } else { "ab_test.scenario" }
+$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.gameplay" } default { throw "Unsupported scenario '$Scenario'." } }
 
 New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory, $runtimeDirectory | Out-Null
 

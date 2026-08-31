@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 using GameFactory.Diagnostics;
@@ -17,6 +18,12 @@ public partial class NetfoxServerStateProbe : Node2D
     private Vector2 _presentationPosition;
     public bool StateInterpolationConfirmed { get; private set; }
     public bool RemoteStateReceived => _remoteStateReported;
+
+    public override void _EnterTree()
+    {
+        GetNode<Node>("StateSynchronizer").Set("root", this);
+        GetNode<Node>("TickInterpolator").Set("root", this);
+    }
 
     public override void _Ready() => CallDeferred(nameof(ConfigureAuthority));
 
@@ -54,9 +61,19 @@ public partial class NetfoxServerStateProbe : Node2D
         SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
         _state.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
         Node stateSynchronizer = GetNode<Node>("StateSynchronizer");
+        AssertConfiguredRoot(stateSynchronizer, "StateSynchronizer");
+        AssertConfiguredRoot(GetNode<Node>("TickInterpolator"), "TickInterpolator");
         stateSynchronizer.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
         stateSynchronizer.Call("process_settings");
         GetNode<Node>("TickInterpolator").Call("process_settings");
+    }
+
+    private void AssertConfiguredRoot(Node synchronizer, string type)
+    {
+        Variant configuredRoot = synchronizer.Get("root");
+        if (configuredRoot.VariantType != Variant.Type.Object || configuredRoot.AsGodotObject() is not Node root || root != this)
+            throw new InvalidOperationException($"{type} root was not configured to its host node.");
+        GameLog.Info("netfox.configuration", "configured", fields: new Dictionary<string, string?> { ["node"] = Name, ["synchronizer"] = type, ["root"] = root.GetPath() });
     }
 
     private void Log(string eventName, long tick, Vector2 value)
