@@ -6,9 +6,8 @@
 [ext_resource type="Script" path="res://addons/netfox/state-synchronizer.gd" id="4_sync"]
 [ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="5_interpolator"]
 
-[node name="NetfoxServerStateProbe" type="Node2D"]
+[node name="NetfoxServerStateProbe" type="Node2D" groups=["netfox_server_state_probe"]]
 script = ExtResource("1_probe")
-groups = ["netfox_server_state_probe"]
 
 [node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
 SpawnGroup = 1

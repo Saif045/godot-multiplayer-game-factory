@@ -8,9 +8,8 @@
 [ext_resource type="Script" path="res://sandbox/netfox/netfox_player_presentation.gd" id="6_presentation"]
 [ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="7_interpolator"]
 
-[node name="NetfoxGameplayPlayer" type="Node2D"]
+[node name="NetfoxGameplayPlayer" type="Node2D" groups=["netfox_gameplay_player"]]
 script = ExtResource("1_player")
-groups = ["netfox_gameplay_player"]
 
 [node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
 SpawnGroup = 1

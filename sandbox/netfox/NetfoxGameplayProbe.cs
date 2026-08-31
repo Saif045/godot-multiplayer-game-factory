@@ -265,7 +265,7 @@ public partial class NetfoxGameplayProbe : Node
         NetfoxGameplayPlayer[] players = GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>().ToArray();
         bool worldCountReady = _world.Count >= RequiredWorldObjectCount;
         bool playerCountReady = players.Length == 2;
-        bool authoritiesReady = players.All(HasExactAuthorityTopology);
+        bool authoritiesReady = playerCountReady && players.All(HasExactAuthorityTopology);
         bool valid = worldCountReady && playerCountReady && authoritiesReady;
 
         fields = TopologyFields();
