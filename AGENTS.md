@@ -25,3 +25,23 @@ Build reusable infrastructure and primitives, not a custom mini-engine or game-s
 - Preserve unrelated working-tree changes. Keep commits focused.
 - Run the narrowest relevant build and tests before committing, and report the commands and results.
 - Update the module map and relevant documentation when implementation responsibilities or maturity change.
+
+## Runtime test protocol
+
+Any test that launches Godot, host/client processes, multiplayer peers, VMs,
+external services, benchmarks, or other persistent runtime processes MUST follow
+`docs/testing-protocol.md`.
+
+This is mandatory. In particular:
+
+- define assertions before launch;
+- distinguish process startup from test success;
+- give every wait an observable condition and timeout;
+- never abandon an active test;
+- finish every attempt as PASS, FAIL, or BLOCKED;
+- capture evidence before diagnosis;
+- tear down test-owned processes after PASS, FAIL, timeout, or exception; and
+- verify cleanup before reporting completion.
+
+Do not leave host/client applications running unless the user explicitly asks
+for that behavior.
