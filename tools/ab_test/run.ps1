@@ -17,7 +17,7 @@ param(
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
-    [ValidateSet("steam_basic")]
+    [ValidateSet("steam_basic", "netfox_time_sync")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
@@ -56,6 +56,8 @@ $localRunnerPath = Join-Path $PSScriptRoot "vm\run_client.ps1"
 $hostOutputDirectory = Join-Path $artifactDirectory "host"
 $clientOutputDirectory = Join-Path $artifactDirectory "client"
 $sessionOutputDirectory = Join-Path $artifactDirectory "session"
+$hostGodotLogPath = Join-Path $hostOutputDirectory "godot.log"
+$vmGodotLogPath = "C:/GameFactoryAgent/gamefactory_$runId.godot.log"
 $resultPath = Join-Path $artifactDirectory "result.json"
 $hostProcess = $null
 $vmCleanupSucceeded = $false
@@ -81,6 +83,8 @@ $result = [ordered]@{
     started_utc = [DateTimeOffset]::UtcNow.ToString("O")
     completed_utc = $null
 }
+$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } else { "steam-gameplay" }
+$scenarioCategory = if ($Scenario -eq "netfox_time_sync") { "netfox.scenario" } else { "ab_test.scenario" }
 
 New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory, $runtimeDirectory | Out-Null
 
@@ -89,6 +93,14 @@ function Write-Harness([string]$Message) {
 }
 
 function Set-Failure([string]$Layer, [string]$Stage, [string]$Reason) {
+    $script:result.layer = $Layer
+    $script:result.stage = $Stage
+    $script:result.reason = $Reason
+    throw "[$Layer/$Stage] $Reason"
+}
+
+function Set-Blocked([string]$Layer, [string]$Stage, [string]$Reason) {
+    $script:result.result = "blocked"
     $script:result.layer = $Layer
     $script:result.stage = $Stage
     $script:result.reason = $Reason
@@ -190,7 +202,7 @@ function Assert-NoStaleProcesses {
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
     $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded")) $externalCommandTimeoutSeconds "VM process-state preflight"
     if ($invocation.ExitCode -eq 9) { Set-Failure "harness" "preflight_cleanup" "A VM GameFactory process remained after cleanup." }
-    if ($invocation.ExitCode -ne 0) { Set-Failure "vm_control" "preflight_reachability" "Could not verify VM process state; SSH exited with code $($invocation.ExitCode)." }
+    if ($invocation.ExitCode -ne 0) { Set-Blocked "vm_control" "preflight_reachability" "Could not verify VM process state; SSH exited with code $($invocation.ExitCode)." }
 }
 
 function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manifest, [string]$ManifestHash) {
@@ -205,7 +217,7 @@ function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manife
     $clientConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporaryConfigPath -Encoding utf8
     Move-Item -LiteralPath $temporaryConfigPath -Destination $localConfigPath -Force
     $invocation = Invoke-ExternalCommand "scp" ($sshOptions + @($localConfigPath, "${VmAlias}:$VmConfigPath")) $externalCommandTimeoutSeconds "VM client configuration copy"
-    if ($invocation.ExitCode -ne 0) { Set-Failure "vm_control" "client_config_copy" "SCP failed with exit code $($invocation.ExitCode)." }
+    if ($invocation.ExitCode -ne 0) { Set-Blocked "vm_control" "client_config_copy" "Could not copy the client configuration to the VM; SCP exited with $($invocation.ExitCode)." }
     Copy-Item -LiteralPath $localConfigPath -Destination (Join-Path $artifactDirectory "client_config_$Mode.json") -Force
 }
 
@@ -305,12 +317,33 @@ function Find-LogEvent([string]$Category, [string]$Event, [string]$Role) {
     return $null
 }
 
+function Assert-NoTerminalStartupFailure {
+    $steamInitializationFailure = Get-LogEntries | Where-Object {
+        $_.Category -eq "steam.session" -and $_.Event -eq "state_changed" -and $_.Fields.next -eq "Failed"
+    } | Select-Object -First 1
+    if ($null -ne $steamInitializationFailure) {
+        $probeFailure = Get-LogEntries | Where-Object {
+            $_.Category -eq "gameplay.probe" -and $_.Event -eq "initialization_failed"
+        } | Select-Object -First 1
+        $reason = if ($null -ne $probeFailure -and -not [string]::IsNullOrWhiteSpace([string]$probeFailure.Message)) {
+            [string]$probeFailure.Message
+        }
+        else {
+            "SteamSession entered Failed during initialization."
+        }
+        Set-Failure "steam" "initialization" $reason
+    }
+}
+
 function Wait-ForLogEvent([string]$Category, [string]$Event, [string]$Role, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
+        Assert-NoTerminalStartupFailure
         $connectionFailed = Find-LogEvent "ab_test.scenario" "godot_connection_failed" "client"
+        if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.scenario" "godot_connection_failed" "client" }
         if ($null -ne $connectionFailed) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ConnectionFailed." }
         $serverDisconnected = Find-LogEvent "ab_test.scenario" "godot_server_disconnected" "client"
+        if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.scenario" "godot_server_disconnected" "client" }
         if ($null -ne $serverDisconnected) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ServerDisconnected." }
         $entry = Find-LogEvent $Category $Event $Role
         if ($null -ne $entry) { return $entry }
@@ -323,6 +356,7 @@ function Wait-ForLogEvent([string]$Category, [string]$Event, [string]$Role, [int
 function Wait-ForLogFieldValue([string]$Category, [string]$Event, [string]$Role, [string]$Field, [string]$Value, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
+        Assert-NoTerminalStartupFailure
         foreach ($entry in Get-LogEntries) {
             if ($entry.Category -ne $Category -or $entry.Event -ne $Event) { continue }
             if ($Role -and $entry.Fields.role -ne $Role) { continue }
@@ -334,6 +368,7 @@ function Wait-ForLogFieldValue([string]$Category, [string]$Event, [string]$Role,
         } | Select-Object -First 1
         if ($null -ne $nativeDisconnected) { Set-Failure "steam_peer" "native_handshake" "The client native peer changed to Disconnected before Godot connected." }
         $connectionFailed = Find-LogEvent "ab_test.scenario" "godot_connection_failed" "client"
+        if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.scenario" "godot_connection_failed" "client" }
         if ($null -ne $connectionFailed) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ConnectionFailed." }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $deadline)
@@ -353,6 +388,17 @@ function Copy-RunArtifacts {
         $destination = if ($role -eq "client") { $clientOutputDirectory } else { $hostOutputDirectory }
         $runDirectory = Split-Path -Parent $path
         Copy-Item -Path $runDirectory -Destination (Join-Path $destination (Split-Path -Leaf $runDirectory)) -Recurse -Force
+    }
+
+    try {
+        $clientGodotLog = Join-Path $clientOutputDirectory "godot.log"
+        $copy = Invoke-ExternalCommand "scp" ($sshOptions + @("${VmAlias}:$vmGodotLogPath", $clientGodotLog)) 10 "VM Godot-log copy" -SuppressOutput
+        if ($copy.ExitCode -ne 0) {
+            Write-Warning "[harness][$runId] VM Godot log was not available (SCP exit $($copy.ExitCode))."
+        }
+    }
+    catch {
+        Write-Warning "[harness][$runId] VM Godot-log collection failed: $($_.Exception.Message)"
     }
 
     $hostSession = Get-LogEntries | Where-Object { $_.Category -eq "diagnostics.session" -and $_.Event -eq "host_started" } | Select-Object -First 1
@@ -414,7 +460,7 @@ try {
     else {
         Assert-VirtualBoxShareMapping
         $runnerCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
-        if ($runnerCopy.ExitCode -ne 0) { Set-Failure "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
+        if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
         Write-ClientConfig "verify_only" @() $manifest $manifestHash
         $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
         if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {
@@ -429,8 +475,8 @@ try {
     $hostConsolePath = Join-Path $hostOutputDirectory "console.log"
     $hostErrorPath = Join-Path $hostOutputDirectory "console.error.log"
     $hostArguments = @(
-        "--rendering-method", "gl_compatibility",
-        "--run=steam-gameplay", "--steam-host",
+        "--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath,
+        "--run=$runTarget", "--steam-host",
         "--test-scenario=$Scenario", "--test-run-id=$runId"
     )
     Write-Harness "launching host"
@@ -440,14 +486,14 @@ try {
     $result.stage = "lobby_creation"
     [void](Wait-ForLogEvent "steam.lifecycle" "lobby_created" "host" $HostTimeoutSeconds "steam" "lobby_creation")
     Complete-Stage "A_lobby_creation"
-    $hostReady = Wait-ForLogEvent "ab_test.scenario" "host_ready" "host" $HostTimeoutSeconds "steam" "host_lobby"
+    $hostReady = Wait-ForLogEvent $scenarioCategory "host_ready" "host" $HostTimeoutSeconds "steam" "host_lobby"
     $lobbyId = [string]$hostReady.Fields.lobby_id
     if ([string]::IsNullOrWhiteSpace($lobbyId) -or $lobbyId -notmatch "^\d+$") { Set-Failure "steam" "host_lobby" "Host ready event did not contain a valid lobby_id." }
     $result.lobby_id = $lobbyId
     Write-Harness "discovered lobby $lobbyId from structured host diagnostics"
 
     $result.stage = "client_config"
-    $clientArguments = @("--rendering-method", "gl_compatibility", "--run=steam-gameplay", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario", "--test-run-id=$runId")
+    $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario", "--test-run-id=$runId")
     Write-ClientConfig "launch" $clientArguments $manifest $manifestHash
 
     $result.stage = "client_launch"
@@ -473,15 +519,41 @@ try {
     Complete-Stage "E_native_handshake"
 
     $result.stage = "client_connection"
-    $godotConnected = Wait-ForLogEvent "network.connection" "connected_to_server" "" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
+    $godotConnected = if ($Scenario -eq "netfox_time_sync") {
+        Wait-ForLogEvent "netfox.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
+    }
+    else {
+        Wait-ForLogEvent "network.connection" "connected_to_server" "" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
+    }
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
     $result.timings_ms["client_process_to_godot_connected"] = [long]$godotConnected.ElapsedMilliseconds
     Complete-Stage "F_godot_signals"
-    [void](Wait-ForLogEvent "ab_test.scenario" "client_world_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_world")
-    Complete-Stage "G_gamefactory_lifecycle"
-    [void](Wait-ForLogEvent "ab_test.scenario" "client_passed" "client" $ScenarioTimeoutSeconds "replication" "client_door_confirmation")
-    [void](Wait-ForLogEvent "ab_test.scenario" "host_passed" "host" $ScenarioTimeoutSeconds "replication" "host_door_confirmation")
-    Complete-Stage "H_replication"
+    if ($Scenario -eq "steam_basic") {
+        [void](Wait-ForLogEvent "ab_test.scenario" "client_world_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_world")
+        Complete-Stage "G_gamefactory_lifecycle"
+        [void](Wait-ForLogEvent "ab_test.scenario" "client_passed" "client" $ScenarioTimeoutSeconds "replication" "client_door_confirmation")
+        [void](Wait-ForLogEvent "ab_test.scenario" "host_passed" "host" $ScenarioTimeoutSeconds "replication" "host_door_confirmation")
+        Complete-Stage "H_replication"
+    }
+    else {
+        $hostTimeSync = Wait-ForLogEvent "netfox.time" "initial_sync_complete" "host" $ScenarioTimeoutSeconds "netfox" "host_time_sync"
+        Complete-Stage "G_netfox_host_time_sync"
+        $clientTimeSync = Wait-ForLogEvent "netfox.time" "initial_sync_complete" "client" $ScenarioTimeoutSeconds "netfox" "time_sync"
+        $result.timings_ms["client_process_to_netfox_sync"] = [long]$clientTimeSync.ElapsedMilliseconds
+        Complete-Stage "H_netfox_client_time_sync"
+        [void](Wait-ForLogEvent "netfox.time" "client_sync_complete" "host" $ScenarioTimeoutSeconds "netfox" "host_client_time_sync")
+        Complete-Stage "I_netfox_host_client_sync"
+        [void](Wait-ForLogFieldValue "netfox.time" "tick_progress" "host" "tick_monotonic" "true" $ScenarioTimeoutSeconds "netfox" "tick_loop")
+        [void](Wait-ForLogFieldValue "netfox.time" "tick_progress" "client" "tick_monotonic" "true" $ScenarioTimeoutSeconds "netfox" "tick_loop")
+        $clientTickSample = Wait-ForLogFieldValue "netfox.time" "tick_progress" "client" "rtt_known" "true" $ScenarioTimeoutSeconds "netfox" "rtt"
+        $result.timings_ms["client_remote_rtt_ms"] = [double]$clientTickSample.Fields.remote_rtt_ms
+        $result.timings_ms["netfox_tickrate"] = [long]$clientTickSample.Fields.tickrate
+        Complete-Stage "J_netfox_ticks"
+        [void](Wait-ForLogEvent "netfox.time" "client_sample_received" "host" $ScenarioTimeoutSeconds "netfox" "client_sample_delivery")
+        [void](Wait-ForLogEvent "netfox.time" "stopped" "host" $ScenarioTimeoutSeconds "netfox" "time_stop")
+        [void](Wait-ForLogEvent "netfox.time" "stopped" "client" $ScenarioTimeoutSeconds "netfox" "time_stop")
+        Complete-Stage "K_netfox_lifecycle_stop"
+    }
 
     $result.result = "passed"
     $result.layer = $null
@@ -493,7 +565,8 @@ catch {
     if ($null -eq $result.reason) {
         $result.reason = $_.Exception.Message
     }
-    Write-Error "[harness][$runId] FAIL layer=$($result.layer) stage=$($result.stage): $($result.reason)"
+    $terminalResult = if ([string]::IsNullOrWhiteSpace($result.result)) { "failed" } else { $result.result.ToUpperInvariant() }
+    Write-Error "[harness][$runId] $terminalResult layer=$($result.layer) stage=$($result.stage): $($result.reason)"
 }
 finally {
     Stop-TestProcesses

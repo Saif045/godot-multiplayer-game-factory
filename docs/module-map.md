@@ -16,6 +16,7 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/shell/` | Minimal C# bootstrap/host/leave flow plus project-owned Maaack options composition around the retained Steam gameplay probe. | Implemented shell slice |
 | `addons/maaacks_game_template/` | Vendored Maaack Game Template: local menus, settings, remapping, loading, audio, and optional local game helpers. | Implemented dependency |
 | `addons/plugin_updater/` | Vendored Maaack Plugin Updater required by the full template's GDScript classes. | Implemented dependency |
+| `addons/netfox/`, `addons/netfox.internals/` | Pinned native Netfox v1.35.3 addon and required internals; plugin-managed time, events, rollback, and performance autoloads. | Phase-1 integration; no gameplay migration |
 
 `factory/steam/SteamPlatform` owns the process-lifetime GodotSteam adapter; `SteamSession` owns one current online lobby and `MultiplayerPeer` lifecycle. No generic transport or generic network-session module exists. `RuntimeMode.DedicatedServer` is retained as an intended gameplay role, but dedicated Steam hosting is not implemented.
 
@@ -24,7 +25,8 @@ This inventory describes tracked paths and current responsibilities. Directories
 | Path | Responsibility | Evidence |
 |---|---|---|
 | `sandbox/steam/` | Steam/lobby smoke, native re-host dependency smoke, and manual or test-only two-account gameplay acceptance probe. | Steam acceptance laboratory |
-| `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam` or `--run=steam-gameplay` |
+| `sandbox/netfox/` | Steam-backed Netfox NetworkTime/tick probe without gameplay, rollback, or replication ownership. | Phase-1 acceptance scenario |
+| `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam`, `--run=steam-gameplay`, or `--run=netfox` |
 | `tests/GameFactory.Tests/` | Engine-independent xUnit tests for pure policy, values, registries, and diagnostics. | Automated baseline |
 | `tools/` | Clean/configurable export and manifest helpers plus the build-parity-gated host-PC-to-VM Steam A/B acceptance harness. | Developer tooling / external-environment acceptance |
 

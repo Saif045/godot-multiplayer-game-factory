@@ -31,16 +31,6 @@ try {
         throw "Manifest hash mismatch. Expected '$($config.expected_manifest_sha256)', observed '$manifestHash'."
     }
 
-    foreach ($file in $manifest.files) {
-        $relativePath = ([string]$file.path).Replace('/', '\')
-        $path = Join-Path $exportDirectory $relativePath
-        if (-not (Test-Path -LiteralPath $path)) { throw "Manifest file is missing on the VM: $relativePath" }
-        $item = Get-Item -LiteralPath $path
-        if ($item.Length -ne [long]$file.size) { throw "Manifest size mismatch on the VM: $relativePath" }
-        $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($hash -ne [string]$file.sha256) { throw "Manifest hash mismatch on the VM: $relativePath" }
-    }
-
     $parityVerificationMilliseconds = $runnerTimer.ElapsedMilliseconds
 
     $status = @{
@@ -56,6 +46,16 @@ try {
     }
 
     if ([string]$config.mode -eq "verify_only") {
+        foreach ($file in $manifest.files) {
+            $relativePath = ([string]$file.path).Replace('/', '\')
+            $path = Join-Path $exportDirectory $relativePath
+            if (-not (Test-Path -LiteralPath $path)) { throw "Manifest file is missing on the VM: $relativePath" }
+            $item = Get-Item -LiteralPath $path
+            if ($item.Length -ne [long]$file.size) { throw "Manifest size mismatch on the VM: $relativePath" }
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -ne [string]$file.sha256) { throw "Manifest hash mismatch on the VM: $relativePath" }
+        }
+        $status["parity_verification_ms"] = $runnerTimer.ElapsedMilliseconds
         Write-Status $status
         exit 0
     }

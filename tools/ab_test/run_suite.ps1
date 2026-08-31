@@ -16,7 +16,7 @@ param(
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
-    [ValidateSet("steam_basic")]
+    [ValidateSet("steam_basic", "netfox_time_sync")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
@@ -44,6 +44,7 @@ $summary = [ordered]@{
     completed_attempts = 0
     passed_attempts = 0
     failed_attempts = 0
+    blocked_attempts = 0
     result = "failed"
     build_id = $null
     manifest_sha256 = $null
@@ -116,6 +117,9 @@ try {
                 $summary.client_process_to_godot_connected_ms += [long]$attempt.timings_ms.client_process_to_godot_connected
             }
         }
+        elseif ($attempt.result -eq "blocked") {
+            $summary.blocked_attempts++
+        }
         else {
             $summary.failed_attempts++
             $stage = if ([string]::IsNullOrWhiteSpace([string]$attempt.stage)) { "unknown" } else { [string]$attempt.stage }
@@ -135,7 +139,15 @@ try {
     }
 
     if ($summary.parity_verified_by_attempt -eq $null) { throw "The suite did not complete its required VM parity verification." }
-    $summary.result = if ($summary.failed_attempts -eq 0) { "passed" } else { "failed" }
+    $summary.result = if ($summary.failed_attempts -gt 0) {
+        "failed"
+    }
+    elseif ($summary.blocked_attempts -gt 0) {
+        "blocked"
+    }
+    else {
+        "passed"
+    }
 }
 catch {
     $summary.error = $_.Exception.Message
