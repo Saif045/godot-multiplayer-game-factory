@@ -23,6 +23,12 @@ is not run merely because its processes were launched.
 Every runtime test must reach one terminal state--`PASS`, `FAIL`, or
 `BLOCKED`--and then perform cleanup.
 
+This document defines the general lifecycle. The stricter conduct rules for an
+active acceptance attempt are mandatory and live in
+[`runtime-test-operator.md`](runtime-test-operator.md). Read
+[`investigation-protocol.md`](investigation-protocol.md) only when the task
+explicitly authorizes investigation after a completed attempt.
+
 ## Core invariant
 
 Every runtime test follows this lifecycle:

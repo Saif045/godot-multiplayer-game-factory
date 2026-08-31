@@ -30,7 +30,7 @@ Build reusable infrastructure and primitives, not a custom mini-engine or game-s
 
 Any test that launches Godot, host/client processes, multiplayer peers, VMs,
 external services, benchmarks, or other persistent runtime processes MUST follow
-`docs/testing-protocol.md`.
+`docs/testing-protocol.md` and `docs/runtime-test-operator.md`.
 
 This is mandatory. In particular:
 
@@ -45,3 +45,13 @@ This is mandatory. In particular:
 
 Do not leave host/client applications running unless the user explicitly asks
 for that behavior.
+
+During an active acceptance test, act as a test operator, not an autonomous
+debugger. Do not modify source, alter the scenario, retry, restart Steam,
+reconfigure the VM or network, fix newly discovered bugs, or run alternate
+experiments unless the explicit test plan permits it. Complete the attempt as
+PASS, FAIL, or BLOCKED; capture evidence; clean up; verify cleanup; report; and
+stop.
+
+Investigation and fixes are separate tasks. They must follow
+`docs/investigation-protocol.md`.
