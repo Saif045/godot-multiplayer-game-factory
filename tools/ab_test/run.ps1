@@ -61,6 +61,7 @@ $vmGodotLogPath = "C:/GameFactoryAgent/gamefactory_$runId.godot.log"
 $resultPath = Join-Path $artifactDirectory "result.json"
 $hostProcess = $null
 $vmCleanupSucceeded = $false
+$netfoxShutdownExpected = $false
 $result = [ordered]@{
     result = "failed"
     test_run_id = $runId
@@ -339,14 +340,14 @@ function Wait-ForLogEvent([string]$Category, [string]$Event, [string]$Role, [int
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         Assert-NoTerminalStartupFailure
+        $entry = Find-LogEvent $Category $Event $Role
+        if ($null -ne $entry) { return $entry }
         $connectionFailed = Find-LogEvent "ab_test.scenario" "godot_connection_failed" "client"
         if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.scenario" "godot_connection_failed" "client" }
         if ($null -ne $connectionFailed) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ConnectionFailed." }
         $serverDisconnected = Find-LogEvent "ab_test.scenario" "godot_server_disconnected" "client"
         if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.scenario" "godot_server_disconnected" "client" }
-        if ($null -ne $serverDisconnected) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ServerDisconnected." }
-        $entry = Find-LogEvent $Category $Event $Role
-        if ($null -ne $entry) { return $entry }
+        if ($null -ne $serverDisconnected -and -not $script:netfoxShutdownExpected) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ServerDisconnected." }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $deadline)
 
@@ -550,6 +551,7 @@ try {
         $result.timings_ms["netfox_tickrate"] = [long]$clientTickSample.Fields.tickrate
         Complete-Stage "J_netfox_ticks"
         [void](Wait-ForLogEvent "netfox.time" "client_sample_received" "host" $ScenarioTimeoutSeconds "netfox" "client_sample_delivery")
+        $netfoxShutdownExpected = $true
         [void](Wait-ForLogEvent "netfox.time" "stopped" "host" $ScenarioTimeoutSeconds "netfox" "time_stop")
         [void](Wait-ForLogEvent "netfox.time" "stopped" "client" $ScenarioTimeoutSeconds "netfox" "time_stop")
         Complete-Stage "K_netfox_lifecycle_stop"
