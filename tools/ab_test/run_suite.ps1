@@ -25,6 +25,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1")
+. (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\process_utils.ps1")
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $outputDirectory = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $repoRoot "build\test_steam" } else { $OutputDirectory }
@@ -34,6 +36,7 @@ $suiteDirectory = Join-Path $repoRoot "artifacts\ab_suites\$suiteId"
 $attemptsDirectory = Join-Path $suiteDirectory "attempts"
 $summaryPath = Join-Path $suiteDirectory "summary.json"
 $runScript = Join-Path $PSScriptRoot "run.ps1"
+$buildHelperTimeoutSeconds = 210
 
 New-Item -ItemType Directory -Force -Path $suiteDirectory, $attemptsDirectory | Out-Null
 
@@ -59,14 +62,20 @@ $summary = [ordered]@{
 try {
     if (-not $SkipExport) {
         Write-Host "[suite][$suiteId] exporting one immutable test build"
-        & (Join-Path $repoRoot "tools\build_test_client.ps1") -Godot $Godot -OutputDirectory $outputDirectory -Clean
-        if ($LASTEXITCODE -ne 0) { throw "Godot export failed with exit code $LASTEXITCODE." }
+        $buildInvocation = Invoke-BuildTestClientIsolated -BuildScript (Join-Path $repoRoot "tools\build_test_client.ps1") -Godot $Godot -OutputDirectory $outputDirectory -TimeoutSeconds $buildHelperTimeoutSeconds
+        Set-Content -LiteralPath (Join-Path $suiteDirectory "build_helper.stdout.log") -Value $buildInvocation.StandardOutput -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $suiteDirectory "build_helper.stderr.log") -Value $buildInvocation.StandardError -Encoding utf8
+        if ($buildInvocation.TimedOut) { throw "Build helper process $($buildInvocation.ProcessId) timed out after $buildHelperTimeoutSeconds seconds." }
+        if ($buildInvocation.ExitCode -ne 0) {
+            $detail = ($buildInvocation.StandardError, $buildInvocation.StandardOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
+            throw "Build helper process $($buildInvocation.ProcessId) exited with code $($buildInvocation.ExitCode): $detail"
+        }
     }
 
     $manifestPath = Join-Path $outputDirectory "build_manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Build manifest was not found at $manifestPath." }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifestHash = Get-FileSha256 -LiteralPath $manifestPath
     $summary.build_id = [string]$manifest.build_id
     $summary.manifest_sha256 = $manifestHash
     Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $suiteDirectory "build_manifest.json") -Force

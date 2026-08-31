@@ -31,6 +31,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1")
+. (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\process_utils.ps1")
 $sshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2")
 $externalCommandTimeoutSeconds = 30
 
@@ -53,6 +55,8 @@ $runtimeDirectory = Join-Path $PSScriptRoot ".runtime"
 $localConfigPath = Join-Path $runtimeDirectory "client_config.json"
 $localStatusPath = Join-Path $runtimeDirectory "client_status.json"
 $localRunnerPath = Join-Path $PSScriptRoot "vm\run_client.ps1"
+$localHashUtilsPath = Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1"
+$vmHashUtilsPath = "C:/GameFactoryAgent/hash_utils.ps1"
 $hostOutputDirectory = Join-Path $artifactDirectory "host"
 $clientOutputDirectory = Join-Path $artifactDirectory "client"
 $sessionOutputDirectory = Join-Path $artifactDirectory "session"
@@ -62,6 +66,7 @@ $resultPath = Join-Path $artifactDirectory "result.json"
 $hostProcess = $null
 $vmCleanupSucceeded = $false
 $netfoxShutdownExpected = $false
+$buildHelperTimeoutSeconds = 210
 $result = [ordered]@{
     result = "failed"
     test_run_id = $runId
@@ -431,16 +436,21 @@ try {
     $result.stage = "build"
     if (-not $SkipExport) {
         Write-Harness "exporting current build"
-        try { & (Join-Path $repoRoot "tools\build_test_client.ps1") -Godot $Godot -OutputDirectory $outputDirectory -Clean }
-        catch { Set-Failure "build" "export" $_.Exception.Message }
-        if ($LASTEXITCODE -ne 0) { Set-Failure "build" "export" "Godot export failed with exit code $LASTEXITCODE." }
+        $buildInvocation = Invoke-BuildTestClientIsolated -BuildScript (Join-Path $repoRoot "tools\build_test_client.ps1") -Godot $Godot -OutputDirectory $outputDirectory -TimeoutSeconds $buildHelperTimeoutSeconds
+        Set-Content -LiteralPath (Join-Path $artifactDirectory "build_helper.stdout.log") -Value $buildInvocation.StandardOutput -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $artifactDirectory "build_helper.stderr.log") -Value $buildInvocation.StandardError -Encoding utf8
+        if ($buildInvocation.TimedOut) { Set-Failure "build" "export" "Build helper process $($buildInvocation.ProcessId) timed out after $buildHelperTimeoutSeconds seconds." }
+        if ($buildInvocation.ExitCode -ne 0) {
+            $detail = ($buildInvocation.StandardError, $buildInvocation.StandardOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
+            Set-Failure "build" "export" "Build helper process $($buildInvocation.ProcessId) exited with code $($buildInvocation.ExitCode): $detail"
+        }
     }
     if (-not (Test-Path $hostExecutable)) { Set-Failure "build" "output" "Host executable was not found at $hostExecutable." }
 
     $manifestPath = Join-Path $outputDirectory "build_manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) { Set-Failure "build" "build_parity" "Build manifest was not found at $manifestPath." }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifestHash = Get-FileSha256 -LiteralPath $manifestPath
     if (-not [string]::IsNullOrWhiteSpace($ExpectedManifestSha256) -and $manifestHash -ne $ExpectedManifestSha256.ToLowerInvariant()) {
         Set-Failure "build" "build_identity" "The current build manifest hash does not match the suite's verified manifest."
     }
@@ -462,6 +472,8 @@ try {
         Assert-VirtualBoxShareMapping
         $runnerCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
         if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
+        $hashUtilsCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localHashUtilsPath, "${VmAlias}:$vmHashUtilsPath")) $externalCommandTimeoutSeconds "VM hash utility installation"
+        if ($hashUtilsCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "hash_utility_install" "Could not install the VM hash utility; SCP exited with $($hashUtilsCopy.ExitCode)." }
         Write-ClientConfig "verify_only" @() $manifest $manifestHash
         $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
         if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {

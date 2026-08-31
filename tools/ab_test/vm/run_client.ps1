@@ -1,6 +1,12 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$hashUtilsPath = Join-Path $PSScriptRoot "hash_utils.ps1"
+if (-not (Test-Path -LiteralPath $hashUtilsPath)) {
+    $hashUtilsPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "powershell\hash_utils.ps1"
+}
+. $hashUtilsPath
+
 $agentDirectory = "C:\GameFactoryAgent"
 $configPath = Join-Path $agentDirectory "client_config.json"
 $statusPath = Join-Path $agentDirectory "client_status.json"
@@ -23,7 +29,7 @@ try {
     }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifestHash = Get-FileSha256 -LiteralPath $manifestPath
     if ([string]$manifest.build_id -ne [string]$config.expected_build_id) {
         throw "Build ID mismatch. Expected '$($config.expected_build_id)', observed '$($manifest.build_id)'."
     }
@@ -52,7 +58,7 @@ try {
             if (-not (Test-Path -LiteralPath $path)) { throw "Manifest file is missing on the VM: $relativePath" }
             $item = Get-Item -LiteralPath $path
             if ($item.Length -ne [long]$file.size) { throw "Manifest size mismatch on the VM: $relativePath" }
-            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $hash = Get-FileSha256 -LiteralPath $path
             if ($hash -ne [string]$file.sha256) { throw "Manifest hash mismatch on the VM: $relativePath" }
         }
         $status["parity_verification_ms"] = $runnerTimer.ElapsedMilliseconds

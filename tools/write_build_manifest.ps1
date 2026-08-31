@@ -6,6 +6,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "powershell\hash_utils.ps1")
 
 $resolvedOutput = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $resolvedRepository = (Resolve-Path -LiteralPath $RepositoryRoot).Path
@@ -21,7 +22,7 @@ $files = @(Get-ChildItem -LiteralPath $resolvedOutput -Recurse -File |
         [ordered]@{
             path = $_.FullName.Substring($resolvedOutput.Length).TrimStart('\').Replace('\', '/')
             size = $_.Length
-            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            sha256 = Get-FileSha256 -LiteralPath $_.FullName
         }
     })
 
