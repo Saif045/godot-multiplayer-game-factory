@@ -260,6 +260,13 @@ attempt 3 -> PASS -> cleanup
 Do not reuse one host/client pair as independent runs unless the test explicitly
 targets persistent-session behaviour.
 
+When repeated attempts are intended to measure the same exported binary, a
+suite may export and prove multi-machine build parity once before its first
+attempt. Every later attempt must still start clean, validate that its local
+manifest hash equals the suite's recorded immutable manifest, execute the full
+scenario, capture its own artifacts, and verify cleanup. Skipping parity does
+not permit skipping per-attempt preflight or runtime assertions.
+
 ## Required final report
 
 For every runtime test, report at least:

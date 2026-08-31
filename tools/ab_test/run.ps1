@@ -22,6 +22,10 @@ param(
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
     [switch]$SkipExport,
+    [switch]$SkipBuildParity,
+    [string]$ExpectedManifestSha256,
+    [string]$RunId,
+    [string]$ArtifactRoot,
     [switch]$KeepProcesses
 )
 
@@ -36,8 +40,15 @@ $outputDirectory = [System.IO.Path]::GetFullPath($outputDirectory)
 $hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe"
 if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.exe" }
 
-$runId = "ab_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([Guid]::NewGuid().ToString("N").Substring(0, 4))
-$artifactDirectory = Join-Path $repoRoot "artifacts\ab_tests\$runId"
+$runId = if ([string]::IsNullOrWhiteSpace($RunId)) {
+    "ab_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([Guid]::NewGuid().ToString("N").Substring(0, 4))
+}
+else {
+    $RunId
+}
+$artifactRoot = if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) { Join-Path $repoRoot "artifacts\ab_tests" } else { $ArtifactRoot }
+$artifactRoot = [System.IO.Path]::GetFullPath($artifactRoot)
+$artifactDirectory = Join-Path $artifactRoot $runId
 $runtimeDirectory = Join-Path $PSScriptRoot ".runtime"
 $localConfigPath = Join-Path $runtimeDirectory "client_config.json"
 $localStatusPath = Join-Path $runtimeDirectory "client_status.json"
@@ -383,6 +394,9 @@ try {
     if (-not (Test-Path -LiteralPath $manifestPath)) { Set-Failure "build" "build_parity" "Build manifest was not found at $manifestPath." }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedManifestSha256) -and $manifestHash -ne $ExpectedManifestSha256.ToLowerInvariant()) {
+        Set-Failure "build" "build_identity" "The current build manifest hash does not match the suite's verified manifest."
+    }
     $result.build_id = [string]$manifest.build_id
     $result.git_commit = [string]$manifest.git_commit
     $result.build_mapping["manifest_sha256"] = $manifestHash
@@ -390,17 +404,26 @@ try {
     Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $artifactDirectory "build_manifest.json") -Force
 
     $result.stage = "build_parity"
-    Assert-VirtualBoxShareMapping
-    $runnerCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
-    if ($runnerCopy.ExitCode -ne 0) { Set-Failure "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
-    Write-ClientConfig "verify_only" @() $manifest $manifestHash
-    $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
-    if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {
-        Set-Failure "build" "build_parity" "The VM parity result did not match the host manifest."
+    if ($SkipBuildParity) {
+        if ([string]::IsNullOrWhiteSpace($ExpectedManifestSha256)) {
+            Set-Failure "harness" "build_parity" "Skipping VM parity requires an expected verified manifest hash."
+        }
+        $result.build_mapping["parity"] = "reused_suite_verification"
+        Complete-Stage "build_parity_reused"
     }
-    Copy-Item -LiteralPath $localStatusPath -Destination (Join-Path $artifactDirectory "vm_build_parity.json") -Force
-    $result.timings_ms["vm_parity_verification"] = [long]$parityStatus.parity_verification_ms
-    Complete-Stage "build_parity"
+    else {
+        Assert-VirtualBoxShareMapping
+        $runnerCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
+        if ($runnerCopy.ExitCode -ne 0) { Set-Failure "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
+        Write-ClientConfig "verify_only" @() $manifest $manifestHash
+        $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
+        if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {
+            Set-Failure "build" "build_parity" "The VM parity result did not match the host manifest."
+        }
+        Copy-Item -LiteralPath $localStatusPath -Destination (Join-Path $artifactDirectory "vm_build_parity.json") -Force
+        $result.timings_ms["vm_parity_verification"] = [long]$parityStatus.parity_verification_ms
+        Complete-Stage "build_parity"
+    }
 
     $result.stage = "host_launch"
     $hostConsolePath = Join-Path $hostOutputDirectory "console.log"
