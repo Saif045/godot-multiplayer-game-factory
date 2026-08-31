@@ -24,8 +24,7 @@ public partial class NetfoxGameplayProbe : Node
 {
     private const int RequiredWorldObjectCount = 3;
     private const long ScenarioLeadTicks = 30;
-    private const long ScenarioCompletionTick = 170;
-    private const float MinimumDivergence = 0.05f;
+    private const float MinimumDivergence = 0.10f;
     private const float ConvergenceTolerance = 0.10f;
     private const long ConvergenceDeadlineTicks = 40;
 
@@ -105,18 +104,6 @@ public partial class NetfoxGameplayProbe : Node
             Log("netfox.gameplay", "client_scenario_passed", TopologyFields());
         }
 
-        if (!Multiplayer.IsServer() || _scenarioCompleted || !_scenarioStarted) return;
-        long scenarioTick = ReadTick() - _scenarioStartTick;
-        if (scenarioTick < ScenarioCompletionTick) return;
-
-        _scenarioCompleted = true;
-        Log("netfox.gameplay", "scenario_complete", new Dictionary<string, string?>(ScenarioFields())
-        {
-            ["scenario_tick"] = scenarioTick.ToString(),
-            ["minimum_divergence"] = MinimumDivergence.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["convergence_tolerance"] = ConvergenceTolerance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["convergence_deadline_ticks"] = ConvergenceDeadlineTicks.ToString()
-        });
     }
 
     public override void _ExitTree()
@@ -253,7 +240,18 @@ public partial class NetfoxGameplayProbe : Node
     private bool WorldTopologyReady()
     {
         NetfoxGameplayPlayer[] players = GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>().ToArray();
-        return _world.Count >= RequiredWorldObjectCount && players.Length == 2 && players.All(player => player.AuthorityConfigured);
+        bool valid = _world.Count >= RequiredWorldObjectCount && players.Length == 2 && players.All(HasExactAuthorityTopology);
+        if (valid) Log("netfox.gameplay", "authority_verified", TopologyFields());
+        return valid;
+    }
+
+    private static bool HasExactAuthorityTopology(NetfoxGameplayPlayer player)
+    {
+        NetworkObject networkObject = player.GetNode<NetworkObject>("NetworkObject");
+        long owner = networkObject.OwnerPeerId.Value;
+        return player.GetMultiplayerAuthority() == PeerId.Server.Value &&
+            player.GetNode<Node>("Simulation").GetMultiplayerAuthority() == PeerId.Server.Value &&
+            player.GetNode<Node>("Input").GetMultiplayerAuthority() == owner;
     }
 
     private long ReadTick() => _networkTime.Get("tick").AsInt64();

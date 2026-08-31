@@ -184,7 +184,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private Vector2 ExpectedAuthoritativePosition(long scenarioTick)
     {
         Vector2 position = Vector2.Zero;
-        for (long tick = 20; tick < Math.Min(scenarioTick, 140); tick++)
+        for (long tick = 20; tick <= Math.Min(scenarioTick, 139); tick++)
         {
             Vector2 move = tick < 60 ? Vector2.Right : tick < 100 ? Vector2.Down : Vector2.Left;
             position += move * (5f / 30f);

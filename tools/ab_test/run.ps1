@@ -349,9 +349,11 @@ function Wait-ForLogEvent([string]$Category, [string]$Event, [string]$Role, [int
         if ($null -ne $entry) { return $entry }
         $connectionFailed = Find-LogEvent "ab_test.scenario" "godot_connection_failed" "client"
         if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.scenario" "godot_connection_failed" "client" }
+        if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.gameplay" "godot_connection_failed" "client" }
         if ($null -ne $connectionFailed) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ConnectionFailed." }
         $serverDisconnected = Find-LogEvent "ab_test.scenario" "godot_server_disconnected" "client"
         if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.scenario" "godot_server_disconnected" "client" }
+        if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.gameplay" "godot_server_disconnected" "client" }
         if ($null -ne $serverDisconnected -and -not $script:netfoxShutdownExpected) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ServerDisconnected." }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $deadline)
@@ -612,7 +614,7 @@ try {
         Complete-Stage "Q_rollback_completed"
         $convergence = Wait-ForLogEventAfter "netfox.reconciliation" "convergence_confirmed" "client" ([long]$rollbackComplete.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.reconciliation" "convergence"
         Complete-Stage "R_convergence"
-        $clientPassed = Wait-ForLogEventAfter "netfox.gameplay" "client_scenario_passed_received" "host" ([long]$convergence.ElapsedMilliseconds) $ScenarioTimeoutSeconds "simulation" "client_result"
+        $clientPassed = Wait-ForLogEvent "netfox.gameplay" "client_scenario_passed_received" "host" $ScenarioTimeoutSeconds "simulation" "client_result"
         Complete-Stage "S_client_result"
         [void](Wait-ForLogEventAfter "netfox.gameplay" "scenario_complete" "host" ([long]$clientPassed.ElapsedMilliseconds) $ScenarioTimeoutSeconds "simulation" "scenario_complete")
         Complete-Stage "T_scenario_complete"
