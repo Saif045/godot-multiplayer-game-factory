@@ -19,8 +19,8 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private Node _networkRollback = null!;
     private Callable _beforeRollbackCallable;
     private Callable _afterRollbackCallable;
-    private bool _rollbackActive;
-    private long _rollbackStartTick;
+    private bool _loopHasRealReplay;
+    private long _loopStartTick;
     private bool _mispredictionStarted;
     private bool _mispredictionEnded;
     private bool _predictionConfirmed;
@@ -187,11 +187,15 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             _divergenceConfirmed = true;
             LogObservation("divergence_confirmed", networkObject, tick, scenarioTick, position, expected, error, lastKnown);
         }
-        if (_divergenceConfirmed && !isFresh && !_replayObserved)
+        if (_divergenceConfirmed && !isFresh)
         {
-            _replayObserved = true;
+            if (!_loopHasRealReplay)
+            {
+                _loopHasRealReplay = true;
+                GameLog.Info("netfox.rollback", "started", fields: new Dictionary<string, string?> { ["role"] = "client", ["network_object_id"] = networkObject.Id.ToString(), ["network_tick"] = tick.ToString(), ["scenario_tick"] = scenarioTick.ToString() });
+            }
             _replayCount++;
-            LogObservation("replay_observed", networkObject, tick, scenarioTick, position, expected, error, lastKnown);
+            if (!_replayObserved) { _replayObserved = true; LogObservation("replay_observed", networkObject, tick, scenarioTick, position, expected, error, lastKnown); }
         }
         if (_divergenceConfirmed && _replayObserved && !_convergenceConfirmed && scenarioTick >= 90 && scenarioTick <= 130 && error <= 0.10f)
         {
@@ -222,35 +226,24 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 
     private void OnRollbackStarted()
     {
-        if (_rollbackActive) return;
-        _rollbackActive = true;
-        _rollbackStartTick = _networkRollback.Get("tick").AsInt64();
-        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
-        long scenarioTick = ScenarioStartTick < 0 ? -1 : _rollbackStartTick - ScenarioStartTick;
-        GameLog.Info("netfox.rollback", "started", fields: new Dictionary<string, string?>
-        {
-            ["network_object_id"] = networkObject.Id.ToString(),
-            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
-            ["role"] = Multiplayer.IsServer() ? "host" : "client",
-            ["network_tick"] = _rollbackStartTick.ToString(),
-            ["scenario_tick"] = scenarioTick.ToString()
-        });
+        _loopHasRealReplay = false;
+        _loopStartTick = _networkRollback.Get("tick").AsInt64();
     }
 
     private void OnRollbackCompleted()
     {
-        if (!_rollbackActive) return;
+        if (!_loopHasRealReplay) return;
         long endTick = _networkRollback.Get("tick").AsInt64();
-        _rollbackActive = false;
+        _loopHasRealReplay = false;
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
         GameLog.Info("netfox.rollback", "completed", fields: new Dictionary<string, string?>
         {
             ["network_object_id"] = networkObject.Id.ToString(),
             ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
             ["role"] = Multiplayer.IsServer() ? "host" : "client",
-            ["rollback_from_tick"] = _rollbackStartTick.ToString(),
+            ["rollback_from_tick"] = _loopStartTick.ToString(),
             ["rollback_to_tick"] = endTick.ToString(),
-            ["replayed_ticks"] = Math.Max(0, endTick - _rollbackStartTick).ToString(),
+            ["replayed_ticks"] = Math.Max(0, endTick - _loopStartTick).ToString(),
             ["scenario_tick"] = (ScenarioStartTick < 0 ? -1 : endTick - ScenarioStartTick).ToString()
         });
     }
