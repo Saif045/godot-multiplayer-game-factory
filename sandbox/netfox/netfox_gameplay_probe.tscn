@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=4 format=3 uid="uid://cnetfoxgameplayq"]
 
 [ext_resource type="Script" path="res://sandbox/netfox/NetfoxGameplayProbe.cs" id="1_probe"]
 [ext_resource type="PackedScene" path="res://factory/networking/world/network_world.tscn" id="2_world"]

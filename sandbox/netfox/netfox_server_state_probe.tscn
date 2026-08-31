@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=6 format=3 uid="uid://cnetfoxstateprobe"]
 
 [ext_resource type="Script" path="res://sandbox/netfox/NetfoxServerStateProbe.cs" id="1_probe"]
 [ext_resource type="PackedScene" path="res://factory/networking/objects/network_object.tscn" id="2_network_object"]
