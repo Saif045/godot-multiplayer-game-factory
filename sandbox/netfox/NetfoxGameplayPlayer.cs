@@ -38,6 +38,49 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     public bool ClientEvidenceComplete => _predictionConfirmed && _divergenceConfirmed && _replayObserved && _convergenceConfirmed;
     public bool PlayerInterpolationConfirmed => _playerInterpolationConfirmed;
 
+    public Dictionary<string, string?> TopologyDiagnosticFields()
+    {
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        Node input = GetNode<Node>("Input");
+        Node simulation = GetNode<Node>("Simulation");
+        bool exactAuthority = GetMultiplayerAuthority() == PeerId.Server.Value &&
+            simulation.GetMultiplayerAuthority() == PeerId.Server.Value &&
+            input.GetMultiplayerAuthority() == networkObject.OwnerPeerId.Value;
+
+        return new Dictionary<string, string?>
+        {
+            ["network_object_id"] = networkObject.Id.ToString(),
+            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+            ["local_peer_id"] = Multiplayer.GetUniqueId().ToString(),
+            ["root_multiplayer_authority"] = GetMultiplayerAuthority().ToString(),
+            ["simulation_multiplayer_authority"] = simulation.GetMultiplayerAuthority().ToString(),
+            ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString(),
+            ["authority_configured"] = AuthorityConfigured.ToString(),
+            ["exact_authority_topology"] = exactAuthority.ToString()
+        };
+    }
+
+    public Dictionary<string, string?> RollbackDiagnosticFields()
+    {
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        Node input = GetNode<Node>("Input");
+        Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
+
+        return new Dictionary<string, string?>
+        {
+            ["player_id"] = PlayerId.ToString(),
+            ["network_object_id"] = networkObject.Id.ToString(),
+            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+            ["local_peer_id"] = Multiplayer.GetUniqueId().ToString(),
+            ["root_multiplayer_authority"] = GetMultiplayerAuthority().ToString(),
+            ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString(),
+            ["owns_input_locally"] = (input.GetMultiplayerAuthority() == Multiplayer.GetUniqueId()).ToString(),
+            ["rollback_synchronizer_authority"] = rollbackSynchronizer.GetMultiplayerAuthority().ToString(),
+            ["last_known_input_tick"] = rollbackSynchronizer.Call("get_last_known_input").AsInt64().ToString(),
+            ["last_known_authoritative_state_tick"] = rollbackSynchronizer.Call("get_last_known_state").AsInt64().ToString()
+        };
+    }
+
     public void ApplyNetworkSpawnData(Variant data)
     {
         if (data.VariantType != Variant.Type.Dictionary)

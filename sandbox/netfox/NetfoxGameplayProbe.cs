@@ -48,6 +48,8 @@ public partial class NetfoxGameplayProbe : Node
     private string? _testRunId;
     private MultiplayerPeer.ConnectionStatus? _lastPeerConnectionStatus;
     private double _peerStatusSampleElapsed;
+    private double _rollbackDiagnosticSampleElapsed;
+    private string? _lastTopologyDiagnosticSignature;
 
     [Export] public PackedScene PlayerScene { get; set; } = null!;
     [Export] public PackedScene StateProbeScene { get; set; } = null!;
@@ -93,11 +95,26 @@ public partial class NetfoxGameplayProbe : Node
         if (_peerStatusSampleElapsed >= 1.0) { _peerStatusSampleElapsed = 0; LogPeerStatus("periodic"); }
         if (!_timeSynchronized) return;
 
-        if (!Multiplayer.IsServer() && !_clientReadyReported && WorldTopologyReady())
+        if (!Multiplayer.IsServer() && !_clientReadyReported)
         {
-            _clientReadyReported = true;
-            Log("netfox.gameplay", "client_topology_verified", TopologyFields());
-            RpcId(PeerId.Server.Value, MethodName.ClientReadyRpc);
+            bool topologyReady = TryGetWorldTopology(out Dictionary<string, string?> topology);
+            if (topologyReady)
+            {
+                _clientReadyReported = true;
+                Log("netfox.gameplay", "client_topology_verified", topology);
+                RpcId(PeerId.Server.Value, MethodName.ClientReadyRpc);
+            }
+            else
+            {
+                LogTopologyPending(topology);
+            }
+        }
+
+        _rollbackDiagnosticSampleElapsed += _delta;
+        if (_rollbackDiagnosticSampleElapsed >= 5.0)
+        {
+            _rollbackDiagnosticSampleElapsed = 0;
+            LogRollbackDiagnostics();
         }
 
         if (!Multiplayer.IsServer() && !_clientPassedReported && ClientEvidenceComplete())
@@ -209,7 +226,7 @@ public partial class NetfoxGameplayProbe : Node
 
     private void TryStartScenario()
     {
-        if (!Multiplayer.IsServer() || !_timeSynchronized || !_clientReadyReceived || _scenarioStarted || !WorldTopologyReady()) return;
+        if (!Multiplayer.IsServer() || !_timeSynchronized || !_clientReadyReceived || _scenarioStarted || !TryGetWorldTopology(out _)) return;
         _scenarioStarted = true;
         _scenarioStartTick = ReadTick() + ScenarioLeadTicks;
         ConfigureScenario(_scenarioStartTick);
@@ -243,12 +260,53 @@ public partial class NetfoxGameplayProbe : Node
             players.Any(player => player.PlayerInterpolationConfirmed) && state is { RemoteStateReceived: true, StateInterpolationConfirmed: true };
     }
 
-    private bool WorldTopologyReady()
+    private bool TryGetWorldTopology(out Dictionary<string, string?> fields)
     {
         NetfoxGameplayPlayer[] players = GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>().ToArray();
-        bool valid = _world.Count >= RequiredWorldObjectCount && players.Length == 2 && players.All(HasExactAuthorityTopology);
-        if (valid) Log("netfox.gameplay", "authority_verified", TopologyFields());
+        bool worldCountReady = _world.Count >= RequiredWorldObjectCount;
+        bool playerCountReady = players.Length == 2;
+        bool authoritiesReady = players.All(HasExactAuthorityTopology);
+        bool valid = worldCountReady && playerCountReady && authoritiesReady;
+
+        fields = TopologyFields();
+        fields["world_count_ready"] = worldCountReady.ToString();
+        fields["expected_world_object_count"] = RequiredWorldObjectCount.ToString();
+        fields["group_player_count"] = players.Length.ToString();
+        fields["player_count_ready"] = playerCountReady.ToString();
+        fields["authority_topology_ready"] = authoritiesReady.ToString();
+        foreach (NetfoxGameplayPlayer player in players.OrderBy(player => player.PlayerId))
+        {
+            foreach ((string key, string? value) in player.TopologyDiagnosticFields())
+                fields[$"player_{player.PlayerId}_{key}"] = value;
+        }
+
+        if (valid) Log("netfox.gameplay", "authority_verified", fields);
         return valid;
+    }
+
+    private void LogTopologyPending(IReadOnlyDictionary<string, string?> fields)
+    {
+        string signature = string.Join("|", fields
+            .Where(pair => !string.Equals(pair.Key, "network_tick", StringComparison.Ordinal))
+            .OrderBy(pair => pair.Key)
+            .Select(pair => $"{pair.Key}={pair.Value}"));
+        if (string.Equals(signature, _lastTopologyDiagnosticSignature, StringComparison.Ordinal)) return;
+
+        _lastTopologyDiagnosticSignature = signature;
+        Log("netfox.gameplay", "client_topology_pending", fields);
+    }
+
+    private void LogRollbackDiagnostics()
+    {
+        if (Multiplayer.IsServer()) return;
+
+        foreach (NetfoxGameplayPlayer player in GetTree().GetNodesInGroup("netfox_gameplay_player").OfType<NetfoxGameplayPlayer>().OrderBy(player => player.PlayerId))
+        {
+            Dictionary<string, string?> fields = ScenarioFields();
+            foreach ((string key, string? value) in player.RollbackDiagnosticFields())
+                fields[key] = value;
+            GameLog.Info("netfox.diagnostics", "rollback_synchronizer_sample", fields: fields);
+        }
     }
 
     private static bool HasExactAuthorityTopology(NetfoxGameplayPlayer player)
