@@ -28,6 +28,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $sshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2")
+$externalCommandTimeoutSeconds = 30
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $outputDirectory = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $repoRoot "build\test_steam" } else { $OutputDirectory }
@@ -89,29 +90,83 @@ function Complete-Stage([string]$Stage) {
     Write-Harness "stage complete: $Stage"
 }
 
+function Invoke-ExternalCommand([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$Description, [switch]$SuppressOutput) {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    # Windows PowerShell uses the .NET Framework ProcessStartInfo, which does
+    # not expose ArgumentList. Every harness argument is passed as one quoted
+    # token so remote commands remain intact on that runtime as well.
+    $startInfo.Arguments = (($Arguments | ForEach-Object {
+        '"' + $_.Replace('"', '\"') + '"'
+    }) -join ' ')
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        # Process.Kill(bool) is not available in Windows PowerShell's .NET
+        # Framework runtime. The harness launches ssh/scp directly, so killing
+        # the command process is sufficient and remains compatible there.
+        $process.Kill()
+        $process.WaitForExit()
+        [void]$stdoutTask.GetAwaiter().GetResult()
+        [void]$stderrTask.GetAwaiter().GetResult()
+        throw "$Description timed out after $TimeoutSeconds seconds."
+    }
+
+    $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if (-not $SuppressOutput) {
+        if (-not [string]::IsNullOrWhiteSpace($stdout)) { Write-Host $stdout.TrimEnd() }
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) { Write-Warning $stderr.TrimEnd() }
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $process.ExitCode
+        StandardOutput = $stdout
+        StandardError = $stderr
+    }
+}
+
 function Invoke-Vm([string]$Command, [string]$Stage) {
-    & ssh @sshOptions $VmAlias $Command
-    if ($LASTEXITCODE -ne 0) {
-        Set-Failure "vm_control" $Stage "VM command failed with exit code $LASTEXITCODE."
+    $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, $Command)) $externalCommandTimeoutSeconds "VM command for stage '$Stage'"
+    if ($invocation.ExitCode -ne 0) {
+        Set-Failure "vm_control" $Stage "VM command failed with exit code $($invocation.ExitCode)."
     }
 }
 
 function Invoke-VmPowerShell([string]$Script, [string]$Stage) {
     $scriptWithPreferences = '$ProgressPreference = ''SilentlyContinue''; ' + $Script
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($scriptWithPreferences))
-    & ssh @sshOptions $VmAlias "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
-    if ($LASTEXITCODE -ne 0) {
-        Set-Failure "vm_control" $Stage "VM PowerShell command failed with exit code $LASTEXITCODE."
+    $command = "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
+    $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, $command)) $externalCommandTimeoutSeconds "VM PowerShell command for stage '$Stage'"
+    if ($invocation.ExitCode -ne 0) {
+        Set-Failure "vm_control" $Stage "VM PowerShell command failed with exit code $($invocation.ExitCode)."
     }
 }
 
 function Stop-VmClientBestEffort {
     $script = '$ProgressPreference = ''SilentlyContinue''; $deadline = (Get-Date).AddSeconds(10); do { $processes = @(Get-Process -Name GameFactory -ErrorAction SilentlyContinue); if ($processes.Count -eq 0) { exit 0 }; $processes | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 200 } while ((Get-Date) -lt $deadline); exit 9'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
-    & ssh @sshOptions $VmAlias "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
-    if ($LASTEXITCODE -ne 0) {
+    try {
+        $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded")) $externalCommandTimeoutSeconds "VM client cleanup"
+        $exitCode = $invocation.ExitCode
+    }
+    catch {
+        $exitCode = -1
+        Write-Warning "[harness][$runId] VM client cleanup timed out: $($_.Exception.Message)"
+    }
+    if ($exitCode -ne 0) {
         $script:vmCleanupSucceeded = $false
-        Write-Warning "[harness][$runId] VM client cleanup returned exit code $LASTEXITCODE."
+        Write-Warning "[harness][$runId] VM client cleanup returned exit code $exitCode."
     }
     else { $script:vmCleanupSucceeded = $true }
 }
@@ -122,9 +177,9 @@ function Assert-NoStaleProcesses {
     }
     $script = '$ProgressPreference = ''SilentlyContinue''; if (@(Get-Process -Name GameFactory -ErrorAction SilentlyContinue).Count -gt 0) { exit 9 } else { exit 0 }'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
-    & ssh @sshOptions $VmAlias "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
-    if ($LASTEXITCODE -eq 9) { Set-Failure "harness" "preflight_cleanup" "A VM GameFactory process remained after cleanup." }
-    if ($LASTEXITCODE -ne 0) { Set-Failure "vm_control" "preflight_reachability" "Could not verify VM process state; SSH exited with code $LASTEXITCODE." }
+    $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded")) $externalCommandTimeoutSeconds "VM process-state preflight"
+    if ($invocation.ExitCode -eq 9) { Set-Failure "harness" "preflight_cleanup" "A VM GameFactory process remained after cleanup." }
+    if ($invocation.ExitCode -ne 0) { Set-Failure "vm_control" "preflight_reachability" "Could not verify VM process state; SSH exited with code $($invocation.ExitCode)." }
 }
 
 function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manifest, [string]$ManifestHash) {
@@ -138,8 +193,8 @@ function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manife
     $temporaryConfigPath = "$localConfigPath.tmp"
     $clientConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporaryConfigPath -Encoding utf8
     Move-Item -LiteralPath $temporaryConfigPath -Destination $localConfigPath -Force
-    & scp @sshOptions $localConfigPath "${VmAlias}:$VmConfigPath"
-    if ($LASTEXITCODE -ne 0) { Set-Failure "vm_control" "client_config_copy" "SCP failed with exit code $LASTEXITCODE." }
+    $invocation = Invoke-ExternalCommand "scp" ($sshOptions + @($localConfigPath, "${VmAlias}:$VmConfigPath")) $externalCommandTimeoutSeconds "VM client configuration copy"
+    if ($invocation.ExitCode -ne 0) { Set-Failure "vm_control" "client_config_copy" "SCP failed with exit code $($invocation.ExitCode)." }
     Copy-Item -LiteralPath $localConfigPath -Destination (Join-Path $artifactDirectory "client_config_$Mode.json") -Force
 }
 
@@ -152,8 +207,13 @@ function Invoke-VmRunner([string]$ExpectedStage, [int]$TimeoutSeconds) {
     do {
         $previousErrorPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        & scp @sshOptions "${VmAlias}:$VmStatusPath" $localStatusPath 2>$null
-        $scpExitCode = $LASTEXITCODE
+        try {
+            $statusCopy = Invoke-ExternalCommand "scp" ($sshOptions + @("${VmAlias}:$VmStatusPath", $localStatusPath)) 10 "VM runner-status copy" -SuppressOutput
+            $scpExitCode = $statusCopy.ExitCode
+        }
+        catch {
+            $scpExitCode = -1
+        }
         $ErrorActionPreference = $previousErrorPreference
         if ($scpExitCode -eq 0 -and (Test-Path -LiteralPath $localStatusPath)) {
             $status = Get-Content -LiteralPath $localStatusPath -Raw | ConvertFrom-Json
@@ -331,8 +391,8 @@ try {
 
     $result.stage = "build_parity"
     Assert-VirtualBoxShareMapping
-    & scp @sshOptions $localRunnerPath "${VmAlias}:$VmRunnerPath"
-    if ($LASTEXITCODE -ne 0) { Set-Failure "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $LASTEXITCODE." }
+    $runnerCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
+    if ($runnerCopy.ExitCode -ne 0) { Set-Failure "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
     Write-ClientConfig "verify_only" @() $manifest $manifestHash
     $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
     if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {
