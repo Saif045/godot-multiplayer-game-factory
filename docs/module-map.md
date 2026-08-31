@@ -25,8 +25,8 @@ This inventory describes tracked paths and current responsibilities. Directories
 | Path | Responsibility | Evidence |
 |---|---|---|
 | `sandbox/steam/` | Steam/lobby smoke, native re-host dependency smoke, and manual or test-only two-account gameplay acceptance probe. | Steam acceptance laboratory |
-| `sandbox/netfox/` | Steam-backed Netfox NetworkTime/tick probe without gameplay, rollback, or replication ownership. | Phase-1 acceptance scenario |
-| `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam`, `--run=steam-gameplay`, or `--run=netfox` |
+| `sandbox/netfox/` | Steam-backed Netfox time probe plus an in-progress, deterministic predicted-player/state-sync sandbox. `NetworkWorld` still owns GameFactory object identity and spawning; Netfox nodes own rollback, state synchronization, and presentation interpolation within the sandbox scenes. | Phase-1 gameplay integration; not A/B accepted |
+| `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam`, `--run=steam-gameplay`, `--run=netfox`, or `--run=netfox-gameplay` |
 | `tests/GameFactory.Tests/` | Engine-independent xUnit tests for pure policy, values, registries, and diagnostics. | Automated baseline |
 | `tools/` | Clean/configurable export and manifest helpers plus the build-parity-gated host-PC-to-VM Steam A/B acceptance harness. | Developer tooling / external-environment acceptance |
 

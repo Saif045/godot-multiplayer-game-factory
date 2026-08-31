@@ -16,7 +16,7 @@ param(
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
-    [ValidateSet("steam_basic", "netfox_time_sync")]
+    [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,

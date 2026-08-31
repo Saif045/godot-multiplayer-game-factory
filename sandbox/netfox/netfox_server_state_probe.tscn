@@ -1,0 +1,26 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://sandbox/netfox/NetfoxServerStateProbe.cs" id="1_probe"]
+[ext_resource type="PackedScene" path="res://factory/networking/objects/network_object.tscn" id="2_network_object"]
+[ext_resource type="Script" path="res://sandbox/netfox/netfox_state_probe.gd" id="3_state"]
+[ext_resource type="Script" path="res://addons/netfox/state-synchronizer.gd" id="4_sync"]
+[ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="5_interpolator"]
+
+[node name="NetfoxServerStateProbe" type="Node2D"]
+script = ExtResource("1_probe")
+
+[node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
+SpawnGroup = 1
+
+[node name="State" type="Node2D" parent="."]
+script = ExtResource("3_state")
+
+[node name="StateSynchronizer" type="Node" parent="."]
+script = ExtResource("4_sync")
+root = NodePath("..")
+properties = ["State:authoritative_position"]
+
+[node name="TickInterpolator" type="Node" parent="."]
+script = ExtResource("5_interpolator")
+root = NodePath("..")
+properties = ["State:position"]

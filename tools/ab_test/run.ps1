@@ -17,7 +17,7 @@ param(
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
-    [ValidateSet("steam_basic", "netfox_time_sync")]
+    [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
@@ -89,8 +89,8 @@ $result = [ordered]@{
     started_utc = [DateTimeOffset]::UtcNow.ToString("O")
     completed_utc = $null
 }
-$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } else { "steam-gameplay" }
-$scenarioCategory = if ($Scenario -eq "netfox_time_sync") { "netfox.scenario" } else { "ab_test.scenario" }
+$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } else { "steam-gameplay" }
+$scenarioCategory = if ($Scenario -like "netfox_*") { "netfox.scenario" } else { "ab_test.scenario" }
 
 New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory, $runtimeDirectory | Out-Null
 
@@ -532,10 +532,10 @@ try {
     Complete-Stage "E_native_handshake"
 
     $result.stage = "client_connection"
-    $godotConnected = if ($Scenario -eq "netfox_time_sync") {
+    $godotConnected = if ($Scenario -like "netfox_*") {
         Wait-ForLogEvent "netfox.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
     }
-    else {
+    elseif ($Scenario -eq "netfox_time_sync") {
         Wait-ForLogEvent "network.connection" "connected_to_server" "" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection"
     }
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
@@ -567,6 +567,26 @@ try {
         [void](Wait-ForLogEvent "netfox.time" "stopped" "host" $ScenarioTimeoutSeconds "netfox" "time_stop")
         [void](Wait-ForLogEvent "netfox.time" "stopped" "client" $ScenarioTimeoutSeconds "netfox" "time_stop")
         Complete-Stage "K_netfox_lifecycle_stop"
+    }
+    else {
+        # Gameplay has its own explicit checkpoints. These are intentionally
+        # stronger than process startup: each represents a layer boundary
+        # between Steam/Godot transport, GameFactory spawning, and Netfox.
+        [void](Wait-ForLogEvent "netfox.gameplay" "time_sync_ready" "host" $ScenarioTimeoutSeconds "netfox" "host_time_sync")
+        Complete-Stage "G_netfox_host_time_sync"
+        [void](Wait-ForLogEvent "netfox.gameplay" "time_sync_ready" "client" $ScenarioTimeoutSeconds "netfox" "client_time_sync")
+        Complete-Stage "H_netfox_client_time_sync"
+        [void](Wait-ForLogEvent "netfox.gameplay" "client_topology_verified" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology")
+        [void](Wait-ForLogEvent "netfox.gameplay" "client_ready_received" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_topology")
+        Complete-Stage "I_gamefactory_world_topology"
+        [void](Wait-ForLogEvent "netfox.gameplay" "scenario_started" "host" $ScenarioTimeoutSeconds "simulation" "scenario_start")
+        Complete-Stage "J_prediction_schedule"
+        [void](Wait-ForLogEvent "netfox.gameplay" "misprediction_started" "client" $ScenarioTimeoutSeconds "netfox" "forced_divergence")
+        [void](Wait-ForLogEvent "netfox.rollback" "started" "client" $ScenarioTimeoutSeconds "netfox" "rollback")
+        [void](Wait-ForLogEvent "netfox.rollback" "completed" "client" $ScenarioTimeoutSeconds "netfox" "replay")
+        Complete-Stage "K_rollback_replay"
+        [void](Wait-ForLogEvent "netfox.gameplay" "scenario_complete" "host" $ScenarioTimeoutSeconds "simulation" "convergence")
+        Complete-Stage "L_convergence_and_state_sync"
     }
 
     $result.result = "passed"

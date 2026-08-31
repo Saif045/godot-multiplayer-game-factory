@@ -46,6 +46,23 @@ This is mandatory. In particular:
 Do not leave host/client applications running unless the user explicitly asks
 for that behavior.
 
+## Task execution and turn completion
+
+When an implementation task is sufficiently specified, execute it in the
+current work turn. A user-visible final response ends that work turn; no
+implementation continues invisibly afterward.
+
+Do not end an implementation turn merely to report that work has started,
+continues, or will happen next. Inspection, a partial edit, or a build of an
+incomplete slice is not a terminal checkpoint. Continue through the requested
+implementation and its required local validation in the same turn.
+
+End a turn only when the requested implementation and validation are complete,
+an explicit planner stop boundary has been reached, a genuine blocker requires
+user action, or the runtime test protocol requires a PASS, FAIL, or BLOCKED
+report. Do not send unsolicited status updates while implementation is in
+progress; tool activity is the progress record.
+
 During an active acceptance test, act as a test operator, not an autonomous
 debugger. Do not modify source, alter the scenario, retry, restart Steam,
 reconfigure the VM or network, fix newly discovered bugs, or run alternate
