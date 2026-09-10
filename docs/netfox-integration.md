@@ -39,6 +39,13 @@ autoloads: `NetworkTime`, `NetworkTimeSynchronizer`, `NetworkRollback`,
 `NetworkEvents`, and `NetworkPerformance`. Their generated autoload entries are
 not hand-authored replacements for the plugin mechanism.
 
+The vendored `RollbackSynchronizer.get_last_known_input()` has one local
+source-level correction: it calls `_PropertyHistoryBuffer.get_latest_tick()`
+rather than `keys()`. The latter is a `Dictionary` API and causes a runtime
+error because `_PropertyHistoryBuffer` is a `RefCounted` wrapper. This keeps
+the documented public accessor usable for diagnostics; it does not alter
+history retention, authority, prediction, transport, or gameplay behavior.
+
 On a fresh import Godot may need one clean editor restart after the plugins
 first add their interdependent autoloads. The first activation can compile
 scripts before all autoload names exist; the next editor startup must be clean

@@ -211,7 +211,7 @@ func get_last_known_input() -> int:
 	# If we own input, it is updated regularly, this will be the current tick
 	# If we don't own input, _inputs is only updated when input data is received
 	if not _inputs.is_empty():
-		return _inputs.keys().max()
+		return _inputs.get_latest_tick()
 	return -1
 
 ## Get the tick of the last known state.
