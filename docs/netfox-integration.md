@@ -2,9 +2,9 @@
 
 ## Scope and status
 
-Netfox Phase 1 installs the native GDScript Netfox addon and adds an isolated
-Steam-backed NetworkTime probe. It does not introduce movement, prediction,
-rollback gameplay, GAS, NetfoxSharp, Noray, or a replication migration.
+Netfox Phase 1 installs the native GDScript Netfox addon, adds an isolated
+Steam-backed NetworkTime probe, and includes an interactive two-player movement
+sandbox. It does not introduce GAS, NetfoxSharp, Noray, or a replication migration.
 
 The intended ownership boundary is:
 
@@ -13,7 +13,7 @@ Steam / GodotSteam
     connection and packet transport
         -> Godot MultiplayerApi
             -> Netfox NetworkEvents and NetworkTime
-                -> GameFactory sandbox diagnostics and acceptance scenarios
+                -> GameFactory sandbox spawning and interactive movement
 ```
 
 `SteamSession` remains the only owner of lobby creation, joining, and the
@@ -78,6 +78,26 @@ Steam/Godot checkpoints, then proves host/client time sync, host observation of
 client sync, monotonic host/client ticks, a client RTT sample, and
 `NetworkEvents`-owned stop events. A Steam/Godot failure before Netfox time
 sync is attributed to its earlier layer rather than Netfox.
+
+## Interactive movement playground
+
+`sandbox/netfox/netfox_gameplay_probe.tscn` is selected by `--run=netfox-gameplay`.
+Launch one instance with `--steam-host`, then a second instance with the printed
+`--steam-lobby=<id>`. Each process controls only its own bright outlined marker
+with WASD. The host marker is blue and a client-owned marker is orange.
+
+The sandbox follows Netfox's responsive-player-movement pattern: `Input` gathers
+WASD once per `NetworkTime.before_tick_loop`; `Simulation` advances only from
+that input in `_rollback_tick`; `RollbackSynchronizer` records
+`Input:movement` and `Simulation:simulated_position`; and `TickInterpolator`
+smooths that same state property for presentation. Player root and simulation
+remain server-owned, while only `Input` uses the owning peer's authority. After
+those authorities are set, the sandbox calls `process_settings()` on the
+rollback synchronizer as required by Netfox.
+
+This is a manual playground, not the former deterministic divergence/convergence
+acceptance scenario. Its small `netfox.movement` logs report player spawn and
+configuration, input activation, and rate-limited local/remote movement.
 
 Use repeated sampling only after a baseline attempt succeeds:
 

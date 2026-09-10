@@ -15,7 +15,7 @@ Steam and Steam-gameplay probes
 
 Steam/Godot `MultiplayerPeer` is the accepted online session path. There is no generic transport or generic session coordinator: neither had a second concrete use and both duplicated the actual Steam/Godot lifecycle. The `SteamPlatform` autoload owns the process-lifetime GodotSteam adapter and shuts Steam down once at application exit. Each `SteamSession` owns one friends-only lobby and the peer it assigns to Godot's `MultiplayerApi`; leaving a gameplay scene does not reinitialize Steam. This is Steam-specific by design.
 
-Netfox v1.35.3 is vendored as a native GDScript dependency. Its plugin-managed `NetworkEvents` observes Godot multiplayer lifecycle and is the sole owner of Netfox `NetworkTime` start/stop. Phase 1 is restricted to a sandbox probe that measures initial time synchronization, ticks, and RTT over the existing Steam peer. It does not replace Steam transport, add a GameFactory Netfox abstraction, or migrate existing `MultiplayerSynchronizer` replication. See `docs/netfox-integration.md`.
+Netfox v1.35.3 is vendored as a native GDScript dependency. Its plugin-managed `NetworkEvents` observes Godot multiplayer lifecycle and is the sole owner of Netfox `NetworkTime` start/stop. Phase 1 includes an interactive Steam-backed sandbox: GameFactory `NetworkWorld` spawns the avatars and retains their identity metadata, while Netfox owns the player input/state history, prediction, rollback, and interpolation. It does not replace Steam transport, add a GameFactory Netfox abstraction, or migrate existing `MultiplayerSynchronizer` replication. See `docs/netfox-integration.md`.
 
 ## Application shell
 
