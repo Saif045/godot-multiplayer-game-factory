@@ -99,6 +99,16 @@ This is a manual playground, not the former deterministic divergence/convergence
 acceptance scenario. Its small `netfox.movement` logs report player spawn and
 configuration, input activation, and rate-limited local/remote movement.
 
+When investigating a two-account run, each player additionally writes one
+`netfox.history_age/sample` and one `netfox.transport_cadence/sample` event per
+second. They record Netfox time/rollback ticks, known input/state ticks and
+ages, prediction state, peer status, available Godot peer packets, and the
+number and size of known-history advances in the preceding sample window.
+`netfox.history_age/threshold_crossed` is emitted once per player/history kind
+at 32, 48, 56, and 64 ticks. These are diagnostics only: they do not alter
+Netfox history size, authority, prediction, input broadcast, movement, Steam,
+or Godot polling.
+
 Use repeated sampling only after a baseline attempt succeeds:
 
 ```powershell

@@ -22,6 +22,13 @@ The A/B harness creates a unique `--test-run-id`, stores harness artifacts under
 
 `netfox_gameplay` is now an interactive movement sandbox rather than a deterministic divergence/convergence acceptance scenario. Its ordinary validation is a two-account manual check: both peers connect, `NetworkWorld` spawns one player per peer, each process accepts WASD only for its own player, and the other process sees the matching remote movement. The existing strict `netfox_gameplay` harness checkpoints predate this simplification and are not the acceptance contract for the playground.
 
+The playground emits structured history-age and transport-cadence diagnostics
+once per player per second. A history-age investigation should inspect whether
+known state or input age grows gradually or jumps, record the first 32/48/56/64
+tick threshold crossing, and correlate it with Netfox time/rollback ticks and
+Godot peer status before changing timing, authority, history limits, or Steam
+behavior.
+
 `tools/ab_test/run_suite.ps1` is the repeated-reliability mode. It exports once (unless `-SkipExport` is explicitly requested), records one immutable manifest, and runs independent clean attempts beneath `artifacts/ab_suites/<suite-id>/attempts/`. The first attempt proves VM parity. Later attempts reuse that proof only after verifying the same host manifest hash, while retaining normal per-attempt preflight, runtime assertions, artifact capture, teardown, and cleanup verification. `summary.json` records the build identity, pass/fail totals, failed-stage distribution, connection-time samples, and every attempt artifact path. A suite never retries a failed attempt in place.
 
 New coverage should follow coherent playable slices rather than speculative helpers. Tests must be deterministic, explicit about authority and runtime role, and honest about external environment requirements.

@@ -14,11 +14,22 @@ namespace GameFactory.Sandbox.Netfox;
 public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 {
     private const float MarkerRadius = 22.0f;
+    private static readonly int[] HistoryAgeThresholds = [32, 48, 56, 64];
 
     private long _playerId;
     private double _movementLogElapsed;
+    private double _historyDiagnosticsElapsed;
+    private double _historyCadencePollElapsed;
     private bool _inputActive;
     private bool _configured;
+    private long? _lastKnownInputTick;
+    private long? _lastKnownStateTick;
+    private int _inputAdvanceEvents;
+    private int _stateAdvanceEvents;
+    private long _largestInputTickAdvance;
+    private long _largestStateTickAdvance;
+    private readonly HashSet<int> _inputAgeThresholdsReported = [];
+    private readonly HashSet<int> _stateAgeThresholdsReported = [];
 
     public void ApplyNetworkSpawnData(Variant data)
     {
@@ -47,6 +58,14 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     public override void _Process(double delta)
     {
         _movementLogElapsed += delta;
+        _historyDiagnosticsElapsed += delta;
+        _historyCadencePollElapsed += delta;
+        if (_configured && _historyCadencePollElapsed >= 0.1)
+        {
+            _historyCadencePollElapsed = 0;
+            ObserveHistoryCadence();
+        }
+        ReportHistoryDiagnostics();
         QueueRedraw();
     }
 
@@ -129,4 +148,127 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString()
         });
     }
+
+    private void ReportHistoryDiagnostics()
+    {
+        if (!_configured || _historyDiagnosticsElapsed < 1.0)
+            return;
+
+        _historyDiagnosticsElapsed = 0;
+        Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        long networkTimeTick = GetNode<Node>("/root/NetworkTime").Get("tick").AsInt64();
+        long rollbackTick = GetNode<Node>("/root/NetworkRollback").Get("tick").AsInt64();
+        long lastKnownInputTick = rollbackSynchronizer.Call("get_last_known_input").AsInt64();
+        long lastKnownStateTick = rollbackSynchronizer.Call("get_last_known_state").AsInt64();
+        bool hasInput = rollbackSynchronizer.Call("has_input").AsBool();
+        bool isPredicting = rollbackSynchronizer.Call("is_predicting").AsBool();
+
+        int? inputAge = CalculateAge(networkTimeTick, lastKnownInputTick);
+        int? stateAge = CalculateAge(networkTimeTick, lastKnownStateTick);
+        ReportHistoryAgeThresholds("input", inputAge, _inputAgeThresholdsReported, networkTimeTick,
+            rollbackTick, lastKnownInputTick, networkObject);
+        ReportHistoryAgeThresholds("state", stateAge, _stateAgeThresholdsReported, networkTimeTick,
+            rollbackTick, lastKnownStateTick, networkObject);
+
+        MultiplayerPeer? peer = Multiplayer.MultiplayerPeer;
+        Dictionary<string, string?> fields = new()
+        {
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
+            ["player_id"] = _playerId.ToString(),
+            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+            ["local_peer_id"] = Multiplayer.GetUniqueId().ToString(),
+            ["network_time_tick"] = networkTimeTick.ToString(),
+            ["network_rollback_tick"] = rollbackTick.ToString(),
+            ["last_known_input_tick"] = FormatKnownTick(lastKnownInputTick),
+            ["last_known_state_tick"] = FormatKnownTick(lastKnownStateTick),
+            ["input_age"] = FormatAge(inputAge),
+            ["state_age"] = FormatAge(stateAge),
+            ["has_input"] = hasInput.ToString(),
+            ["is_predicting"] = isPredicting.ToString(),
+            ["peer_type"] = peer?.GetType().Name,
+            ["peer_connection_status"] = peer?.GetConnectionStatus().ToString(),
+            ["available_packet_count"] = peer?.GetAvailablePacketCount().ToString(),
+            ["input_advance_events"] = _inputAdvanceEvents.ToString(),
+            ["state_advance_events"] = _stateAdvanceEvents.ToString(),
+            ["largest_input_tick_advance"] = _largestInputTickAdvance.ToString(),
+            ["largest_state_tick_advance"] = _largestStateTickAdvance.ToString()
+        };
+        GameLog.Info("netfox.history_age", "sample", fields: fields);
+        GameLog.Info("netfox.transport_cadence", "sample", fields: fields);
+
+        ResetCadenceWindow();
+    }
+
+    private void ObserveHistoryCadence()
+    {
+        Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        long networkTimeTick = GetNode<Node>("/root/NetworkTime").Get("tick").AsInt64();
+        long rollbackTick = GetNode<Node>("/root/NetworkRollback").Get("tick").AsInt64();
+        long lastKnownInputTick = rollbackSynchronizer.Call("get_last_known_input").AsInt64();
+        long lastKnownStateTick = rollbackSynchronizer.Call("get_last_known_state").AsInt64();
+        TrackHistoryCadence(ref _lastKnownInputTick, lastKnownInputTick,
+            ref _inputAdvanceEvents, ref _largestInputTickAdvance);
+        TrackHistoryCadence(ref _lastKnownStateTick, lastKnownStateTick,
+            ref _stateAdvanceEvents, ref _largestStateTickAdvance);
+        ReportHistoryAgeThresholds("input", CalculateAge(networkTimeTick, lastKnownInputTick),
+            _inputAgeThresholdsReported, networkTimeTick, rollbackTick, lastKnownInputTick, networkObject);
+        ReportHistoryAgeThresholds("state", CalculateAge(networkTimeTick, lastKnownStateTick),
+            _stateAgeThresholdsReported, networkTimeTick, rollbackTick, lastKnownStateTick, networkObject);
+    }
+
+    private void TrackHistoryCadence(ref long? previousTick, long currentTick,
+        ref int advanceEvents, ref long largestAdvance)
+    {
+        if (currentTick < 0)
+            return;
+
+        if (previousTick is long previous && currentTick > previous)
+        {
+            advanceEvents++;
+            largestAdvance = Math.Max(largestAdvance, currentTick - previous);
+        }
+
+        previousTick = currentTick;
+    }
+
+    private void ReportHistoryAgeThresholds(string historyKind, int? age, HashSet<int> reportedThresholds,
+        long networkTimeTick, long rollbackTick, long knownTick, NetworkObject networkObject)
+    {
+        if (age is not int actualAge)
+            return;
+
+        foreach (int threshold in HistoryAgeThresholds)
+        {
+            if (actualAge < threshold || !reportedThresholds.Add(threshold))
+                continue;
+
+            GameLog.Warning("netfox.history_age", "threshold_crossed", fields: new Dictionary<string, string?>
+            {
+                ["history_kind"] = historyKind,
+                ["role"] = Multiplayer.IsServer() ? "host" : "client",
+                ["threshold"] = threshold.ToString(),
+                ["age"] = actualAge.ToString(),
+                ["player_id"] = _playerId.ToString(),
+                ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+                ["local_peer_id"] = Multiplayer.GetUniqueId().ToString(),
+                ["network_time_tick"] = networkTimeTick.ToString(),
+                ["network_rollback_tick"] = rollbackTick.ToString(),
+                ["last_known_tick"] = knownTick.ToString()
+            });
+        }
+    }
+
+    private void ResetCadenceWindow()
+    {
+        _inputAdvanceEvents = 0;
+        _stateAdvanceEvents = 0;
+        _largestInputTickAdvance = 0;
+        _largestStateTickAdvance = 0;
+    }
+
+    private static int? CalculateAge(long currentTick, long knownTick) => knownTick < 0 ? null : checked((int)(currentTick - knownTick));
+    private static string FormatKnownTick(long tick) => tick < 0 ? "unavailable" : tick.ToString();
+    private static string FormatAge(int? age) => age?.ToString() ?? "unavailable";
 }
