@@ -31,6 +31,9 @@ public partial class NetfoxGameplayProbe : Node
     private NetworkWorld _world = null!;
     private bool _clientPlayersReported;
     private string? _role;
+    private Node? _networkTime;
+    private Node? _networkTimeSynchronizer;
+    private Callable? _timeSyncPanicCallable;
 
     [Export] public PackedScene PlayerScene { get; set; } = null!;
 
@@ -42,6 +45,10 @@ public partial class NetfoxGameplayProbe : Node
             string[] arguments = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
             _role = arguments.Contains("--steam-host") ? "host" : "client";
             _world = GetNode<NetworkWorld>("NetworkWorld");
+            _networkTime = GetNode<Node>("/root/NetworkTime");
+            _networkTimeSynchronizer = GetNode<Node>("/root/NetworkTimeSynchronizer");
+            _timeSyncPanicCallable = Callable.From<double>(OnTimeSyncPanic);
+            _networkTimeSynchronizer.Connect("on_panic", _timeSyncPanicCallable.Value);
             SubscribeToMultiplayer();
 
             GodotSteamAdapter adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
@@ -61,8 +68,14 @@ public partial class NetfoxGameplayProbe : Node
         }
     }
 
-    public override void _Process(double _delta)
+    public override void _Process(double delta)
     {
+        if (delta > 1.0)
+            LogTimeEvent("stall_observed", new Dictionary<string, string?>
+            {
+                ["process_delta_ms"] = (delta * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            });
+
         if (Multiplayer.IsServer() || _clientPlayersReported)
             return;
 
@@ -81,6 +94,10 @@ public partial class NetfoxGameplayProbe : Node
 
     public override void _ExitTree()
     {
+        if (_networkTimeSynchronizer is not null && _timeSyncPanicCallable is not null &&
+            _networkTimeSynchronizer.IsConnected("on_panic", _timeSyncPanicCallable.Value))
+            _networkTimeSynchronizer.Disconnect("on_panic", _timeSyncPanicCallable.Value);
+
         Multiplayer.PeerConnected -= OnPeerConnected;
         Multiplayer.PeerDisconnected -= OnPeerDisconnected;
         Multiplayer.ConnectedToServer -= OnConnectedToServer;
@@ -143,6 +160,27 @@ public partial class NetfoxGameplayProbe : Node
     private void OnConnectionFailed() => Log("godot_connection_failed", null);
     private void OnServerDisconnected() => Log("godot_server_disconnected", null);
 
+    private void OnTimeSyncPanic(double offsetSeconds) => LogTimeEvent("panic", new Dictionary<string, string?>
+    {
+        ["panic_offset_ms"] = (offsetSeconds * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+    });
+
+    private void LogTimeEvent(string eventName, Dictionary<string, string?> fields)
+    {
+        if (_networkTime is not null)
+        {
+            fields["network_time_tick"] = _networkTime.Get("tick").AsInt64().ToString();
+            fields["clock_offset_ms"] = (_networkTime.Get("clock_offset").AsDouble() * 1000.0)
+                .ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+            fields["clock_stretch_factor"] = _networkTime.Get("clock_stretch_factor").AsDouble()
+                .ToString("F6", System.Globalization.CultureInfo.InvariantCulture);
+            fields["remote_clock_offset_ms"] = (_networkTime.Get("remote_clock_offset").AsDouble() * 1000.0)
+                .ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        Log(eventName, fields, "netfox.time");
+    }
+
     private NetfoxGameplayPlayer[] GetPlayers() => GetTree()
         .GetNodesInGroup("netfox_gameplay_player")
         .OfType<NetfoxGameplayPlayer>()
@@ -165,14 +203,14 @@ public partial class NetfoxGameplayProbe : Node
         Multiplayer.ServerDisconnected += OnServerDisconnected;
     }
 
-    private void Log(string eventName, IReadOnlyDictionary<string, string?>? fields)
+    private void Log(string eventName, IReadOnlyDictionary<string, string?>? fields, string category = "netfox.movement")
     {
         Dictionary<string, string?> values = new(fields ?? new Dictionary<string, string?>())
         {
             ["role"] = _role,
             ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
         };
-        GameLog.Info("netfox.movement", eventName, fields: values);
+        GameLog.Info(category, eventName, fields: values);
     }
 
     private static bool TryReadLobby(IEnumerable<string> arguments, out SteamLobbyId lobbyId)
