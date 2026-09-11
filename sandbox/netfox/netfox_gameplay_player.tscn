@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://sandbox/netfox/netfox_player_input.gd" id="3_input"]
 [ext_resource type="Script" path="res://sandbox/netfox/netfox_player_simulation.gd" id="4_simulation"]
 [ext_resource type="Script" path="res://addons/netfox/rollback/rollback-synchronizer.gd" id="5_rollback"]
+[ext_resource type="Script" path="res://sandbox/netfox/netfox_player_presentation.gd" id="6_presentation"]
 [ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="7_interpolator"]
 
 [node name="NetfoxGameplayPlayer" type="Node2D" groups=["netfox_gameplay_player"]]
@@ -19,9 +20,12 @@ script = ExtResource("3_input")
 [node name="Simulation" type="Node2D" parent="."]
 script = ExtResource("4_simulation")
 
+[node name="Presentation" type="Node2D" parent="."]
+script = ExtResource("6_presentation")
+
 [node name="TickInterpolator" type="Node" parent="."]
 script = ExtResource("7_interpolator")
-properties = ["Simulation:simulated_position"]
+properties = ["Presentation:position"]
 
 [node name="RollbackSynchronizer" type="Node" parent="."]
 script = ExtResource("5_rollback")

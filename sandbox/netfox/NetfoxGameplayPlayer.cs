@@ -14,6 +14,8 @@ namespace GameFactory.Sandbox.Netfox;
 public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 {
     private const float MarkerRadius = 22.0f;
+    private const float PresentationConvergenceBoundPixels = 8.0f;
+    private const double PresentationConvergenceTimeoutSeconds = 1.0;
     private const int ReplayResultCacheLength = 128;
     private static readonly int[] HistoryAgeThresholds = [32, 48, 56, 64];
 
@@ -38,7 +40,6 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private Callable? _rollbackAfterLoopCallable;
     private bool _reconciliationLoopActive;
     private bool _replayStarted;
-    private bool _presentationMetricUnavailableReported;
     private int _replayedTickCount;
     private int _freshTickCount;
     private long _firstReplayedTick;
@@ -48,6 +49,9 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private int _replayEventsInWindow;
     private int _replayedTicksInWindow;
     private float _maxCorrectionInWindow;
+    private float _maxPresentationErrorInWindow;
+    private bool _convergencePending;
+    private double _convergenceElapsed;
 
     public void ApplyNetworkSpawnData(Variant data)
     {
@@ -80,12 +84,6 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         networkRollback.Connect("after_loop", _rollbackAfterLoopCallable.Value);
         CallDeferred(nameof(ConfigureNetfoxAuthority));
 
-        GameLog.Info("netfox.reconciliation", "presentation_metric_unavailable", fields: new Dictionary<string, string?>
-        {
-            ["player_id"] = _playerId.ToString(),
-            ["reason"] = "The playground currently renders Simulation.Position directly; no independent presentation transform is configured."
-        });
-        _presentationMetricUnavailableReported = true;
     }
 
     public override void _ExitTree()
@@ -105,6 +103,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         _historyDiagnosticsElapsed += delta;
         _historyCadencePollElapsed += delta;
         _reconciliationWindowElapsed += delta;
+        ObservePresentationConvergence(delta);
         if (_configured && _historyCadencePollElapsed >= 0.1)
         {
             _historyCadencePollElapsed = 0;
@@ -118,16 +117,16 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     public override void _Draw()
     {
         NetworkObject? networkObject = GetNodeOrNull<NetworkObject>("NetworkObject");
-        Node2D? simulation = GetNodeOrNull<Node2D>("Simulation");
-        if (networkObject is null || simulation is null)
+        Node2D? presentation = GetNodeOrNull<Node2D>("Presentation");
+        if (networkObject is null || presentation is null)
             return;
 
         bool localOwner = networkObject.OwnerPeerId.Value == Multiplayer.GetUniqueId();
         Color fill = networkObject.OwnerPeerId == PeerId.Server ? new Color("4ea8de") : new Color("f4a261");
-        DrawCircle(simulation.Position, MarkerRadius, fill);
-        DrawArc(simulation.Position, MarkerRadius + 4.0f, 0.0f, Mathf.Tau, 32,
+        DrawCircle(presentation.Position, MarkerRadius, fill);
+        DrawArc(presentation.Position, MarkerRadius + 4.0f, 0.0f, Mathf.Tau, 32,
             localOwner ? Colors.White : new Color(1.0f, 1.0f, 1.0f, 0.35f), localOwner ? 3.0f : 1.0f);
-        DrawString(ThemeDB.FallbackFont, simulation.Position + new Vector2(-36, 48),
+        DrawString(ThemeDB.FallbackFont, presentation.Position + new Vector2(-36, 48),
             localOwner ? "YOU" : networkObject.OwnerPeerId == PeerId.Server ? "HOST" : "CLIENT",
             HorizontalAlignment.Left, -1, 16, Colors.White);
     }
@@ -272,9 +271,14 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             ["last_replayed_tick"] = _lastReplayedTick.ToString(),
             ["replayed_tick_count"] = _replayedTickCount.ToString(),
             ["fresh_tick_count"] = _freshTickCount.ToString(),
-            ["max_same_tick_correction_pixels"] = _maxCorrectionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["presentation_convergence"] = _presentationMetricUnavailableReported ? "unavailable" : "not_measured"
+            ["max_same_tick_correction_pixels"] = _maxCorrectionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
         });
+
+        if (_maxCorrectionMagnitude > 0.0f)
+        {
+            _convergencePending = true;
+            _convergenceElapsed = 0;
+        }
     }
 
     private void ReportReconciliationWindow()
@@ -283,24 +287,80 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             return;
 
         _reconciliationWindowElapsed = 0;
-        if (_replayEventsInWindow == 0)
-            return;
-
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
-        GameLog.Info("netfox.reconciliation", "replay_window", fields: new Dictionary<string, string?>
+        Node2D simulation = GetNode<Node2D>("Simulation");
+        Node2D presentation = GetNode<Node2D>("Presentation");
+        float presentationError = presentation.Position.DistanceTo(simulation.Position);
+        _maxPresentationErrorInWindow = Mathf.Max(_maxPresentationErrorInWindow, presentationError);
+        GameLog.Info("netfox.reconciliation", "presentation_sample", fields: new Dictionary<string, string?>
         {
             ["player_id"] = _playerId.ToString(),
             ["network_object_id"] = networkObject.Id.ToString(),
             ["role"] = Multiplayer.IsServer() ? "host" : "client",
-            ["replay_event_count"] = _replayEventsInWindow.ToString(),
-            ["replayed_tick_count"] = _replayedTicksInWindow.ToString(),
-            ["max_same_tick_correction_pixels"] = _maxCorrectionInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["presentation_error"] = "unavailable"
+            ["presentation_error_pixels"] = presentationError.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["max_presentation_error_pixels"] = _maxPresentationErrorInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["convergence_pending"] = _convergencePending.ToString()
         });
+
+        if (_replayEventsInWindow > 0)
+        {
+            GameLog.Info("netfox.reconciliation", "replay_window", fields: new Dictionary<string, string?>
+            {
+                ["player_id"] = _playerId.ToString(),
+                ["network_object_id"] = networkObject.Id.ToString(),
+                ["role"] = Multiplayer.IsServer() ? "host" : "client",
+                ["replay_event_count"] = _replayEventsInWindow.ToString(),
+                ["replayed_tick_count"] = _replayedTicksInWindow.ToString(),
+                ["max_same_tick_correction_pixels"] = _maxCorrectionInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["max_presentation_error_pixels"] = _maxPresentationErrorInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            });
+        }
 
         _replayEventsInWindow = 0;
         _replayedTicksInWindow = 0;
         _maxCorrectionInWindow = 0.0f;
+        _maxPresentationErrorInWindow = 0.0f;
+    }
+
+    private void ObservePresentationConvergence(double delta)
+    {
+        if (!_configured)
+            return;
+
+        Node2D simulation = GetNode<Node2D>("Simulation");
+        Node2D presentation = GetNode<Node2D>("Presentation");
+        float presentationError = presentation.Position.DistanceTo(simulation.Position);
+        _maxPresentationErrorInWindow = Mathf.Max(_maxPresentationErrorInWindow, presentationError);
+        if (!_convergencePending)
+            return;
+
+        _convergenceElapsed += delta;
+        if (presentationError <= PresentationConvergenceBoundPixels)
+        {
+            _convergencePending = false;
+            GameLog.Info("netfox.reconciliation", "presentation_converged", fields: new Dictionary<string, string?>
+            {
+                ["player_id"] = _playerId.ToString(),
+                ["role"] = Multiplayer.IsServer() ? "host" : "client",
+                ["elapsed_ms"] = (_convergenceElapsed * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["presentation_error_pixels"] = presentationError.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["bound_pixels"] = PresentationConvergenceBoundPixels.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            });
+            return;
+        }
+
+        if (_convergenceElapsed < PresentationConvergenceTimeoutSeconds)
+            return;
+
+        _convergencePending = false;
+        GameLog.Warning("netfox.reconciliation", "presentation_convergence_timeout", fields: new Dictionary<string, string?>
+        {
+            ["player_id"] = _playerId.ToString(),
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
+            ["elapsed_ms"] = (_convergenceElapsed * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["presentation_error_pixels"] = presentationError.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["bound_pixels"] = PresentationConvergenceBoundPixels.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+        });
     }
 
     private void TrimSimulationResultCache(long newestTick)

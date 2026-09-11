@@ -122,9 +122,13 @@ Netfox re-simulates at least one non-fresh tick. `replayed_tick_count` is the
 actual count of those non-fresh ticks. `max_same_tick_correction_pixels` is the
 distance between a previously cached and a re-simulated result for the same
 simulation tick; it is not a guessed transport or clock offset. The current
-scene has no independent presentation transform—the marker is drawn from
-`Simulation.Position`—so its logs explicitly report presentation error and
-convergence as unavailable rather than fabricating a smoothness metric.
+scene draws the separate `Presentation` node, which copies the completed
+simulation state after a tick loop and is then driven by `TickInterpolator`.
+`presentation_sample` records the visual transform's distance from the
+rollback simulation and its one-second maximum. After a non-zero correction,
+the sandbox reports either `presentation_converged` within an 8-pixel bound or
+`presentation_convergence_timeout` after one second. This preserves simulation
+and authority ownership while making visual convergence observable.
 
 Use repeated sampling only after a baseline attempt succeeds:
 
