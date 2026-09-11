@@ -14,6 +14,7 @@ namespace GameFactory.Sandbox.Netfox;
 public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 {
     private const float MarkerRadius = 22.0f;
+    private const int ReplayResultCacheLength = 128;
     private static readonly int[] HistoryAgeThresholds = [32, 48, 56, 64];
 
     private long _playerId;
@@ -32,6 +33,21 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private readonly HashSet<int> _stateAgeThresholdsReported = [];
     private readonly HashSet<int> _inputRollbackAgeThresholdsReported = [];
     private readonly HashSet<int> _stateRollbackAgeThresholdsReported = [];
+    private readonly Dictionary<long, Vector2> _simulationResultsByTick = [];
+    private Callable? _rollbackBeforeLoopCallable;
+    private Callable? _rollbackAfterLoopCallable;
+    private bool _reconciliationLoopActive;
+    private bool _replayStarted;
+    private bool _presentationMetricUnavailableReported;
+    private int _replayedTickCount;
+    private int _freshTickCount;
+    private long _firstReplayedTick;
+    private long _lastReplayedTick;
+    private float _maxCorrectionMagnitude;
+    private double _reconciliationWindowElapsed;
+    private int _replayEventsInWindow;
+    private int _replayedTicksInWindow;
+    private float _maxCorrectionInWindow;
 
     public void ApplyNetworkSpawnData(Variant data)
     {
@@ -55,19 +71,47 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         GetNode<Node>("TickInterpolator").Set("root", this);
     }
 
-    public override void _Ready() => CallDeferred(nameof(ConfigureNetfoxAuthority));
+    public override void _Ready()
+    {
+        Node networkRollback = GetNode<Node>("/root/NetworkRollback");
+        _rollbackBeforeLoopCallable = Callable.From(BeginReconciliationLoop);
+        _rollbackAfterLoopCallable = Callable.From(CompleteReconciliationLoop);
+        networkRollback.Connect("before_loop", _rollbackBeforeLoopCallable.Value);
+        networkRollback.Connect("after_loop", _rollbackAfterLoopCallable.Value);
+        CallDeferred(nameof(ConfigureNetfoxAuthority));
+
+        GameLog.Info("netfox.reconciliation", "presentation_metric_unavailable", fields: new Dictionary<string, string?>
+        {
+            ["player_id"] = _playerId.ToString(),
+            ["reason"] = "The playground currently renders Simulation.Position directly; no independent presentation transform is configured."
+        });
+        _presentationMetricUnavailableReported = true;
+    }
+
+    public override void _ExitTree()
+    {
+        Node? networkRollback = GetNodeOrNull<Node>("/root/NetworkRollback");
+        if (networkRollback is not null && _rollbackBeforeLoopCallable is not null &&
+            networkRollback.IsConnected("before_loop", _rollbackBeforeLoopCallable.Value))
+            networkRollback.Disconnect("before_loop", _rollbackBeforeLoopCallable.Value);
+        if (networkRollback is not null && _rollbackAfterLoopCallable is not null &&
+            networkRollback.IsConnected("after_loop", _rollbackAfterLoopCallable.Value))
+            networkRollback.Disconnect("after_loop", _rollbackAfterLoopCallable.Value);
+    }
 
     public override void _Process(double delta)
     {
         _movementLogElapsed += delta;
         _historyDiagnosticsElapsed += delta;
         _historyCadencePollElapsed += delta;
+        _reconciliationWindowElapsed += delta;
         if (_configured && _historyCadencePollElapsed >= 0.1)
         {
             _historyCadencePollElapsed = 0;
             ObserveHistoryCadence();
         }
         ReportHistoryDiagnostics();
+        ReportReconciliationWindow();
         QueueRedraw();
     }
 
@@ -125,6 +169,54 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         });
     }
 
+    /// <summary>
+    /// Records a simulation result for reconciliation diagnostics. A correction is
+    /// measured only when Netfox re-simulates the same tick with a different result.
+    /// </summary>
+    public void ReportSimulationTick(long tick, Vector2 position, bool isFresh)
+    {
+        if (!_configured)
+            return;
+
+        if (isFresh)
+        {
+            _freshTickCount++;
+        }
+        else
+        {
+            _replayedTickCount++;
+            _replayedTicksInWindow++;
+            _firstReplayedTick = _replayStarted ? _firstReplayedTick : tick;
+            _lastReplayedTick = tick;
+
+            float correctionMagnitude = 0.0f;
+            if (_simulationResultsByTick.TryGetValue(tick, out Vector2 previousResult))
+                correctionMagnitude = previousResult.DistanceTo(position);
+
+            _maxCorrectionMagnitude = Mathf.Max(_maxCorrectionMagnitude, correctionMagnitude);
+            _maxCorrectionInWindow = Mathf.Max(_maxCorrectionInWindow, correctionMagnitude);
+
+            if (!_replayStarted)
+            {
+                _replayStarted = true;
+                _replayEventsInWindow++;
+                NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+                GameLog.Info("netfox.reconciliation", "replay_started", fields: new Dictionary<string, string?>
+                {
+                    ["player_id"] = _playerId.ToString(),
+                    ["network_object_id"] = networkObject.Id.ToString(),
+                    ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+                    ["role"] = Multiplayer.IsServer() ? "host" : "client",
+                    ["first_replayed_tick"] = tick.ToString(),
+                    ["initial_correction_pixels"] = correctionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                });
+            }
+        }
+
+        _simulationResultsByTick[tick] = position;
+        TrimSimulationResultCache(tick);
+    }
+
     private void ConfigureNetfoxAuthority()
     {
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
@@ -149,6 +241,83 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             ["simulation_multiplayer_authority"] = simulation.GetMultiplayerAuthority().ToString(),
             ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString()
         });
+    }
+
+    private void BeginReconciliationLoop()
+    {
+        _reconciliationLoopActive = true;
+        _replayStarted = false;
+        _replayedTickCount = 0;
+        _freshTickCount = 0;
+        _maxCorrectionMagnitude = 0.0f;
+    }
+
+    private void CompleteReconciliationLoop()
+    {
+        if (!_reconciliationLoopActive)
+            return;
+
+        _reconciliationLoopActive = false;
+        if (_replayedTickCount == 0)
+            return;
+
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        GameLog.Info("netfox.reconciliation", "replay_completed", fields: new Dictionary<string, string?>
+        {
+            ["player_id"] = _playerId.ToString(),
+            ["network_object_id"] = networkObject.Id.ToString(),
+            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
+            ["first_replayed_tick"] = _firstReplayedTick.ToString(),
+            ["last_replayed_tick"] = _lastReplayedTick.ToString(),
+            ["replayed_tick_count"] = _replayedTickCount.ToString(),
+            ["fresh_tick_count"] = _freshTickCount.ToString(),
+            ["max_same_tick_correction_pixels"] = _maxCorrectionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["presentation_convergence"] = _presentationMetricUnavailableReported ? "unavailable" : "not_measured"
+        });
+    }
+
+    private void ReportReconciliationWindow()
+    {
+        if (!_configured || _reconciliationWindowElapsed < 1.0)
+            return;
+
+        _reconciliationWindowElapsed = 0;
+        if (_replayEventsInWindow == 0)
+            return;
+
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        GameLog.Info("netfox.reconciliation", "replay_window", fields: new Dictionary<string, string?>
+        {
+            ["player_id"] = _playerId.ToString(),
+            ["network_object_id"] = networkObject.Id.ToString(),
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
+            ["replay_event_count"] = _replayEventsInWindow.ToString(),
+            ["replayed_tick_count"] = _replayedTicksInWindow.ToString(),
+            ["max_same_tick_correction_pixels"] = _maxCorrectionInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["presentation_error"] = "unavailable"
+        });
+
+        _replayEventsInWindow = 0;
+        _replayedTicksInWindow = 0;
+        _maxCorrectionInWindow = 0.0f;
+    }
+
+    private void TrimSimulationResultCache(long newestTick)
+    {
+        long earliestTick = newestTick - ReplayResultCacheLength;
+        List<long>? expired = null;
+        foreach (long tick in _simulationResultsByTick.Keys)
+        {
+            if (tick < earliestTick)
+                (expired ??= []).Add(tick);
+        }
+
+        if (expired is null)
+            return;
+
+        foreach (long tick in expired)
+            _simulationResultsByTick.Remove(tick);
     }
 
     private void ReportHistoryDiagnostics()

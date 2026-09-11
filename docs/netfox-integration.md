@@ -116,6 +116,16 @@ at 32, 48, 56, and 64 ticks. These are diagnostics only: they do not alter
 Netfox history size, authority, prediction, input broadcast, movement, Steam,
 or Godot polling.
 
+`netfox.reconciliation` records only real replay work: a player writes
+`replay_started`, `replay_completed`, and a rate-limited `replay_window` when
+Netfox re-simulates at least one non-fresh tick. `replayed_tick_count` is the
+actual count of those non-fresh ticks. `max_same_tick_correction_pixels` is the
+distance between a previously cached and a re-simulated result for the same
+simulation tick; it is not a guessed transport or clock offset. The current
+scene has no independent presentation transform—the marker is drawn from
+`Simulation.Position`—so its logs explicitly report presentation error and
+convergence as unavailable rather than fabricating a smoothness metric.
+
 Use repeated sampling only after a baseline attempt succeeds:
 
 ```powershell
