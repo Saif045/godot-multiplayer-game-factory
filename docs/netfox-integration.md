@@ -116,19 +116,23 @@ at 32, 48, 56, and 64 ticks. These are diagnostics only: they do not alter
 Netfox history size, authority, prediction, input broadcast, movement, Steam,
 or Godot polling.
 
-`netfox.reconciliation` records only real replay work: a player writes
-`replay_started`, `replay_completed`, and a rate-limited `replay_window` when
-Netfox re-simulates at least one non-fresh tick. `replayed_tick_count` is the
-actual count of those non-fresh ticks. `max_same_tick_correction_pixels` is the
-distance between a previously cached and a re-simulated result for the same
-simulation tick; it is not a guessed transport or clock offset. The current
+`netfox.reconciliation` records correction windows rather than every non-fresh
+Netfox tick. A `correction_window_started` event is emitted only when a
+non-fresh re-simulation produces a different result for the same simulation
+tick. Once per second at most, `correction_window_summary` reports that
+window's first/last replay ticks, replayed-tick count, number of same-tick
+corrections, maximum correction magnitude, maximum presentation error, and
+whether the visual state returned within the convergence bound.
+`max_same_tick_correction_pixels` is the distance between a previously cached
+and a re-simulated result for the same simulation tick; it is not a guessed
+transport or clock offset. The current
 scene draws the separate `Presentation` node, which copies the completed
 simulation state after a tick loop and is then driven by `TickInterpolator`.
 `presentation_sample` records the visual transform's distance from the
 rollback simulation and its one-second maximum. After a non-zero correction,
-the sandbox reports either `presentation_converged` within an 8-pixel bound or
-`presentation_convergence_timeout` after one second. This preserves simulation
-and authority ownership while making visual convergence observable.
+the next correction-window summary reports whether the visual state returned
+within an 8-pixel bound. This preserves simulation and authority ownership
+while making visual convergence observable.
 
 Use repeated sampling only after a baseline attempt succeeds:
 

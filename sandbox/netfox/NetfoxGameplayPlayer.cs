@@ -14,8 +14,8 @@ namespace GameFactory.Sandbox.Netfox;
 public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 {
     private const float MarkerRadius = 22.0f;
+    private const float CorrectionDetectionEpsilonPixels = 0.001f;
     private const float PresentationConvergenceBoundPixels = 8.0f;
-    private const double PresentationConvergenceTimeoutSeconds = 1.0;
     private const int ReplayResultCacheLength = 128;
     private static readonly int[] HistoryAgeThresholds = [32, 48, 56, 64];
 
@@ -36,22 +36,15 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
     private readonly HashSet<int> _inputRollbackAgeThresholdsReported = [];
     private readonly HashSet<int> _stateRollbackAgeThresholdsReported = [];
     private readonly Dictionary<long, Vector2> _simulationResultsByTick = [];
-    private Callable? _rollbackBeforeLoopCallable;
-    private Callable? _rollbackAfterLoopCallable;
-    private bool _reconciliationLoopActive;
-    private bool _replayStarted;
-    private int _replayedTickCount;
-    private int _freshTickCount;
-    private long _firstReplayedTick;
-    private long _lastReplayedTick;
-    private float _maxCorrectionMagnitude;
     private double _reconciliationWindowElapsed;
-    private int _replayEventsInWindow;
-    private int _replayedTicksInWindow;
-    private float _maxCorrectionInWindow;
     private float _maxPresentationErrorInWindow;
-    private bool _convergencePending;
-    private double _convergenceElapsed;
+    private bool _correctionWindowActive;
+    private double _correctionWindowElapsed;
+    private long _firstCorrectionTick;
+    private long _lastCorrectionTick;
+    private int _replayedTicksInCorrectionWindow;
+    private int _sameTickCorrectionCount;
+    private float _maxCorrectionInWindow;
 
     public void ApplyNetworkSpawnData(Variant data)
     {
@@ -77,24 +70,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 
     public override void _Ready()
     {
-        Node networkRollback = GetNode<Node>("/root/NetworkRollback");
-        _rollbackBeforeLoopCallable = Callable.From(BeginReconciliationLoop);
-        _rollbackAfterLoopCallable = Callable.From(CompleteReconciliationLoop);
-        networkRollback.Connect("before_loop", _rollbackBeforeLoopCallable.Value);
-        networkRollback.Connect("after_loop", _rollbackAfterLoopCallable.Value);
         CallDeferred(nameof(ConfigureNetfoxAuthority));
-
-    }
-
-    public override void _ExitTree()
-    {
-        Node? networkRollback = GetNodeOrNull<Node>("/root/NetworkRollback");
-        if (networkRollback is not null && _rollbackBeforeLoopCallable is not null &&
-            networkRollback.IsConnected("before_loop", _rollbackBeforeLoopCallable.Value))
-            networkRollback.Disconnect("before_loop", _rollbackBeforeLoopCallable.Value);
-        if (networkRollback is not null && _rollbackAfterLoopCallable is not null &&
-            networkRollback.IsConnected("after_loop", _rollbackAfterLoopCallable.Value))
-            networkRollback.Disconnect("after_loop", _rollbackAfterLoopCallable.Value);
     }
 
     public override void _Process(double delta)
@@ -103,7 +79,9 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         _historyDiagnosticsElapsed += delta;
         _historyCadencePollElapsed += delta;
         _reconciliationWindowElapsed += delta;
-        ObservePresentationConvergence(delta);
+        if (_correctionWindowActive)
+            _correctionWindowElapsed += delta;
+        ObservePresentationError();
         if (_configured && _historyCadencePollElapsed >= 0.1)
         {
             _historyCadencePollElapsed = 0;
@@ -177,39 +155,22 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         if (!_configured)
             return;
 
-        if (isFresh)
-        {
-            _freshTickCount++;
-        }
-        else
-        {
-            _replayedTickCount++;
-            _replayedTicksInWindow++;
-            _firstReplayedTick = _replayStarted ? _firstReplayedTick : tick;
-            _lastReplayedTick = tick;
+        float correctionMagnitude = 0.0f;
+        bool hasSameTickCorrection = !isFresh &&
+            _simulationResultsByTick.TryGetValue(tick, out Vector2 previousResult) &&
+            (correctionMagnitude = previousResult.DistanceTo(position)) > CorrectionDetectionEpsilonPixels;
 
-            float correctionMagnitude = 0.0f;
-            if (_simulationResultsByTick.TryGetValue(tick, out Vector2 previousResult))
-                correctionMagnitude = previousResult.DistanceTo(position);
-
-            _maxCorrectionMagnitude = Mathf.Max(_maxCorrectionMagnitude, correctionMagnitude);
+        if (hasSameTickCorrection)
+        {
+            StartCorrectionWindow(tick, correctionMagnitude);
+            _sameTickCorrectionCount++;
             _maxCorrectionInWindow = Mathf.Max(_maxCorrectionInWindow, correctionMagnitude);
+        }
 
-            if (!_replayStarted)
-            {
-                _replayStarted = true;
-                _replayEventsInWindow++;
-                NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
-                GameLog.Info("netfox.reconciliation", "replay_started", fields: new Dictionary<string, string?>
-                {
-                    ["player_id"] = _playerId.ToString(),
-                    ["network_object_id"] = networkObject.Id.ToString(),
-                    ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
-                    ["role"] = Multiplayer.IsServer() ? "host" : "client",
-                    ["first_replayed_tick"] = tick.ToString(),
-                    ["initial_correction_pixels"] = correctionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
-                });
-            }
+        if (_correctionWindowActive && !isFresh)
+        {
+            _replayedTicksInCorrectionWindow++;
+            _lastCorrectionTick = tick;
         }
 
         _simulationResultsByTick[tick] = position;
@@ -242,45 +203,6 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         });
     }
 
-    private void BeginReconciliationLoop()
-    {
-        _reconciliationLoopActive = true;
-        _replayStarted = false;
-        _replayedTickCount = 0;
-        _freshTickCount = 0;
-        _maxCorrectionMagnitude = 0.0f;
-    }
-
-    private void CompleteReconciliationLoop()
-    {
-        if (!_reconciliationLoopActive)
-            return;
-
-        _reconciliationLoopActive = false;
-        if (_replayedTickCount == 0)
-            return;
-
-        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
-        GameLog.Info("netfox.reconciliation", "replay_completed", fields: new Dictionary<string, string?>
-        {
-            ["player_id"] = _playerId.ToString(),
-            ["network_object_id"] = networkObject.Id.ToString(),
-            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
-            ["role"] = Multiplayer.IsServer() ? "host" : "client",
-            ["first_replayed_tick"] = _firstReplayedTick.ToString(),
-            ["last_replayed_tick"] = _lastReplayedTick.ToString(),
-            ["replayed_tick_count"] = _replayedTickCount.ToString(),
-            ["fresh_tick_count"] = _freshTickCount.ToString(),
-            ["max_same_tick_correction_pixels"] = _maxCorrectionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
-        });
-
-        if (_maxCorrectionMagnitude > 0.0f)
-        {
-            _convergencePending = true;
-            _convergenceElapsed = 0;
-        }
-    }
-
     private void ReportReconciliationWindow()
     {
         if (!_configured || _reconciliationWindowElapsed < 1.0)
@@ -299,68 +221,68 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
             ["role"] = Multiplayer.IsServer() ? "host" : "client",
             ["presentation_error_pixels"] = presentationError.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["max_presentation_error_pixels"] = _maxPresentationErrorInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["convergence_pending"] = _convergencePending.ToString()
+            ["correction_window_active"] = _correctionWindowActive.ToString()
         });
 
-        if (_replayEventsInWindow > 0)
+        if (_correctionWindowActive)
         {
-            GameLog.Info("netfox.reconciliation", "replay_window", fields: new Dictionary<string, string?>
+            GameLog.Info("netfox.reconciliation", "correction_window_summary", fields: new Dictionary<string, string?>
             {
                 ["player_id"] = _playerId.ToString(),
                 ["network_object_id"] = networkObject.Id.ToString(),
                 ["role"] = Multiplayer.IsServer() ? "host" : "client",
-                ["replay_event_count"] = _replayEventsInWindow.ToString(),
-                ["replayed_tick_count"] = _replayedTicksInWindow.ToString(),
+                ["first_replayed_tick"] = _firstCorrectionTick.ToString(),
+                ["last_replayed_tick"] = _lastCorrectionTick.ToString(),
+                ["replayed_tick_count"] = _replayedTicksInCorrectionWindow.ToString(),
+                ["same_tick_correction_count"] = _sameTickCorrectionCount.ToString(),
                 ["max_same_tick_correction_pixels"] = _maxCorrectionInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                ["max_presentation_error_pixels"] = _maxPresentationErrorInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                ["max_presentation_error_pixels"] = _maxPresentationErrorInWindow.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["presentation_converged"] = (presentationError <= PresentationConvergenceBoundPixels).ToString(),
+                ["convergence_bound_pixels"] = PresentationConvergenceBoundPixels.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["window_duration_ms"] = (_correctionWindowElapsed * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
             });
+
+            _correctionWindowActive = false;
+            _correctionWindowElapsed = 0;
+            _replayedTicksInCorrectionWindow = 0;
+            _sameTickCorrectionCount = 0;
+            _maxCorrectionInWindow = 0.0f;
         }
 
-        _replayEventsInWindow = 0;
-        _replayedTicksInWindow = 0;
-        _maxCorrectionInWindow = 0.0f;
         _maxPresentationErrorInWindow = 0.0f;
     }
 
-    private void ObservePresentationConvergence(double delta)
+    private void StartCorrectionWindow(long tick, float correctionMagnitude)
+    {
+        if (_correctionWindowActive)
+            return;
+
+        _correctionWindowActive = true;
+        _correctionWindowElapsed = 0;
+        _firstCorrectionTick = tick;
+        _lastCorrectionTick = tick;
+        _replayedTicksInCorrectionWindow = 0;
+        _sameTickCorrectionCount = 0;
+        _maxCorrectionInWindow = correctionMagnitude;
+        GameLog.Info("netfox.reconciliation", "correction_window_started", fields: new Dictionary<string, string?>
+        {
+            ["player_id"] = _playerId.ToString(),
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
+            ["first_replayed_tick"] = tick.ToString(),
+            ["initial_same_tick_correction_pixels"] = correctionMagnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+        });
+    }
+
+    private void ObservePresentationError()
     {
         if (!_configured)
             return;
 
         Node2D simulation = GetNode<Node2D>("Simulation");
         Node2D presentation = GetNode<Node2D>("Presentation");
-        float presentationError = presentation.Position.DistanceTo(simulation.Position);
-        _maxPresentationErrorInWindow = Mathf.Max(_maxPresentationErrorInWindow, presentationError);
-        if (!_convergencePending)
-            return;
-
-        _convergenceElapsed += delta;
-        if (presentationError <= PresentationConvergenceBoundPixels)
-        {
-            _convergencePending = false;
-            GameLog.Info("netfox.reconciliation", "presentation_converged", fields: new Dictionary<string, string?>
-            {
-                ["player_id"] = _playerId.ToString(),
-                ["role"] = Multiplayer.IsServer() ? "host" : "client",
-                ["elapsed_ms"] = (_convergenceElapsed * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                ["presentation_error_pixels"] = presentationError.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-                ["bound_pixels"] = PresentationConvergenceBoundPixels.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
-            });
-            return;
-        }
-
-        if (_convergenceElapsed < PresentationConvergenceTimeoutSeconds)
-            return;
-
-        _convergencePending = false;
-        GameLog.Warning("netfox.reconciliation", "presentation_convergence_timeout", fields: new Dictionary<string, string?>
-        {
-            ["player_id"] = _playerId.ToString(),
-            ["role"] = Multiplayer.IsServer() ? "host" : "client",
-            ["elapsed_ms"] = (_convergenceElapsed * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["presentation_error_pixels"] = presentationError.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
-            ["bound_pixels"] = PresentationConvergenceBoundPixels.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
-        });
+        _maxPresentationErrorInWindow = Mathf.Max(
+            _maxPresentationErrorInWindow,
+            presentation.Position.DistanceTo(simulation.Position));
     }
 
     private void TrimSimulationResultCache(long newestTick)
