@@ -11,9 +11,7 @@ param(
     [string]$Godot = "D:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe",
     [string]$OutputDirectory,
     [string]$VmAlias = "gamefactory-vm",
-    [string]$VmName = "dev-win11",
-    [string]$VmShareName = "GameFactoryBuild",
-    [string]$VmExecutable = "\\VBOXSVR\GameFactoryBuild\GameFactory.exe",
+    [string]$VmBuildRoot = "C:/GameFactoryBuilds",
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
@@ -21,11 +19,14 @@ param(
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
+    [ValidateRange(30, 1800)]
+    [int]$BuildStageTimeoutSeconds = 300,
     [switch]$SkipExport,
     [switch]$SkipBuildParity,
     [string]$ExpectedManifestSha256,
     [string]$RunId,
     [string]$ArtifactRoot,
+    [switch]$VerifyBuildOnly,
     [switch]$KeepProcesses
 )
 
@@ -35,6 +36,12 @@ $ErrorActionPreference = "Stop"
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\process_utils.ps1")
 $sshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2")
 $externalCommandTimeoutSeconds = 30
+$openSshDirectory = Join-Path $env:WINDIR "System32\OpenSSH"
+$sshExecutable = Join-Path $openSshDirectory "ssh.exe"
+$scpExecutable = Join-Path $openSshDirectory "scp.exe"
+if (-not (Test-Path -LiteralPath $sshExecutable) -or -not (Test-Path -LiteralPath $scpExecutable)) {
+    throw "Windows OpenSSH client tools were not found under $openSshDirectory."
+}
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $outputDirectory = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $repoRoot "build\test_steam" } else { $OutputDirectory }
@@ -62,6 +69,9 @@ $clientOutputDirectory = Join-Path $artifactDirectory "client"
 $sessionOutputDirectory = Join-Path $artifactDirectory "session"
 $hostGodotLogPath = Join-Path $hostOutputDirectory "godot.log"
 $vmGodotLogPath = "C:/GameFactoryAgent/gamefactory_$runId.godot.log"
+$clientLiveLogPath = Join-Path $clientOutputDirectory "game.jsonl"
+$lastVmLogSyncUtc = [DateTimeOffset]::MinValue
+$vmLiveLogPath = $null
 $resultPath = Join-Path $artifactDirectory "result.json"
 $hostProcess = $null
 $vmCleanupSucceeded = $false
@@ -83,14 +93,13 @@ $result = [ordered]@{
     cleanup_verified = $false
     build_mapping = [ordered]@{
         host_directory = $outputDirectory
-        vm_share = $VmShareName
-        vm_executable = $VmExecutable
+        vm_build_root = $VmBuildRoot
     }
     started_utc = [DateTimeOffset]::UtcNow.ToString("O")
     completed_utc = $null
 }
 $runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } else { "steam-gameplay" }
-$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.gameplay" } default { throw "Unsupported scenario '$Scenario'." } }
+$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.movement" } default { throw "Unsupported scenario '$Scenario'." } }
 
 New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory, $runtimeDirectory | Out-Null
 
@@ -166,7 +175,7 @@ function Invoke-ExternalCommand([string]$FilePath, [string[]]$Arguments, [int]$T
 }
 
 function Invoke-Vm([string]$Command, [string]$Stage) {
-    $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, $Command)) $externalCommandTimeoutSeconds "VM command for stage '$Stage'"
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, $Command)) $externalCommandTimeoutSeconds "VM command for stage '$Stage'"
     if ($invocation.ExitCode -ne 0) {
         Set-Failure "vm_control" $Stage "VM command failed with exit code $($invocation.ExitCode)."
     }
@@ -175,10 +184,13 @@ function Invoke-Vm([string]$Command, [string]$Stage) {
 function Invoke-VmPowerShell([string]$Script, [string]$Stage) {
     $scriptWithPreferences = '$ProgressPreference = ''SilentlyContinue''; ' + $Script
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($scriptWithPreferences))
-    $command = "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded"
-    $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, $command)) $externalCommandTimeoutSeconds "VM PowerShell command for stage '$Stage'"
+    # On Windows, ssh.exe joins its arguments after the host into the remote
+    # command. Supplying PowerShell as individual arguments is reliable for
+    # ProcessStartInfo; passing one quoted compound command silently fails.
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $externalCommandTimeoutSeconds "VM PowerShell command for stage '$Stage'"
     if ($invocation.ExitCode -ne 0) {
-        Set-Failure "vm_control" $Stage "VM PowerShell command failed with exit code $($invocation.ExitCode)."
+        $detail = ($invocation.StandardError, $invocation.StandardOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
+        Set-Failure "vm_control" $Stage "VM PowerShell command failed with exit code $($invocation.ExitCode): $detail"
     }
 }
 
@@ -186,7 +198,7 @@ function Stop-VmClientBestEffort {
     $script = '$ProgressPreference = ''SilentlyContinue''; $deadline = (Get-Date).AddSeconds(10); do { $processes = @(Get-Process -Name GameFactory -ErrorAction SilentlyContinue); if ($processes.Count -eq 0) { exit 0 }; $processes | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 200 } while ((Get-Date) -lt $deadline); exit 9'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
     try {
-        $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded")) $externalCommandTimeoutSeconds "VM client cleanup"
+        $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $externalCommandTimeoutSeconds "VM client cleanup"
         $exitCode = $invocation.ExitCode
     }
     catch {
@@ -206,12 +218,12 @@ function Assert-NoStaleProcesses {
     }
     $script = '$ProgressPreference = ''SilentlyContinue''; if (@(Get-Process -Name GameFactory -ErrorAction SilentlyContinue).Count -gt 0) { exit 9 } else { exit 0 }'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
-    $invocation = Invoke-ExternalCommand "ssh" ($sshOptions + @($VmAlias, "powershell.exe -NoProfile -NonInteractive -EncodedCommand $encoded")) $externalCommandTimeoutSeconds "VM process-state preflight"
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $externalCommandTimeoutSeconds "VM process-state preflight"
     if ($invocation.ExitCode -eq 9) { Set-Failure "harness" "preflight_cleanup" "A VM GameFactory process remained after cleanup." }
     if ($invocation.ExitCode -ne 0) { Set-Blocked "vm_control" "preflight_reachability" "Could not verify VM process state; SSH exited with code $($invocation.ExitCode)." }
 }
 
-function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manifest, [string]$ManifestHash) {
+function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manifest, [string]$ManifestHash, [string]$VmExecutable) {
     $clientConfig = [ordered]@{
         mode = $Mode
         executable = $VmExecutable
@@ -222,7 +234,7 @@ function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manife
     $temporaryConfigPath = "$localConfigPath.tmp"
     $clientConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporaryConfigPath -Encoding utf8
     Move-Item -LiteralPath $temporaryConfigPath -Destination $localConfigPath -Force
-    $invocation = Invoke-ExternalCommand "scp" ($sshOptions + @($localConfigPath, "${VmAlias}:$VmConfigPath")) $externalCommandTimeoutSeconds "VM client configuration copy"
+    $invocation = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localConfigPath, "${VmAlias}:$VmConfigPath")) $externalCommandTimeoutSeconds "VM client configuration copy"
     if ($invocation.ExitCode -ne 0) { Set-Blocked "vm_control" "client_config_copy" "Could not copy the client configuration to the VM; SCP exited with $($invocation.ExitCode)." }
     Copy-Item -LiteralPath $localConfigPath -Destination (Join-Path $artifactDirectory "client_config_$Mode.json") -Force
 }
@@ -237,7 +249,7 @@ function Invoke-VmRunner([string]$ExpectedStage, [int]$TimeoutSeconds) {
         $previousErrorPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $statusCopy = Invoke-ExternalCommand "scp" ($sshOptions + @("${VmAlias}:$VmStatusPath", $localStatusPath)) 10 "VM runner-status copy" -SuppressOutput
+            $statusCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @("${VmAlias}:$VmStatusPath", $localStatusPath)) 10 "VM runner-status copy" -SuppressOutput
             $scpExitCode = $statusCopy.ExitCode
         }
         catch {
@@ -255,24 +267,57 @@ function Invoke-VmRunner([string]$ExpectedStage, [int]$TimeoutSeconds) {
     Set-Failure "vm_control" "runner_status" "Timed out waiting for VM runner stage '$ExpectedStage'."
 }
 
-function Assert-VirtualBoxShareMapping {
-    $vbox = "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
-    if (-not (Test-Path -LiteralPath $vbox)) { Set-Failure "build" "build_parity" "VBoxManage was not found at $vbox." }
-    $info = & $vbox showvminfo $VmName --machinereadable
-    if ($LASTEXITCODE -ne 0) { Set-Failure "build" "build_parity" "Could not inspect VirtualBox VM '$VmName'." }
-    $namePattern = '^SharedFolderNameMachineMapping(?<index>\d+)="' + [regex]::Escape($VmShareName) + '"$'
-    $nameMatch = $info | Select-String -Pattern $namePattern | Select-Object -First 1
-    if ($null -eq $nameMatch) { Set-Failure "build" "build_parity" "VirtualBox share '$VmShareName' is not configured for '$VmName'." }
-    $index = $nameMatch.Matches[0].Groups['index'].Value
-    $pathLine = $info | Where-Object { $_ -match "^SharedFolderPathMachineMapping$index=" } | Select-Object -First 1
-    if ($null -eq $pathLine -or $pathLine -notmatch '="(?<path>.*)"$') { Set-Failure "build" "build_parity" "VirtualBox share '$VmShareName' has no readable host mapping." }
-    $mappedPath = $Matches['path'] -replace '\\\\', '\'
-    $mappedPath = [System.IO.Path]::GetFullPath($mappedPath)
-    if ($mappedPath.TrimEnd('\') -ne $outputDirectory.TrimEnd('\')) {
-        Set-Failure "build" "build_parity" "VirtualBox share maps to '$mappedPath', not '$outputDirectory'."
+function Get-VmReleaseExecutable([string]$ManifestHash) {
+    if ($ManifestHash -notmatch '^[a-f0-9]{64}$') { throw "Manifest hash must be a lowercase SHA-256 value." }
+    return (($VmBuildRoot.TrimEnd('/', '\') + "/releases/$ManifestHash/GameFactory.exe"))
+}
+
+function Stage-VmBuild([string]$ManifestHash) {
+    if ($ManifestHash -notmatch '^[a-f0-9]{64}$') { Set-Failure "build" "stage_preflight" "Manifest hash must be a lowercase SHA-256 value." }
+
+    $vmRoot = $VmBuildRoot.TrimEnd('/', '\') -replace '/', '\'
+    $incomingDirectory = "$vmRoot\.incoming\$ManifestHash"
+    $incomingArchive = "$vmRoot\.incoming\$ManifestHash.zip"
+    $releaseDirectory = "$vmRoot\releases\$ManifestHash"
+    $localArchive = Join-Path $runtimeDirectory "$ManifestHash.vm-stage.zip"
+    $remoteArchive = $incomingArchive -replace '\\', '/'
+    $remoteExecutable = Get-VmReleaseExecutable $ManifestHash
+
+    Remove-Item -LiteralPath $localArchive -Force -ErrorAction SilentlyContinue
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($outputDirectory, $localArchive, [System.IO.Compression.CompressionLevel]::Fastest, $false)
+
+        $prepare = @"
+`$ErrorActionPreference = 'Stop'
+New-Item -ItemType Directory -Force -Path '$vmRoot\.incoming', '$vmRoot\releases' | Out-Null
+Remove-Item -LiteralPath '$incomingDirectory', '$incomingArchive' -Force -Recurse -ErrorAction SilentlyContinue
+exit 0
+"@
+        Invoke-VmPowerShell $prepare "build_stage_prepare"
+        $copy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localArchive, "${VmAlias}:$remoteArchive")) $BuildStageTimeoutSeconds "VM build archive copy"
+        if ($copy.ExitCode -ne 0) { Set-Blocked "vm_control" "build_stage_copy" "Could not copy the immutable build archive to the VM; SCP exited with $($copy.ExitCode)." }
+
+        $install = @"
+`$ErrorActionPreference = 'Stop'
+Expand-Archive -LiteralPath '$incomingArchive' -DestinationPath '$incomingDirectory' -Force
+`$manifestPath = Join-Path '$incomingDirectory' 'build_manifest.json'
+if (-not (Test-Path -LiteralPath `$manifestPath)) { throw 'Staged build has no build_manifest.json.' }
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath `$manifestPath).Hash.ToLowerInvariant() -ne '$ManifestHash') { throw 'Staged build manifest hash does not match the host manifest.' }
+Remove-Item -LiteralPath '$releaseDirectory' -Force -Recurse -ErrorAction SilentlyContinue
+Move-Item -LiteralPath '$incomingDirectory' -Destination '$releaseDirectory' -Force
+Remove-Item -LiteralPath '$incomingArchive' -Force -ErrorAction SilentlyContinue
+exit 0
+"@
+        Invoke-VmPowerShell $install "build_stage_install"
     }
-    $script:result.build_mapping["virtualbox_vm"] = $VmName
-    $script:result.build_mapping["verified_host_directory"] = $mappedPath
+    finally {
+        Remove-Item -LiteralPath $localArchive -Force -ErrorAction SilentlyContinue
+    }
+
+    $script:result.build_mapping["vm_release_directory"] = Split-Path -Parent $remoteExecutable
+    $script:result.build_mapping["vm_executable"] = $remoteExecutable
+    return $remoteExecutable
 }
 
 function Stop-TestProcesses {
@@ -289,12 +334,42 @@ function Stop-TestProcesses {
     $script:result.cleanup_verified = $localStopped -and $script:vmCleanupSucceeded
 }
 
+function Sync-VmRunLog {
+    # Client events are written inside its immutable staged release, not the
+    # host output tree. Poll that log during the attempt so client checkpoints
+    # are observable before teardown.
+    if ($null -eq $script:vmExecutable -or ([DateTimeOffset]::UtcNow - $script:lastVmLogSyncUtc).TotalMilliseconds -lt 1000) { return }
+    $script:lastVmLogSyncUtc = [DateTimeOffset]::UtcNow
+    try {
+        if ($null -eq $script:vmLiveLogPath) {
+            $remoteRunsDirectory = (Join-Path (Split-Path -Parent $script:vmExecutable) "logs\runs") -replace '/', '\\'
+            $remoteScript = "`$log = Get-ChildItem -LiteralPath '$remoteRunsDirectory' -Directory -Filter '*_$runId' -ErrorAction SilentlyContinue | ForEach-Object { Join-Path `$_.FullName 'game.jsonl' } | Where-Object { Test-Path -LiteralPath `$_ } | Select-Object -First 1; if (`$null -ne `$log) { [Console]::Out.Write(`$log.Replace('\', '/')) }"
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
+            $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) 10 "VM live-log discovery" -SuppressOutput
+            if ($invocation.ExitCode -ne 0) { return }
+            $match = [regex]::Match($invocation.StandardOutput, '(?m)^[A-Za-z]:/.*?/game\.jsonl')
+            if (-not $match.Success) { return }
+            $script:vmLiveLogPath = $match.Value
+        }
+
+        # Copy instead of serializing the open JSONL file through PowerShell.
+        # SCP preserves exact bytes and avoids CLIXML/progress records corrupting
+        # the stream that the harness parses for client checkpoints.
+        $remoteSource = '{0}:{1}' -f $VmAlias, $script:vmLiveLogPath
+        $copy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($remoteSource, $clientLiveLogPath)) 10 "VM live-log copy" -SuppressOutput
+        if ($copy.ExitCode -ne 0) { return }
+    }
+    catch { }
+}
+
 function Get-RunLogFiles {
+    Sync-VmRunLog
     $runsDirectory = Join-Path $outputDirectory "logs\runs"
-    if (-not (Test-Path $runsDirectory)) { return @() }
-    return @(Get-ChildItem -Path $runsDirectory -Directory -Filter "*_$runId" -ErrorAction SilentlyContinue |
+    $files = @(Get-ChildItem -Path $runsDirectory -Directory -Filter "*_$runId" -ErrorAction SilentlyContinue |
         ForEach-Object { Join-Path $_.FullName "game.jsonl" } |
         Where-Object { Test-Path $_ })
+    if (Test-Path -LiteralPath $clientLiveLogPath) { $files += $clientLiveLogPath }
+    return $files
 }
 
 function Get-LogEntries {
@@ -350,10 +425,12 @@ function Wait-ForLogEvent([string]$Category, [string]$Event, [string]$Role, [int
         $connectionFailed = Find-LogEvent "ab_test.scenario" "godot_connection_failed" "client"
         if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.scenario" "godot_connection_failed" "client" }
         if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.gameplay" "godot_connection_failed" "client" }
+        if ($null -eq $connectionFailed) { $connectionFailed = Find-LogEvent "netfox.movement" "godot_connection_failed" "client" }
         if ($null -ne $connectionFailed) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ConnectionFailed." }
         $serverDisconnected = Find-LogEvent "ab_test.scenario" "godot_server_disconnected" "client"
         if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.scenario" "godot_server_disconnected" "client" }
         if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.gameplay" "godot_server_disconnected" "client" }
+        if ($null -eq $serverDisconnected) { $serverDisconnected = Find-LogEvent "netfox.movement" "godot_server_disconnected" "client" }
         if ($null -ne $serverDisconnected -and -not $script:netfoxShutdownExpected) { Set-Failure "godot_multiplayer" "godot_signals" "Godot emitted ServerDisconnected." }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $deadline)
@@ -397,6 +474,21 @@ function Wait-ForLogFieldValue([string]$Category, [string]$Event, [string]$Role,
     Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event $Field=$Value ($Role)."
 }
 
+function Wait-ForLogFieldValueAfter([string]$Category, [string]$Event, [string]$Role, [string]$Field, [string]$Value, [long]$AfterElapsedMilliseconds, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne $Category -or $entry.Event -ne $Event) { continue }
+            if ($Role -and $entry.Fields.role -ne $Role) { continue }
+            if ($entry.Fields.$Field -ne $Value) { continue }
+            if ([long]$entry.ElapsedMilliseconds -gt $AfterElapsedMilliseconds) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event $Field=$Value after elapsed=$AfterElapsedMilliseconds ($Role)."
+}
+
 function Copy-RunArtifacts {
     foreach ($path in Get-RunLogFiles) {
         $entries = @()
@@ -409,12 +501,16 @@ function Copy-RunArtifacts {
         $role = if ($isClientRun) { "client" } else { "host" }
         $destination = if ($role -eq "client") { $clientOutputDirectory } else { $hostOutputDirectory }
         $runDirectory = Split-Path -Parent $path
+        # The polled VM log is already stored directly in $clientOutputDirectory.
+        # Copying its parent into that same directory recursively creates
+        # client\client\... until the operator is interrupted.
+        if (([IO.Path]::GetFullPath($runDirectory)).TrimEnd('\\') -eq ([IO.Path]::GetFullPath($destination)).TrimEnd('\\')) { continue }
         Copy-Item -Path $runDirectory -Destination (Join-Path $destination (Split-Path -Leaf $runDirectory)) -Recurse -Force
     }
 
     try {
         $clientGodotLog = Join-Path $clientOutputDirectory "godot.log"
-        $copy = Invoke-ExternalCommand "scp" ($sshOptions + @("${VmAlias}:$vmGodotLogPath", $clientGodotLog)) 10 "VM Godot-log copy" -SuppressOutput
+        $copy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @("${VmAlias}:$vmGodotLogPath", $clientGodotLog)) 10 "VM Godot-log copy" -SuppressOutput
         if ($copy.ExitCode -ne 0) {
             Write-Warning "[harness][$runId] VM Godot log was not available (SCP exit $($copy.ExitCode))."
         }
@@ -477,20 +573,23 @@ try {
     Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $artifactDirectory "build_manifest.json") -Force
 
     $result.stage = "build_parity"
+    $vmExecutable = Get-VmReleaseExecutable $manifestHash
     if ($SkipBuildParity) {
         if ([string]::IsNullOrWhiteSpace($ExpectedManifestSha256)) {
             Set-Failure "harness" "build_parity" "Skipping VM parity requires an expected verified manifest hash."
         }
         $result.build_mapping["parity"] = "reused_suite_verification"
+        $result.build_mapping["vm_release_directory"] = Split-Path -Parent $vmExecutable
+        $result.build_mapping["vm_executable"] = $vmExecutable
         Complete-Stage "build_parity_reused"
     }
     else {
-        Assert-VirtualBoxShareMapping
-        $runnerCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
+        $vmExecutable = Stage-VmBuild $manifestHash
+        $runnerCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
         if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
-        $hashUtilsCopy = Invoke-ExternalCommand "scp" ($sshOptions + @($localHashUtilsPath, "${VmAlias}:$vmHashUtilsPath")) $externalCommandTimeoutSeconds "VM hash utility installation"
+        $hashUtilsCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localHashUtilsPath, "${VmAlias}:$vmHashUtilsPath")) $externalCommandTimeoutSeconds "VM hash utility installation"
         if ($hashUtilsCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "hash_utility_install" "Could not install the VM hash utility; SCP exited with $($hashUtilsCopy.ExitCode)." }
-        Write-ClientConfig "verify_only" @() $manifest $manifestHash
+        Write-ClientConfig "verify_only" @() $manifest $manifestHash $vmExecutable
         $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
         if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {
             Set-Failure "build" "build_parity" "The VM parity result did not match the host manifest."
@@ -498,6 +597,20 @@ try {
         Copy-Item -LiteralPath $localStatusPath -Destination (Join-Path $artifactDirectory "vm_build_parity.json") -Force
         $result.timings_ms["vm_parity_verification"] = [long]$parityStatus.parity_verification_ms
         Complete-Stage "build_parity"
+    }
+
+    # Sync-VmRunLog runs from helper functions, so retain the resolved staged
+    # executable in script scope after parity has established it.
+    $script:vmExecutable = $vmExecutable
+
+    if ($VerifyBuildOnly) {
+        $result.result = "passed"
+        $result.layer = $null
+        $result.stage = "complete"
+        $result.reason = $null
+        Complete-Stage "build_stage_and_parity"
+        Write-Harness "PASS build staging and VM parity verification"
+        return
     }
 
     $result.stage = "host_launch"
@@ -522,8 +635,11 @@ try {
     Write-Harness "discovered lobby $lobbyId from structured host diagnostics"
 
     $result.stage = "client_config"
+    # The GPU-P guest now has the host AMD OpenGL ICD, so keep the participant
+    # windowed. This is both the real player path and makes each A/B attempt
+    # directly observable in the Hyper-V console.
     $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario", "--test-run-id=$runId")
-    Write-ClientConfig "launch" $clientArguments $manifest $manifestHash
+    Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable
 
     $result.stage = "client_launch"
     $clientConnectionTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -550,7 +666,7 @@ try {
     $result.stage = "client_connection"
     $godotConnected = if ($Scenario -eq "steam_basic") { Wait-ForLogEvent "ab_test.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
     elseif ($Scenario -eq "netfox_time_sync") { Wait-ForLogEvent "netfox.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
-    elseif ($Scenario -eq "netfox_gameplay") { Wait-ForLogEvent "netfox.gameplay" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
+    elseif ($Scenario -eq "netfox_gameplay") { Wait-ForLogEvent "netfox.movement" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
     $result.timings_ms["client_process_to_godot_connected"] = [long]$godotConnected.ElapsedMilliseconds
@@ -583,44 +699,31 @@ try {
         Complete-Stage "K_netfox_lifecycle_stop"
     }
     elseif ($Scenario -eq "netfox_gameplay") {
-        # Gameplay has its own explicit checkpoints. These are intentionally
-        # stronger than process startup: each represents a layer boundary
-        # between Steam/Godot transport, GameFactory spawning, and Netfox.
-        [void](Wait-ForLogEvent "netfox.gameplay" "time_sync_ready" "host" $ScenarioTimeoutSeconds "netfox" "host_time_sync")
-        Complete-Stage "G_netfox_host_time_sync"
-        [void](Wait-ForLogEvent "netfox.gameplay" "time_sync_ready" "client" $ScenarioTimeoutSeconds "netfox" "client_time_sync")
-        Complete-Stage "H_netfox_client_time_sync"
-        [void](Wait-ForLogEvent "netfox.gameplay" "client_topology_verified" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology")
-        [void](Wait-ForLogEvent "netfox.gameplay" "client_ready_received" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_topology")
-        Complete-Stage "I_gamefactory_world_topology"
-        [void](Wait-ForLogEvent "netfox.gameplay" "scenario_started" "host" $ScenarioTimeoutSeconds "simulation" "scenario_start")
-        Complete-Stage "J_prediction_schedule"
-        [void](Wait-ForLogEvent "netfox.prediction" "prediction_confirmed" "client" $ScenarioTimeoutSeconds "netfox.prediction" "prediction")
-        Complete-Stage "J_prediction_confirmed"
-        [void](Wait-ForLogEvent "netfox.interpolation" "player_interpolation_confirmed" "client" $ScenarioTimeoutSeconds "netfox.interpolation" "player_interpolation")
-        Complete-Stage "K_player_interpolation"
-        $stateSync = Wait-ForLogEvent "netfox.state_sync" "remote_state_received" "client" $ScenarioTimeoutSeconds "netfox.state_sync" "state_delivery"
-        [void](Wait-ForLogEventAfter "netfox.interpolation" "state_probe_interpolation_confirmed" "client" ([long]$stateSync.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.interpolation" "state_interpolation")
-        Complete-Stage "L_state_sync_and_interpolation"
-        $misprediction = Wait-ForLogEvent "netfox.gameplay" "misprediction_started" "client" $ScenarioTimeoutSeconds "test_scenario" "forced_divergence"
-        Complete-Stage "M_misprediction_started"
-        $divergence = Wait-ForLogEventAfter "netfox.gameplay" "divergence_confirmed" "client" ([long]$misprediction.ElapsedMilliseconds) $ScenarioTimeoutSeconds "test_scenario" "divergence"
-        Complete-Stage "N_divergence_confirmed"
-        $rollback = Wait-ForLogEventAfter "netfox.rollback" "started" "client" ([long]$divergence.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.rollback" "rollback"
-        Complete-Stage "O_rollback_started"
-        $replay = Wait-ForLogEventAfter "netfox.gameplay" "replay_observed" "client" ([long]$rollback.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.rollback" "replay"
-        Complete-Stage "P_player_replay"
-        $rollbackComplete = Wait-ForLogEventAfter "netfox.rollback" "completed" "client" ([long]$replay.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.rollback" "rollback_complete"
-        Complete-Stage "Q_rollback_completed"
-        $convergence = Wait-ForLogEventAfter "netfox.reconciliation" "convergence_confirmed" "client" ([long]$rollbackComplete.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox.reconciliation" "convergence"
-        Complete-Stage "R_convergence"
-        $clientPassed = Wait-ForLogEvent "netfox.gameplay" "client_scenario_passed_received" "host" $ScenarioTimeoutSeconds "simulation" "client_result"
-        Complete-Stage "S_client_result"
-        [void](Wait-ForLogEventAfter "netfox.gameplay" "scenario_complete" "host" ([long]$clientPassed.ElapsedMilliseconds) $ScenarioTimeoutSeconds "simulation" "scenario_complete")
-        Complete-Stage "T_scenario_complete"
-        $netfoxShutdownExpected = $true
-        [void](Wait-ForLogEventAfter "netfox.gameplay" "session_leave_requested" "host" ([long]$clientPassed.ElapsedMilliseconds) $ScenarioTimeoutSeconds "netfox" "graceful_leave")
-        Complete-Stage "U_graceful_shutdown"
+        # This is a two-account interactive sandbox, not the retired scripted
+        # divergence/reconciliation scenario. The checkpoints deliberately
+        # prove the real ownership boundary before asking the operator to move:
+        # host-side spawning, replicated configuration, client topology, then
+        # both directions of manually generated input and remote observation.
+        [void](Wait-ForLogEvent "netfox.movement" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
+        Complete-Stage "G_host_player_spawn"
+        $playersReady = Wait-ForLogEvent "netfox.movement" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
+        if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
+        Complete-Stage "H_client_two_player_topology"
+
+        Write-Harness "manual gameplay ready: move the HOST marker with WASD for 15 seconds"
+        $hostInput = Wait-ForLogFieldValue "netfox.movement" "local_input_active" "" "active" "True" $ScenarioTimeoutSeconds "gameplay" "host_manual_input"
+        if ($hostInput.Fields.role -ne "host") { Set-Failure "gameplay" "host_manual_input" "First manual input was not generated by the host." }
+        [void](Wait-ForLogEventAfter "netfox.movement" "remote_player_moved" "client" ([long]$hostInput.ElapsedMilliseconds) $ScenarioTimeoutSeconds "replication" "host_movement_observed_by_client")
+        Complete-Stage "I_host_input_and_client_remote_observation"
+
+        Write-Harness "manual gameplay ready: move the CLIENT marker with WASD for 15 seconds"
+        $clientInput = Wait-ForLogFieldValueAfter "netfox.movement" "local_input_active" "client" "active" "True" ([long]$hostInput.ElapsedMilliseconds) $ScenarioTimeoutSeconds "gameplay" "client_manual_input"
+        [void](Wait-ForLogEventAfter "netfox.movement" "remote_player_moved" "host" ([long]$clientInput.ElapsedMilliseconds) $ScenarioTimeoutSeconds "replication" "client_movement_observed_by_host")
+        Complete-Stage "J_client_input_and_host_remote_observation"
+
+        [void](Wait-ForLogEvent "netfox.history_age" "sample" "host" $ScenarioTimeoutSeconds "netfox" "host_history_diagnostics")
+        [void](Wait-ForLogEvent "netfox.history_age" "sample" "client" $ScenarioTimeoutSeconds "netfox" "client_history_diagnostics")
+        Complete-Stage "K_history_diagnostics"
     }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 

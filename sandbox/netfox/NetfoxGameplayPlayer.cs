@@ -120,6 +120,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
         GameLog.Info("netfox.movement", "local_input_active", fields: new Dictionary<string, string?>
         {
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
             ["player_id"] = _playerId.ToString(),
             ["network_object_id"] = networkObject.Id.ToString(),
             ["active"] = active.ToString(),
@@ -138,6 +139,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         bool localOwner = networkObject.OwnerPeerId.Value == Multiplayer.GetUniqueId();
         GameLog.Info("netfox.movement", localOwner ? "local_player_moved" : "remote_player_moved", fields: new Dictionary<string, string?>
         {
+            ["role"] = Multiplayer.IsServer() ? "host" : "client",
             ["player_id"] = _playerId.ToString(),
             ["network_object_id"] = networkObject.Id.ToString(),
             ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),

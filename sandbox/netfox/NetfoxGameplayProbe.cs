@@ -34,6 +34,8 @@ public partial class NetfoxGameplayProbe : Node
     private Node? _networkTime;
     private Node? _networkTimeSynchronizer;
     private Callable? _timeSyncPanicCallable;
+    private MultiplayerPeer.ConnectionStatus? _lastPeerConnectionStatus;
+    private double _peerStatusSampleElapsed;
 
     [Export] public PackedScene PlayerScene { get; set; } = null!;
 
@@ -70,6 +72,13 @@ public partial class NetfoxGameplayProbe : Node
 
     public override void _Process(double delta)
     {
+        _peerStatusSampleElapsed += delta;
+        if (_peerStatusSampleElapsed >= 1.0)
+        {
+            _peerStatusSampleElapsed = 0.0;
+            LogPeerStatus("periodic");
+        }
+
         if (delta > 1.0)
             LogTimeEvent("stall_observed", new Dictionary<string, string?>
             {
@@ -113,6 +122,7 @@ public partial class NetfoxGameplayProbe : Node
         _runtime.SetMode(RuntimeMode.ListenServer);
         _playerLifecycle = new PlayerLifecycle(_peers, _players, _runtime, SpawnPlayer, _world.Despawn);
         _peers.Add(PeerId.Server, isLocal: true);
+        LogPeerStatus("initial");
         Log("host_ready", new Dictionary<string, string?> { ["lobby_id"] = lobby.Id.ToString() });
         GD.Print($"[netfox] Hosting lobby {lobby.Id}. Start a second instance with --steam-lobby={lobby.Id}; use WASD in each instance.");
     }
@@ -121,6 +131,7 @@ public partial class NetfoxGameplayProbe : Node
     {
         await _session!.JoinAsync(lobbyId, new SteamClientOptions());
         _runtime.SetMode(RuntimeMode.Client);
+        LogPeerStatus("initial");
         Log("client_joined_lobby", new Dictionary<string, string?> { ["lobby_id"] = lobbyId.ToString() });
     }
 
@@ -156,14 +167,48 @@ public partial class NetfoxGameplayProbe : Node
         Log("peer_disconnected", new Dictionary<string, string?> { ["peer_id"] = peerValue.ToString() });
     }
 
-    private void OnConnectedToServer() => Log("godot_connected_to_server", null);
-    private void OnConnectionFailed() => Log("godot_connection_failed", null);
-    private void OnServerDisconnected() => Log("godot_server_disconnected", null);
+    private void OnConnectedToServer()
+    {
+        LogPeerStatus("godot_signal");
+        Log("godot_connected_to_server", null);
+    }
+
+    private void OnConnectionFailed()
+    {
+        LogPeerStatus("godot_signal");
+        Log("godot_connection_failed", null);
+    }
+
+    private void OnServerDisconnected()
+    {
+        LogPeerStatus("godot_signal");
+        Log("godot_server_disconnected", null);
+    }
 
     private void OnTimeSyncPanic(double offsetSeconds) => LogTimeEvent("panic", new Dictionary<string, string?>
     {
         ["panic_offset_ms"] = (offsetSeconds * 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
     });
+
+    private void LogPeerStatus(string reason)
+    {
+        MultiplayerPeer? peer = Multiplayer.MultiplayerPeer;
+        if (peer is null)
+            return;
+
+        MultiplayerPeer.ConnectionStatus status = peer.GetConnectionStatus();
+        bool changed = _lastPeerConnectionStatus != status;
+        _lastPeerConnectionStatus = status;
+        GameLog.Info("steam.peer_status", changed ? "changed" : "sampled", fields: new Dictionary<string, string?>
+        {
+            ["reason"] = reason,
+            ["role"] = _role,
+            ["peer_type"] = peer.GetType().Name,
+            ["connection_status"] = status.ToString(),
+            ["local_unique_id"] = Multiplayer.GetUniqueId().ToString(),
+            ["lobby_id"] = _session?.Lobby?.Id.ToString()
+        });
+    }
 
     private void LogTimeEvent(string eventName, Dictionary<string, string?> fields)
     {

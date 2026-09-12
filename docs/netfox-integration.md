@@ -111,6 +111,9 @@ When investigating a two-account run, each player additionally writes one
 second. They record Netfox time/rollback ticks, known input/state ticks and
 ages, prediction state, peer status, available Godot peer packets, and the
 number and size of known-history advances in the preceding sample window.
+The probe also writes an explicit `steam.peer_status` record when the native
+peer status changes and once per second, so the transport handshake can be
+attributed before Netfox player/topology diagnostics begin.
 `netfox.history_age/threshold_crossed` is emitted once per player/history kind
 at 32, 48, 56, and 64 ticks. These are diagnostics only: they do not alter
 Netfox history size, authority, prediction, input broadcast, movement, Steam,
