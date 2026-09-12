@@ -120,13 +120,18 @@ around `move_and_slide()`, as required by Netfox's CharacterBody integration.
 The input node deliberately uses the core v1.35.3 `before_tick_loop` pattern,
 rather than adding `netfox.extras` solely for `BaseNetInput`. Extras is not
 otherwise needed or vendored, and keeping the two inputs in the prefab makes
-the rollback contract inspectable. Re-evaluate that dependency only when a
-future player needs its broader standardized input features.
+the rollback contract inspectable. Movement is sampled each tick; a physical
+jump press is queued in `_process()` and exposed as exactly one recorded
+`jump_pressed` input tick. Re-evaluate that dependency only when a future
+player needs its broader standardized input features.
 
 `sandbox/netfox/netfox_player_3d_probe.tscn` is selected with
 `--run=netfox-player-3d`. It spawns the prefab through `NetworkWorld` and
 `PlayerLifecycle`, supplies a floor/light/camera, and records structured local
-and remote walking/jump observations for manual two-account acceptance.
+and remote walking/jump observations for manual two-account acceptance. It
+also emits the standard `steam.peer_status` initial, changed, and periodic
+records so the shared A/B harness can establish native transport readiness
+before its Godot and gameplay checkpoints.
 
 This is a manual playground, not the former deterministic divergence/convergence
 acceptance scenario. Its small `netfox.movement` logs report player spawn and

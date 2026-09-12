@@ -29,6 +29,8 @@ public partial class NetfoxPlayer3DProbe : Node3D
     private string? _role;
     private bool _playersReady;
     private double _sampleElapsed;
+    private MultiplayerPeer.ConnectionStatus? _lastPeerConnectionStatus;
+    private double _peerStatusSampleElapsed;
 
     [Export] public PackedScene PlayerScene { get; set; } = null!;
 
@@ -53,6 +55,13 @@ public partial class NetfoxPlayer3DProbe : Node3D
 
     public override void _Process(double delta)
     {
+        _peerStatusSampleElapsed += delta;
+        if (_peerStatusSampleElapsed >= 1.0)
+        {
+            _peerStatusSampleElapsed = 0;
+            LogPeerStatus("periodic");
+        }
+
         NetworkPlayer3D[] players = GetPlayers();
         if (!_playersReady && players.Length == 2 && players.All(HasExpectedAuthority))
         {
@@ -79,6 +88,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
         _runtime.SetMode(RuntimeMode.ListenServer);
         _playerLifecycle = new PlayerLifecycle(_peers, _players, _runtime, SpawnPlayer, _world.Despawn);
         _peers.Add(PeerId.Server, isLocal: true);
+        LogPeerStatus("initial");
         Log("host_ready", new Dictionary<string, string?> { ["lobby_id"] = lobby.Id.ToString() });
         GD.Print($"[netfox-player-3d] Hosting lobby {lobby.Id}.");
     }
@@ -87,6 +97,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
     {
         await _session!.JoinAsync(lobbyId, new SteamClientOptions());
         _runtime.SetMode(RuntimeMode.Client);
+        LogPeerStatus("initial");
         Log("client_joined_lobby", new Dictionary<string, string?> { ["lobby_id"] = lobbyId.ToString() });
     }
 
@@ -115,9 +126,28 @@ public partial class NetfoxPlayer3DProbe : Node3D
 
     private void OnPeerConnected(long peerValue) { if (!Multiplayer.IsServer()) return; _peers.Add(new PeerId(peerValue), isLocal: false); Log("peer_connected", new Dictionary<string, string?> { ["peer_id"] = peerValue.ToString() }); }
     private void OnPeerDisconnected(long peerValue) { if (Multiplayer.IsServer()) _peers.Remove(new PeerId(peerValue)); Log("peer_disconnected", new Dictionary<string, string?> { ["peer_id"] = peerValue.ToString() }); }
-    private void OnConnectedToServer() => Log("godot_connected_to_server", null);
-    private void OnConnectionFailed() => Log("godot_connection_failed", null);
-    private void OnServerDisconnected() => Log("godot_server_disconnected", null);
+    private void OnConnectedToServer() { LogPeerStatus("godot_signal"); Log("godot_connected_to_server", null); }
+    private void OnConnectionFailed() { LogPeerStatus("godot_signal"); Log("godot_connection_failed", null); }
+    private void OnServerDisconnected() { LogPeerStatus("godot_signal"); Log("godot_server_disconnected", null); }
+
+    private void LogPeerStatus(string reason)
+    {
+        MultiplayerPeer? peer = Multiplayer.MultiplayerPeer;
+        if (peer is null) return;
+
+        MultiplayerPeer.ConnectionStatus status = peer.GetConnectionStatus();
+        bool changed = _lastPeerConnectionStatus != status;
+        _lastPeerConnectionStatus = status;
+        GameLog.Info("steam.peer_status", changed ? "changed" : "sampled", fields: new Dictionary<string, string?>
+        {
+            ["reason"] = reason,
+            ["role"] = _role,
+            ["peer_type"] = peer.GetType().Name,
+            ["connection_status"] = status.ToString(),
+            ["local_unique_id"] = Multiplayer.GetUniqueId().ToString(),
+            ["lobby_id"] = _session?.Lobby?.Id.ToString()
+        });
+    }
     private NetworkPlayer3D[] GetPlayers() => GetTree().GetNodesInGroup("network_player_3d").OfType<NetworkPlayer3D>().ToArray();
     private static bool HasExpectedAuthority(NetworkPlayer3D player) { NetworkObject networkObject = player.GetNetworkObject(); return player.GetMultiplayerAuthority() == PeerId.Server.Value && player.GetNode<Node>("Simulation").GetMultiplayerAuthority() == PeerId.Server.Value && player.GetNode<Node>("Input").GetMultiplayerAuthority() == networkObject.OwnerPeerId.Value; }
     private void SubscribeToMultiplayer() { Multiplayer.PeerConnected += OnPeerConnected; Multiplayer.PeerDisconnected += OnPeerDisconnected; Multiplayer.ConnectedToServer += OnConnectedToServer; Multiplayer.ConnectionFailed += OnConnectionFailed; Multiplayer.ServerDisconnected += OnServerDisconnected; }
