@@ -1,6 +1,8 @@
 @tool
 extends PopupWindowPanel
 
+const RuntimeTemplatePaths = preload("res://addons/maaacks_game_template/base/nodes/config/runtime_template_paths.gd")
+
 @export var options_menu_scene : PackedScene
 ## Path to a main menu scene.
 ## Will use ProjectSettings paths if left empty.
@@ -17,7 +19,7 @@ var open_window : Node
 var restarting : bool = false
 
 func get_main_menu_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_main_menu_path(main_menu_scene_path)
+	return RuntimeTemplatePaths.get_main_menu_path(main_menu_scene_path)
 
 func close_window() -> void:
 	if open_window != null:

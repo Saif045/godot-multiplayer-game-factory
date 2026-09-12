@@ -2,6 +2,8 @@ class_name SceneLoaderClass
 extends Node
 ## Autoload class for loading scenes with an optional loading screen.
 
+const RuntimeTemplatePaths = preload("res://addons/maaacks_game_template/base/nodes/config/runtime_template_paths.gd")
+
 signal scene_loaded
 
 ## Path to the loading screen to display to players while loading a scene.
@@ -74,7 +76,7 @@ func set_loading_screen(value : String) -> void:
 	loading_screen_path = value
 	var _loading_screen_path := loading_screen_path
 	if _loading_screen_path.is_empty():
-		_loading_screen_path = MaaacksGameTemplatePlugin.get_loading_scene_path()
+		_loading_screen_path = RuntimeTemplatePaths.get_loading_scene_path()
 	if _loading_screen_path.is_empty():
 		return
 	_loading_screen = load(_loading_screen_path)

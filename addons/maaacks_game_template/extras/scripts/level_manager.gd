@@ -8,6 +8,8 @@ extends Node
 ## It can detect signals from levels to change levels in an open-world.
 ## With a scene lister, it will instead traverse through levels linearly.
 
+const RuntimeTemplatePaths = preload("res://addons/maaacks_game_template/base/nodes/config/runtime_template_paths.gd")
+
 ## Required reference to a level loader in the scene.
 @export var level_loader : LevelLoader
 ## Optional path to a starting level scene.
@@ -56,7 +58,7 @@ func _close_scene(node:Node) -> void:
 	node.queue_free()
 
 func get_main_menu_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_main_menu_path(main_menu_scene_path)
+	return RuntimeTemplatePaths.get_main_menu_path(main_menu_scene_path)
 
 func _load_main_menu() -> void:
 	SceneLoader.load_scene(get_main_menu_scene_path())
@@ -85,7 +87,7 @@ func get_prev_level_path() -> String:
 	return get_relative_level_path(-1)
 
 func get_ending_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_ending_scene_path(ending_scene_path)
+	return RuntimeTemplatePaths.get_ending_scene_path(ending_scene_path)
 
 func _load_ending() -> void:
 	if not get_ending_scene_path().is_empty():

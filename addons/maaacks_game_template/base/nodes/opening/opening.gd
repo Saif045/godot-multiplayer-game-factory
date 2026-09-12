@@ -1,6 +1,8 @@
 extends Control
 ## Scene for displaying opening logos, placards, or other images before a game.
 
+const RuntimeTemplatePaths = preload("res://addons/maaacks_game_template/base/nodes/config/runtime_template_paths.gd")
+
 ## Defines the path to the next scene.
 ## Will use ProjectSettings paths if left empty.
 @export_file("*.tscn") var next_scene_path : String
@@ -25,7 +27,7 @@ var tween : Tween
 var next_image_index : int = 0
 
 func get_next_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_main_menu_path(next_scene_path)
+	return RuntimeTemplatePaths.get_main_menu_path(next_scene_path)
 
 func _on_scene_loaded() -> void:
 		SceneLoader.change_scene_to_resource()

@@ -1,5 +1,7 @@
 extends Node
 
+const RuntimeTemplatePaths = preload("res://addons/maaacks_game_template/base/nodes/config/runtime_template_paths.gd")
+
 ## Path to a main menu scene.
 ## Will use ProjectSettings paths if left empty.
 @export_file("*.tscn") var main_menu_scene_path : String
@@ -19,13 +21,13 @@ func _try_connecting_signal_to_node(node : Node, signal_name : String, callable 
 		node.connect(signal_name, callable)
 
 func get_main_menu_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_main_menu_path(main_menu_scene_path)
+	return RuntimeTemplatePaths.get_main_menu_path(main_menu_scene_path)
 
 func _load_main_menu() -> void:
 	SceneLoader.load_scene(get_main_menu_scene_path())
 
 func get_ending_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_ending_scene_path(ending_scene_path)
+	return RuntimeTemplatePaths.get_ending_scene_path(ending_scene_path)
 
 func _load_ending() -> void:
 	if get_ending_scene_path().is_empty():

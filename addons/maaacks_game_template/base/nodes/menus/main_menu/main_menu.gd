@@ -2,6 +2,8 @@ class_name MainMenu
 extends Control
 ## Base menu scene that links to a game scene, an options menu, and credits.
 
+const RuntimeTemplatePaths = preload("res://addons/maaacks_game_template/base/nodes/config/runtime_template_paths.gd")
+
 signal sub_menu_opened
 signal sub_menu_closed
 signal game_started
@@ -31,7 +33,7 @@ var sub_menu : Control
 @onready var exit_confirmation = %ExitConfirmation
 
 func get_game_scene_path() -> String:
-	return MaaacksGameTemplatePlugin.get_game_path(game_scene_path)
+	return RuntimeTemplatePaths.get_game_path(game_scene_path)
 
 func load_game_scene() -> void:
 	if signal_game_start:
