@@ -20,7 +20,8 @@ public partial class SandboxLauncher : Node
             ["steam"] = "res://sandbox/steam/steam_probe.tscn",
             ["steam-gameplay"] = "res://sandbox/steam/steam_gameplay_probe.tscn",
             ["netfox"] = "res://sandbox/netfox/netfox_time_probe.tscn",
-            ["netfox-gameplay"] = "res://sandbox/netfox/netfox_gameplay_probe.tscn"
+            ["netfox-gameplay"] = "res://sandbox/netfox/netfox_gameplay_probe.tscn",
+            ["netfox-player-3d"] = "res://sandbox/netfox/netfox_player_3d_probe.tscn"
         };
 
     public override void _Ready()

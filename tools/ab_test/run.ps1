@@ -15,7 +15,7 @@ param(
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
-    [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay")]
+    [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay", "netfox_player_3d")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
@@ -98,8 +98,8 @@ $result = [ordered]@{
     started_utc = [DateTimeOffset]::UtcNow.ToString("O")
     completed_utc = $null
 }
-$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } else { "steam-gameplay" }
-$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.movement" } default { throw "Unsupported scenario '$Scenario'." } }
+$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } elseif ($Scenario -eq "netfox_player_3d") { "netfox-player-3d" } else { "steam-gameplay" }
+$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.movement" } "netfox_player_3d" { "netfox.player3d" } default { throw "Unsupported scenario '$Scenario'." } }
 
 New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory, $runtimeDirectory | Out-Null
 
@@ -738,6 +738,7 @@ try {
     $godotConnected = if ($Scenario -eq "steam_basic") { Wait-ForLogEvent "ab_test.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
     elseif ($Scenario -eq "netfox_time_sync") { Wait-ForLogEvent "netfox.scenario" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
     elseif ($Scenario -eq "netfox_gameplay") { Wait-ForLogEvent "netfox.movement" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
+    elseif ($Scenario -eq "netfox_player_3d") { Wait-ForLogEvent "netfox.player3d" "godot_connected_to_server" "client" $ScenarioTimeoutSeconds "godot_multiplayer" "client_connection" }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
     $result.timings_ms["client_process_to_godot_connected"] = [long]$godotConnected.ElapsedMilliseconds
@@ -812,6 +813,31 @@ try {
         [void](Wait-ForLogEvent "netfox.history_age" "sample" "host" $ScenarioTimeoutSeconds "netfox" "host_history_diagnostics")
         [void](Wait-ForLogEvent "netfox.history_age" "sample" "client" $ScenarioTimeoutSeconds "netfox" "client_history_diagnostics")
         Complete-Stage "K_history_diagnostics"
+    }
+    elseif ($Scenario -eq "netfox_player_3d") {
+        # Intentionally small manual acceptance: this scene is a visual
+        # factory composition, not another reconciliation harness.
+        [void](Wait-ForLogEvent "netfox.player3d" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
+        Complete-Stage "G_host_player_spawn"
+        $playersReady = Wait-ForLogEvent "netfox.player3d" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
+        if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
+        Complete-Stage "H_client_two_player_topology"
+
+        $hostCheckpointUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual 3D acceptance ready: move and jump on the HOST for 15 seconds"
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "host" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_local_walk")
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_player_moved" "client" $hostCheckpointUtc $ScenarioTimeoutSeconds "replication" "host_walk_visible_on_client")
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_jump_observed" "host" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_local_jump")
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_jump_observed" "client" $hostCheckpointUtc $ScenarioTimeoutSeconds "replication" "host_jump_visible_on_client")
+        Complete-Stage "I_host_walk_and_jump_observed_remotely"
+
+        $clientCheckpointUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual 3D acceptance ready: move and jump on the CLIENT for 15 seconds"
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_local_walk")
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_player_moved" "host" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_walk_visible_on_host")
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_jump_observed" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_local_jump")
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_jump_observed" "host" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_jump_visible_on_host")
+        Complete-Stage "J_client_walk_and_jump_observed_remotely"
     }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 

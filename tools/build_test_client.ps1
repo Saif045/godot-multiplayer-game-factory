@@ -30,6 +30,17 @@ Write-Host "Repo:   $RepoRoot"
 Write-Host "Output: $OutputExe"
 Write-Host ""
 
+# Godot's C# export plugin publishes the project with the target RID and does
+# not restore first. A normal editor/solution build creates only the generic
+# net8.0 assets target, which makes that publish fail with NETSDK1047 and
+# leaves a package without managed assemblies. Prime the exact Windows RID
+# assets before invoking Godot's exporter.
+Write-Host "Restoring GameFactory for win-x64 export..."
+& dotnet restore (Join-Path $RepoRoot "GameFactory.csproj") --runtime win-x64 --ignore-failed-sources -p:NuGetAudit=false
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet restore for win-x64 export failed with exit code $LASTEXITCODE."
+}
+
 $stdoutPath = Join-Path $RepoRoot ".tmp-build-export.log"
 $stderrPath = Join-Path $RepoRoot ".tmp-build-export.error.log"
 Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
@@ -65,6 +76,16 @@ try {
         (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($OutputExe, ".pck"))) -and
         (Test-Path -LiteralPath $stdoutPath) -and
         ((Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) -match '(?s)\[\s*DONE\s*\].{0,100}savepack')
+    $exportLog = if (Test-Path -LiteralPath $stdoutPath) {
+        Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+    } else {
+        ""
+    }
+    if ($exportLog -match 'dotnet publish exited with code: [1-9]' -or
+        $exportLog -match 'ERROR: Export \.NET Project:' -or
+        $exportLog -match 'ERROR: Project export for preset') {
+        throw "Godot reported a managed export failure; refusing to accept the generated package."
+    }
     if (-not $terminatedAfterCompletedExport -and $null -ne $process.ExitCode -and $process.ExitCode -ne 0) {
         throw "Godot export failed with exit code $($process.ExitCode)."
     }

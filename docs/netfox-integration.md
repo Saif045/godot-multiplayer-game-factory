@@ -107,6 +107,27 @@ enter/ready initialization; the sandbox does not manually invoke
 the prefab retains its explicit Netfox property lists and its sandbox-specific
 input, simulation, and presentation behavior.
 
+## Reusable 3D rollback-player slice
+
+`factory/networking/netfox/player_3d/network_player_3d.tscn` is the first
+production-facing `CharacterBody3D` composition. Its state list explicitly
+tracks `:position`, `:velocity`, and `Simulation:grounded`; its input list
+explicitly tracks `Input:movement` and `Input:jump_pressed`. Simulation runs
+only from `_rollback_tick`, and applies `NetworkTime.physics_factor` only
+around `move_and_slide()`, as required by Netfox's CharacterBody integration.
+`Presentation` remains outside rollback state and is the interpolation target.
+
+The input node deliberately uses the core v1.35.3 `before_tick_loop` pattern,
+rather than adding `netfox.extras` solely for `BaseNetInput`. Extras is not
+otherwise needed or vendored, and keeping the two inputs in the prefab makes
+the rollback contract inspectable. Re-evaluate that dependency only when a
+future player needs its broader standardized input features.
+
+`sandbox/netfox/netfox_player_3d_probe.tscn` is selected with
+`--run=netfox-player-3d`. It spawns the prefab through `NetworkWorld` and
+`PlayerLifecycle`, supplies a floor/light/camera, and records structured local
+and remote walking/jump observations for manual two-account acceptance.
+
 This is a manual playground, not the former deterministic divergence/convergence
 acceptance scenario. Its small `netfox.movement` logs report player spawn and
 configuration, input activation, and rate-limited local/remote movement.

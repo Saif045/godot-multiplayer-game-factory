@@ -1,0 +1,60 @@
+[gd_scene load_steps=12 format=3 uid="uid://d0h5mnq4x8v9p"]
+
+[ext_resource type="Script" path="res://factory/networking/netfox/player_3d/NetworkPlayer3D.cs" id="1_player"]
+[ext_resource type="PackedScene" path="res://factory/networking/objects/network_object.tscn" id="2_network_object"]
+[ext_resource type="Script" path="res://factory/networking/netfox/NetfoxRollbackPlayerComponent.cs" id="3_component"]
+[ext_resource type="Script" path="res://factory/networking/netfox/player_3d/network_player_3d_input.gd" id="4_input"]
+[ext_resource type="Script" path="res://factory/networking/netfox/player_3d/network_player_3d_simulation.gd" id="5_simulation"]
+[ext_resource type="Script" path="res://factory/networking/netfox/player_3d/network_player_3d_presentation.gd" id="6_presentation"]
+[ext_resource type="Script" path="res://addons/netfox/rollback/rollback-synchronizer.gd" id="7_rollback"]
+[ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="8_interpolator"]
+[ext_resource type="Script" path="res://factory/networking/netfox/player_3d/network_player_3d_camera.gd" id="9_camera"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.45
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
+radius = 0.45
+height = 1.8
+
+[node name="NetworkPlayer3D" type="CharacterBody3D" groups=["network_player_3d"]]
+script = ExtResource("1_player")
+
+[node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
+SpawnGroup = 1
+
+[node name="NetfoxRollbackPlayerComponent" type="Node" parent="NetworkObject"]
+script = ExtResource("3_component")
+
+[node name="Input" type="Node" parent="."]
+script = ExtResource("4_input")
+
+[node name="Simulation" type="Node" parent="."]
+script = ExtResource("5_simulation")
+
+[node name="Presentation" type="Node3D" parent="."]
+script = ExtResource("6_presentation")
+
+[node name="VisualRoot" type="Node3D" parent="Presentation"]
+
+[node name="Mesh" type="MeshInstance3D" parent="Presentation/VisualRoot"]
+mesh = SubResource("CapsuleMesh_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_player")
+
+[node name="RollbackSynchronizer" type="Node" parent="."]
+script = ExtResource("7_rollback")
+enable_prediction = true
+state_properties = [":position", ":velocity", "Simulation:grounded"]
+input_properties = ["Input:movement", "Input:jump_pressed"]
+enable_input_broadcast = false
+
+[node name="TickInterpolator" type="Node" parent="."]
+script = ExtResource("8_interpolator")
+properties = ["Presentation:position"]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.928477, 0.371391, 0, -0.371391, 0.928477, 0, 6, 10)
+script = ExtResource("9_camera")

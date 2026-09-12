@@ -10,7 +10,7 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/peers/` | Transient `PeerId`, peer model, and local registry. | Implemented |
 | `factory/networking/players/` | Session-scoped player IDs, registry, and server-side lifecycle delegates. | Implemented |
 | `factory/networking/objects/` | Compositional network object host, authority, and replication components. | Implemented |
-| `factory/networking/netfox/` | Reusable Netfox rollback-player lifecycle, root, and split-authority composition glue. | Phase-1 integration |
+| `factory/networking/netfox/` | Reusable Netfox rollback-player lifecycle/split-authority glue and the first visible `CharacterBody3D` composition under `player_3d/`. | Phase-1 integration |
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
 | `factory/steam/` | Process-lifetime Steam platform owner plus scene-local session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
 | `factory/diagnostics/` | Structured process logs, exported-build identity, replication confirmation, and distributed session evidence. | Implemented |
@@ -26,8 +26,8 @@ This inventory describes tracked paths and current responsibilities. Directories
 | Path | Responsibility | Evidence |
 |---|---|---|
 | `sandbox/steam/` | Steam/lobby smoke, native re-host dependency smoke, and manual or test-only two-account gameplay acceptance probe. | Steam acceptance laboratory |
-| `sandbox/netfox/` | Steam-backed Netfox time probe plus an interactive two-player movement playground. `NetworkWorld` owns GameFactory object identity and spawning; Netfox `RollbackSynchronizer` owns player input/state history and rollback while `TickInterpolator` smooths the recorded movement state. | Phase-1 gameplay integration; manual two-account movement validation pending |
-| `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam`, `--run=steam-gameplay`, `--run=netfox`, or `--run=netfox-gameplay` |
+| `sandbox/netfox/` | Steam-backed Netfox time/2D diagnostic probes plus a small 3D visual acceptance probe. `NetworkWorld` owns identity/spawning; the player prefab owns Netfox input, history, rollback and presentation. | Phase-1 gameplay integration |
+| `sandbox/launcher/` | Registered development/exported launcher. | `--run=steam`, `--run=steam-gameplay`, `--run=netfox`, `--run=netfox-gameplay`, or `--run=netfox-player-3d` |
 | `tests/GameFactory.Tests/` | Engine-independent xUnit tests for pure policy, values, registries, and diagnostics. | Automated baseline |
 | `tools/` | Clean/configurable export and manifest helpers plus the build-parity-gated host-PC-to-VM Steam A/B acceptance harness. | Developer tooling / external-environment acceptance |
 
