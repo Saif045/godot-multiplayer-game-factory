@@ -161,3 +161,11 @@ Use repeated sampling only after a baseline attempt succeeds:
 
 Each process scenario follows `docs/testing-protocol.md`; the suite preserves
 separate per-attempt evidence and cleanup results.
+
+For `netfox_gameplay`, the A/B harness establishes each manual checkpoint with
+the shared event UTC rather than process-local elapsed time. It requires the
+source player to show a post-input simulated position change and the receiving
+peer to show a post-input change in that remote player's
+presentation-versus-simulation distance. This prevents pre-connection input
+from satisfying a later stage and avoids treating state-tick traffic alone as
+movement evidence.

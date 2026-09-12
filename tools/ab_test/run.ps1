@@ -489,6 +489,77 @@ function Wait-ForLogFieldValueAfter([string]$Category, [string]$Event, [string]$
     Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event $Field=$Value after elapsed=$AfterElapsedMilliseconds ($Role)."
 }
 
+function Get-LogUtc([object]$Entry) {
+    return [DateTimeOffset]::Parse(
+        [string]$Entry.Utc,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind)
+}
+
+function Wait-ForLogEventAfterUtc([string]$Category, [string]$Event, [string]$Role, [DateTimeOffset]$AfterUtc, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne $Category -or $entry.Event -ne $Event) { continue }
+            if ($Role -and $entry.Fields.role -ne $Role) { continue }
+            if ((Get-LogUtc $entry) -gt $AfterUtc) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event after utc=$AfterUtc ($Role)."
+}
+
+function Wait-ForLogFieldValueAfterUtc([string]$Category, [string]$Event, [string]$Role, [string]$Field, [string]$Value, [DateTimeOffset]$AfterUtc, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne $Category -or $entry.Event -ne $Event) { continue }
+            if ($Role -and $entry.Fields.role -ne $Role) { continue }
+            if ($entry.Fields.$Field -ne $Value) { continue }
+            if ((Get-LogUtc $entry) -gt $AfterUtc) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event $Field=$Value after utc=$AfterUtc ($Role)."
+}
+
+function Get-VectorDistance([string]$Left, [string]$Right) {
+    $pattern = '^\(([-+]?[0-9]*\.?[0-9]+),\s*([-+]?[0-9]*\.?[0-9]+)\)$'
+    $leftMatch = [regex]::Match($Left, $pattern)
+    $rightMatch = [regex]::Match($Right, $pattern)
+    if (-not $leftMatch.Success -or -not $rightMatch.Success) {
+        throw "Could not compare movement positions '$Left' and '$Right'."
+    }
+
+    $style = [Globalization.NumberStyles]::Float
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $leftX = [double]::Parse($leftMatch.Groups[1].Value, $style, $culture)
+    $leftY = [double]::Parse($leftMatch.Groups[2].Value, $style, $culture)
+    $rightX = [double]::Parse($rightMatch.Groups[1].Value, $style, $culture)
+    $rightY = [double]::Parse($rightMatch.Groups[2].Value, $style, $culture)
+    return [Math]::Sqrt([Math]::Pow($leftX - $rightX, 2) + [Math]::Pow($leftY - $rightY, 2))
+}
+
+function Wait-ForRemotePresentationChangeAfterUtc([string]$Role, [string]$PlayerId, [string]$BaselineErrorPixels, [DateTimeOffset]$AfterUtc, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
+    $baseline = [double]::Parse($BaselineErrorPixels, [Globalization.CultureInfo]::InvariantCulture)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne "netfox.reconciliation" -or $entry.Event -ne "presentation_sample") { continue }
+            if ($entry.Fields.role -ne $Role) { continue }
+            if ($entry.Fields.player_id -ne $PlayerId) { continue }
+            if ((Get-LogUtc $entry) -le $AfterUtc) { continue }
+            $error = [double]::Parse([string]$entry.Fields.presentation_error_pixels, [Globalization.CultureInfo]::InvariantCulture)
+            if ([Math]::Abs($error - $baseline) -gt 0.01) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for a changed remote presentation position after utc=$AfterUtc ($Role)."
+}
+
 function Copy-RunArtifacts {
     foreach ($path in Get-RunLogFiles) {
         $entries = @()
@@ -710,15 +781,32 @@ try {
         if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
         Complete-Stage "H_client_two_player_topology"
 
+        # ElapsedMilliseconds is process-local, so never use it to order host
+        # and VM events. Establish each manual checkpoint with UTC after the
+        # two-player topology is ready; otherwise an earlier host input can
+        # satisfy this stage before the client was present.
+        $hostCheckpointUtc = [DateTimeOffset]::UtcNow
+        $hostBaseline = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "host" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_position_baseline"
+        $hostRemotePresentationBaseline = Wait-ForLogFieldValueAfterUtc "netfox.reconciliation" "presentation_sample" "client" "player_id" "1" $hostCheckpointUtc $ScenarioTimeoutSeconds "replication" "host_remote_presentation_baseline"
         Write-Harness "manual gameplay ready: move the HOST marker with WASD for 15 seconds"
-        $hostInput = Wait-ForLogFieldValue "netfox.movement" "local_input_active" "" "active" "True" $ScenarioTimeoutSeconds "gameplay" "host_manual_input"
-        if ($hostInput.Fields.role -ne "host") { Set-Failure "gameplay" "host_manual_input" "First manual input was not generated by the host." }
-        [void](Wait-ForLogEventAfter "netfox.movement" "remote_player_moved" "client" ([long]$hostInput.ElapsedMilliseconds) $ScenarioTimeoutSeconds "replication" "host_movement_observed_by_client")
+        $hostInput = Wait-ForLogFieldValueAfterUtc "netfox.movement" "local_input_active" "host" "active" "True" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_manual_input"
+        $hostMovement = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "host" (Get-LogUtc $hostInput) $ScenarioTimeoutSeconds "gameplay" "host_position_changed"
+        if ((Get-VectorDistance ([string]$hostMovement.Fields.position) ([string]$hostBaseline.Fields.position)) -le 0.01) {
+            Set-Failure "gameplay" "host_position_changed" "Host input became active but its local simulated position did not change."
+        }
+        [void](Wait-ForRemotePresentationChangeAfterUtc "client" "1" ([string]$hostRemotePresentationBaseline.Fields.presentation_error_pixels) (Get-LogUtc $hostInput) $ScenarioTimeoutSeconds "replication" "host_movement_observed_by_client")
         Complete-Stage "I_host_input_and_client_remote_observation"
 
+        $clientCheckpointUtc = [DateTimeOffset]::UtcNow
+        $clientBaseline = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_position_baseline"
+        $clientRemotePresentationBaseline = Wait-ForLogFieldValueAfterUtc "netfox.reconciliation" "presentation_sample" "host" "player_id" "2" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_remote_presentation_baseline"
         Write-Harness "manual gameplay ready: move the CLIENT marker with WASD for 15 seconds"
-        $clientInput = Wait-ForLogFieldValueAfter "netfox.movement" "local_input_active" "client" "active" "True" ([long]$hostInput.ElapsedMilliseconds) $ScenarioTimeoutSeconds "gameplay" "client_manual_input"
-        [void](Wait-ForLogEventAfter "netfox.movement" "remote_player_moved" "host" ([long]$clientInput.ElapsedMilliseconds) $ScenarioTimeoutSeconds "replication" "client_movement_observed_by_host")
+        $clientInput = Wait-ForLogFieldValueAfterUtc "netfox.movement" "local_input_active" "client" "active" "True" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_manual_input"
+        $clientMovement = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "client" (Get-LogUtc $clientInput) $ScenarioTimeoutSeconds "gameplay" "client_position_changed"
+        if ((Get-VectorDistance ([string]$clientMovement.Fields.position) ([string]$clientBaseline.Fields.position)) -le 0.01) {
+            Set-Failure "gameplay" "client_position_changed" "Client input became active but its local simulated position did not change."
+        }
+        [void](Wait-ForRemotePresentationChangeAfterUtc "host" "2" ([string]$clientRemotePresentationBaseline.Fields.presentation_error_pixels) (Get-LogUtc $clientInput) $ScenarioTimeoutSeconds "replication" "client_movement_observed_by_host")
         Complete-Stage "J_client_input_and_host_remote_observation"
 
         [void](Wait-ForLogEvent "netfox.history_age" "sample" "host" $ScenarioTimeoutSeconds "netfox" "host_history_diagnostics")
