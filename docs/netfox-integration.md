@@ -98,9 +98,10 @@ WASD once per `NetworkTime.before_tick_loop`; `Simulation` advances only from
 that input in `_rollback_tick`; `RollbackSynchronizer` records
 `Input:movement` and `Simulation:simulated_position`; and `TickInterpolator`
 smooths that same state property for presentation. Player root and simulation
-remain server-owned, while only `Input` uses the owning peer's authority. After
-those authorities are set, the sandbox calls `process_settings()` on the
-rollback synchronizer as required by Netfox.
+remain server-owned, while only `Input` uses the owning peer's authority. The
+scene roots and authorities are established in the player's `_EnterTree()`
+before Netfox's child nodes perform their normal enter/ready initialization;
+the sandbox does not manually invoke `process_settings()`.
 
 This is a manual playground, not the former deterministic divergence/convergence
 acceptance scenario. Its small `netfox.movement` logs report player spawn and

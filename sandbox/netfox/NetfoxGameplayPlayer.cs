@@ -64,13 +64,29 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 
     public override void _EnterTree()
     {
+        // NetworkSpawnGroup binds NetworkObject before this host enters the
+        // scene tree. Configure the final authority topology before Netfox's
+        // child nodes perform their own enter/ready initialization.
+        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
+        Node input = GetNode<Node>("Input");
+        Node simulation = GetNode<Node>("Simulation");
+
         GetNode<Node>("RollbackSynchronizer").Set("root", this);
         GetNode<Node>("TickInterpolator").Set("root", this);
-    }
+        SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
+        simulation.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
+        input.SetMultiplayerAuthority((int)networkObject.OwnerPeerId.Value, recursive: false);
+        _configured = true;
 
-    public override void _Ready()
-    {
-        CallDeferred(nameof(ConfigureNetfoxAuthority));
+        GameLog.Info("netfox.movement", "player_configured", fields: new Dictionary<string, string?>
+        {
+            ["player_id"] = _playerId.ToString(),
+            ["network_object_id"] = networkObject.Id.ToString(),
+            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
+            ["root_multiplayer_authority"] = GetMultiplayerAuthority().ToString(),
+            ["simulation_multiplayer_authority"] = simulation.GetMultiplayerAuthority().ToString(),
+            ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString()
+        });
     }
 
     public override void _Process(double delta)
@@ -177,32 +193,6 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
 
         _simulationResultsByTick[tick] = position;
         TrimSimulationResultCache(tick);
-    }
-
-    private void ConfigureNetfoxAuthority()
-    {
-        NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
-        Node input = GetNode<Node>("Input");
-        Node simulation = GetNode<Node>("Simulation");
-        Node rollbackSynchronizer = GetNode<Node>("RollbackSynchronizer");
-        Node tickInterpolator = GetNode<Node>("TickInterpolator");
-
-        SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
-        simulation.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
-        input.SetMultiplayerAuthority((int)networkObject.OwnerPeerId.Value, recursive: false);
-        rollbackSynchronizer.Call("process_settings");
-        tickInterpolator.Call("process_settings");
-        _configured = true;
-
-        GameLog.Info("netfox.movement", "player_configured", fields: new Dictionary<string, string?>
-        {
-            ["player_id"] = _playerId.ToString(),
-            ["network_object_id"] = networkObject.Id.ToString(),
-            ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(),
-            ["root_multiplayer_authority"] = GetMultiplayerAuthority().ToString(),
-            ["simulation_multiplayer_authority"] = simulation.GetMultiplayerAuthority().ToString(),
-            ["input_multiplayer_authority"] = input.GetMultiplayerAuthority().ToString()
-        });
     }
 
     private void ReportReconciliationWindow()
