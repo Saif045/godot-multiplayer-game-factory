@@ -62,20 +62,12 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         simulation.Position = startPosition;
     }
 
-    public override void _EnterTree()
+    public override void _Ready()
     {
-        // NetworkSpawnGroup binds NetworkObject before this host enters the
-        // scene tree. Configure the final authority topology before Netfox's
-        // child nodes perform their own enter/ready initialization.
         NetworkObject networkObject = GetNode<NetworkObject>("NetworkObject");
         Node input = GetNode<Node>("Input");
         Node simulation = GetNode<Node>("Simulation");
 
-        GetNode<Node>("RollbackSynchronizer").Set("root", this);
-        GetNode<Node>("TickInterpolator").Set("root", this);
-        SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
-        simulation.SetMultiplayerAuthority((int)PeerId.Server.Value, recursive: false);
-        input.SetMultiplayerAuthority((int)networkObject.OwnerPeerId.Value, recursive: false);
         _configured = true;
 
         GameLog.Info("netfox.movement", "player_configured", fields: new Dictionary<string, string?>

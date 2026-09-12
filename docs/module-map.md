@@ -10,6 +10,7 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/peers/` | Transient `PeerId`, peer model, and local registry. | Implemented |
 | `factory/networking/players/` | Session-scoped player IDs, registry, and server-side lifecycle delegates. | Implemented |
 | `factory/networking/objects/` | Compositional network object host, authority, and replication components. | Implemented |
+| `factory/networking/netfox/` | Reusable Netfox rollback-player lifecycle, root, and split-authority composition glue. | Phase-1 integration |
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
 | `factory/steam/` | Process-lifetime Steam platform owner plus scene-local session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
 | `factory/diagnostics/` | Structured process logs, exported-build identity, replication confirmation, and distributed session evidence. | Implemented |

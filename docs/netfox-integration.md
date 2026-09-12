@@ -99,13 +99,27 @@ that input in `_rollback_tick`; `RollbackSynchronizer` records
 `Input:movement` and `Simulation:simulated_position`; and `TickInterpolator`
 smooths that same state property for presentation. Player root and simulation
 remain server-owned, while only `Input` uses the owning peer's authority. The
-scene roots and authorities are established in the player's `_EnterTree()`
-before Netfox's child nodes perform their normal enter/ready initialization;
-the sandbox does not manually invoke `process_settings()`.
+scene roots and authorities are established by the reusable
+`NetfoxRollbackPlayerComponent`, a direct `NetworkObject` child. It runs in
+`_EnterTree()` before the host's Netfox children perform their normal
+enter/ready initialization; the sandbox does not manually invoke
+`process_settings()`. The component owns only this split-authority/root glue;
+the prefab retains its explicit Netfox property lists and its sandbox-specific
+input, simulation, and presentation behavior.
 
 This is a manual playground, not the former deterministic divergence/convergence
 acceptance scenario. Its small `netfox.movement` logs report player spawn and
 configuration, input activation, and rate-limited local/remote movement.
+
+The component extraction smoke `netfox_component_20260912_195800` verified the
+split authority topology on both peers and visual bidirectional movement. The
+existing harness recorded a false-negative failure at
+`host_movement_observed_by_client`: it required one rate-limited
+`remote_player_moved` event within its observation window, although the client
+showed advancing host-player state history, a changing presentation, and later
+emitted that remote movement event. That acceptance predicate is tracked as a
+separate harness concern; it is not evidence that the component failed to
+replicate movement.
 
 When investigating a two-account run, each player additionally writes one
 `netfox.history_age/sample` and one `netfox.transport_cadence/sample` event per

@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://cnetfoxgameplayp"]
+[gd_scene load_steps=8 format=3 uid="uid://cnetfoxgameplayp"]
 
 [ext_resource type="Script" path="res://sandbox/netfox/NetfoxGameplayPlayer.cs" id="1_player"]
 [ext_resource type="PackedScene" path="res://factory/networking/objects/network_object.tscn" id="2_network_object"]
@@ -7,12 +7,16 @@
 [ext_resource type="Script" path="res://addons/netfox/rollback/rollback-synchronizer.gd" id="5_rollback"]
 [ext_resource type="Script" path="res://sandbox/netfox/netfox_player_presentation.gd" id="6_presentation"]
 [ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="7_interpolator"]
+[ext_resource type="Script" path="res://factory/networking/netfox/NetfoxRollbackPlayerComponent.cs" id="8_rollback_player"]
 
 [node name="NetfoxGameplayPlayer" type="Node2D" groups=["netfox_gameplay_player"]]
 script = ExtResource("1_player")
 
 [node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
 SpawnGroup = 1
+
+[node name="NetfoxRollbackPlayerComponent" type="Node" parent="NetworkObject"]
+script = ExtResource("8_rollback_player")
 
 [node name="Input" type="Node" parent="."]
 script = ExtResource("3_input")
