@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using GameFactory.Diagnostics;
+using GameFactory.Gameplay.Carry;
 using GameFactory.Gameplay.Interaction;
 using GameFactory.Networking.Netfox.Player3D;
 using GameFactory.Networking.Objects;
@@ -37,6 +38,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
 
     [Export] public PackedScene PlayerScene { get; set; } = null!;
     [Export] public PackedScene SwitchScene { get; set; } = null!;
+    [Export] public PackedScene CarryableScene { get; set; } = null!;
 
     public override async void _Ready()
     {
@@ -106,6 +108,19 @@ public partial class NetfoxPlayer3DProbe : Node3D
             ["network_object_id"] = interactableSwitch
                 .GetNode<NetworkObject>("NetworkObject")
                 .Id.ToString()
+        });
+        CarryableItem carryableItem = _world.Spawn<CarryableItem>(
+            CarryableScene,
+            PeerId.Server,
+            new Godot.Collections.Dictionary
+            {
+                ["spawn_transform"] = new Transform3D(
+                    Basis.Identity,
+                    new Vector3(0, 0.35f, 1.5f))
+            });
+        Log("carryable_spawned", new Dictionary<string, string?>
+        {
+            ["network_object_id"] = carryableItem.GetNetworkObject().Id.ToString()
         });
         LogPeerStatus("initial");
         Log("host_ready", new Dictionary<string, string?> { ["lobby_id"] = lobby.Id.ToString() });

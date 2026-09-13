@@ -998,6 +998,38 @@ try {
         $clientState = Wait-ForLogFieldValueAfterUtc "interaction.switch" "state_changed" "host" "is_on" "False" (Get-LogUtc $clientRequest) $ScenarioTimeoutSeconds "replication" "client_interaction_server_state"
         [void](Wait-ForLogFieldValueAfterUtc "interaction.switch" "visual_applied" "client" "is_on" "False" (Get-LogUtc $clientState) $ScenarioTimeoutSeconds "replication" "client_interaction_visible_on_client")
         Complete-Stage "L_client_interaction_server_authority_and_client_replication"
+
+        # Carry is discrete server state, not rollback state: E uses the same
+        # validated interaction request path, Q sends only a drop request, and
+        # peers derive the held visual from the replicated holder ID.
+        $hostCarryPickupUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual carry ready: move the HOST to the green cube near the center, then press E once"
+        $hostCarryPickup = Wait-ForLogEventAfterUtc "carry" "picked_up" "host" $hostCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_pickup"
+        [void](Wait-ForLogEventAfterUtc "carry" "state_applied" "client" (Get-LogUtc $hostCarryPickup) $ScenarioTimeoutSeconds "replication" "host_carry_visible_on_client")
+        $hostCarryMoveUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual carry ready: move the HOST while carrying the green cube for 15 seconds"
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "host" $hostCarryMoveUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_movement")
+        [void](Wait-ForLogEventAfterUtc "carry" "follow_observed" "client" $hostCarryMoveUtc $ScenarioTimeoutSeconds "replication" "host_carry_follow_visible_on_client")
+        $hostDropUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual carry ready: press Q on the HOST to drop the green cube"
+        $hostDrop = Wait-ForLogEventAfterUtc "carry" "dropped" "host" $hostDropUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_drop"
+        [void](Wait-ForLogFieldValueAfterUtc "carry" "state_applied" "client" "holder_network_object_id" "0" (Get-LogUtc $hostDrop) $ScenarioTimeoutSeconds "replication" "host_drop_visible_on_client")
+        Complete-Stage "M_host_carry_pickup_follow_and_drop"
+
+        $clientCarryPickupUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual carry ready: move the CLIENT to the green cube near the center, then press E once"
+        $clientCarryRequest = Wait-ForLogEventAfterUtc "interaction" "requested" "client" $clientCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup_request"
+        $clientCarryPickup = Wait-ForLogEventAfterUtc "carry" "picked_up" "host" (Get-LogUtc $clientCarryRequest) $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup"
+        [void](Wait-ForLogEventAfterUtc "carry" "state_applied" "client" (Get-LogUtc $clientCarryPickup) $ScenarioTimeoutSeconds "replication" "client_carry_visible_on_client")
+        $clientCarryMoveUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual carry ready: move the CLIENT while carrying the green cube for 15 seconds"
+        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "client" $clientCarryMoveUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_movement")
+        [void](Wait-ForLogEventAfterUtc "carry" "follow_observed" "host" $clientCarryMoveUtc $ScenarioTimeoutSeconds "replication" "client_carry_follow_visible_on_host")
+        $clientDropUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual carry ready: press Q on the CLIENT to drop the green cube"
+        $clientDrop = Wait-ForLogEventAfterUtc "carry" "dropped" "host" $clientDropUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_drop"
+        [void](Wait-ForLogFieldValueAfterUtc "carry" "state_applied" "client" "holder_network_object_id" "0" (Get-LogUtc $clientDrop) $ScenarioTimeoutSeconds "replication" "client_drop_visible_on_client")
+        Complete-Stage "N_client_carry_pickup_follow_and_drop"
     }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 

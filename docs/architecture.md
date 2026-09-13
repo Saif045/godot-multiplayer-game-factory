@@ -40,13 +40,14 @@ Gameplay code is not coupled to GodotSteam. `ISteamAdapter` and `GodotSteamAdapt
 clients send a target `NetworkObjectId`, while the server resolves it through
 `NetworkWorld` and validates sender ownership, target, and server-side range.
 The sample switch's ordinary replicated state intentionally stays outside
-Netfox rollback. This slice is **implemented** and **locally validated**, but
-its runtime acceptance is currently **blocked/failed at startup**:
-`interactable_switch.tscn` has no valid resource UID, so `NetworkWorld`
-correctly rejects the spawn before the client launches. This is an asset
-identity issue, not evidence against the interaction ownership/networking
-design; the slice is not runtime-proven until a corrected-scene acceptance run
-passes.
+Netfox rollback and is acceptance-proven on the two-account path.
+
+`factory/gameplay/carry/` adds one server-owned carryable item without an
+inventory or authority transfer. Interaction still supplies only a target
+`NetworkObjectId`; the server records a holder object ID or computes a world
+drop transform. Every peer derives a held visual from the holder's
+presentation `CarryAnchor`, while world transform replication is limited to
+spawn and drop state.
 
 ## Evidence and direction
 

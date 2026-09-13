@@ -18,6 +18,14 @@ replacement for architecture or protocol documentation.
   replicated switch visible to the other peer. Deterministic per-owner player
   colors remain presentation-only.
 
+## Implemented, pending runtime acceptance
+
+- Server-authoritative pickup/carry/drop composes the interaction request path
+  with one permanent server-owned carryable item. Held state is a replicated
+  holder `NetworkObjectId`; each peer resolves its presentation `CarryAnchor`.
+  The server computes world drop transforms and no carry state enters Netfox
+  rollback. Its first two-account acceptance run remains pending.
+
 ## Latest runtime evidence
 
 The fresh two-account acceptance run on `e8baba1` passed transport/lifecycle,

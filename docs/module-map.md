@@ -14,7 +14,8 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
 | `factory/steam/` | Process-lifetime Steam platform owner plus scene-local session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
 | `factory/diagnostics/` | Structured process logs, exported-build identity, replication confirmation, and distributed session evidence. | Implemented |
-| `factory/gameplay/interaction/` | Narrow server-authoritative player interaction request/validation contract and replicated sample switch. | Implemented / locally validated; runtime acceptance blocked by the switch scene resource UID |
+| `factory/gameplay/interaction/` | Narrow server-authoritative player interaction request/validation contract and replicated sample switch. | Implemented / acceptance-proven |
+| `factory/gameplay/carry/` | Server-owned carryable world item and per-player one-item carrier/drop request boundary. | Implemented / pending runtime acceptance |
 | `factory/shell/` | Minimal C# bootstrap/host/leave flow plus project-owned Maaack options composition around the retained Steam gameplay probe. | Implemented shell slice |
 | `addons/maaacks_game_template/` | Vendored Maaack Game Template: local menus, settings, remapping, loading, audio, and optional local game helpers. | Implemented dependency |
 | `addons/plugin_updater/` | Vendored Maaack Plugin Updater required by the full template's GDScript classes. | Implemented dependency |

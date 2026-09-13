@@ -1,9 +1,10 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://sandbox/netfox/NetfoxPlayer3DProbe.cs" id="1_probe"]
 [ext_resource type="PackedScene" path="res://factory/networking/world/network_world.tscn" id="2_world"]
 [ext_resource type="PackedScene" path="res://factory/networking/netfox/player_3d/network_player_3d.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://factory/gameplay/interaction/interactable_switch.tscn" id="4_switch"]
+[ext_resource type="PackedScene" path="res://factory/gameplay/carry/carryable_item.tscn" id="5_carryable"]
 
 [sub_resource type="Environment" id="Environment_3d"]
 background_mode = 1
@@ -22,6 +23,7 @@ size = Vector3(30, 0.2, 30)
 script = ExtResource("1_probe")
 PlayerScene = ExtResource("3_player")
 SwitchScene = ExtResource("4_switch")
+CarryableScene = ExtResource("5_carryable")
 
 [node name="NetworkWorld" parent="." instance=ExtResource("2_world")]
 
