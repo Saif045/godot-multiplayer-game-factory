@@ -22,12 +22,15 @@ param(
     [ValidateRange(30, 1800)]
     [int]$BuildStageTimeoutSeconds = 300,
     [switch]$SkipExport,
+    [switch]$ForceExport,
     [switch]$SkipBuildParity,
+    [switch]$ForceFullVmParity,
     [string]$ExpectedManifestSha256,
     [string]$RunId,
     [string]$ArtifactRoot,
     [switch]$VerifyBuildOnly,
-    [switch]$KeepProcesses
+    [switch]$KeepProcesses,
+    [switch]$ShowHostConsole
 )
 
 Set-StrictMode -Version Latest
@@ -62,8 +65,6 @@ $runtimeDirectory = Join-Path $PSScriptRoot ".runtime"
 $localConfigPath = Join-Path $runtimeDirectory "client_config.json"
 $localStatusPath = Join-Path $runtimeDirectory "client_status.json"
 $localRunnerPath = Join-Path $PSScriptRoot "vm\run_client.ps1"
-$localHashUtilsPath = Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1"
-$vmHashUtilsPath = "C:/GameFactoryAgent/hash_utils.ps1"
 $hostOutputDirectory = Join-Path $artifactDirectory "host"
 $clientOutputDirectory = Join-Path $artifactDirectory "client"
 $sessionOutputDirectory = Join-Path $artifactDirectory "session"
@@ -74,6 +75,7 @@ $lastVmLogSyncUtc = [DateTimeOffset]::MinValue
 $vmLiveLogPath = $null
 $resultPath = Join-Path $artifactDirectory "result.json"
 $hostProcess = $null
+$hostLogTailProcess = $null
 $vmCleanupSucceeded = $false
 $netfoxShutdownExpected = $false
 $buildHelperTimeoutSeconds = 210
@@ -272,6 +274,106 @@ function Get-VmReleaseExecutable([string]$ManifestHash) {
     return (($VmBuildRoot.TrimEnd('/', '\') + "/releases/$ManifestHash/GameFactory.exe"))
 }
 
+function Test-CurrentExportReusable {
+    $manifestPath = Join-Path $outputDirectory "build_manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $hostExecutable)) { return $false }
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $headCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
+        if ($LASTEXITCODE -ne 0 -or [string]$manifest.git_commit -ne $headCommit) { return $false }
+        $dirty = & git -C $repoRoot status --porcelain --untracked-files=all
+        if ($LASTEXITCODE -ne 0 -or -not [string]::IsNullOrWhiteSpace(($dirty -join [Environment]::NewLine))) { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Get-VmReleaseCacheState([string]$ManifestHash) {
+    if ($ManifestHash -notmatch '^[a-f0-9]{64}$') { throw "Manifest hash must be a lowercase SHA-256 value." }
+
+    $vmRoot = $VmBuildRoot.TrimEnd('/', '\') -replace '/', '\'
+    $releaseDirectory = "$vmRoot\releases\$ManifestHash"
+    $remoteScript = @"
+`$executable = Join-Path '$releaseDirectory' 'GameFactory.exe'
+`$manifestPath = Join-Path '$releaseDirectory' 'build_manifest.json'
+if (-not (Test-Path -LiteralPath `$executable) -or -not (Test-Path -LiteralPath `$manifestPath)) {
+    [Console]::Out.Write('miss')
+    exit 0
+}
+`$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath `$manifestPath).Hash.ToLowerInvariant()
+if (`$actual -ne '$ManifestHash') {
+    [Console]::Out.Write('mismatch')
+    exit 0
+}
+`$markerPath = Join-Path '$vmRoot\parity' '$ManifestHash.json'
+if (Test-Path -LiteralPath `$markerPath) {
+    try {
+        `$marker = Get-Content -LiteralPath `$markerPath -Raw | ConvertFrom-Json
+        `$buildId = [string](Get-Content -LiteralPath `$manifestPath -Raw | ConvertFrom-Json).build_id
+        if ([string]`$marker.manifest_sha256 -eq '$ManifestHash' -and [string]`$marker.build_id -eq `$buildId) {
+            [Console]::Out.Write('verified_hit')
+            exit 0
+        }
+    }
+    catch { }
+}
+[Console]::Out.Write('hit')
+exit 0
+"@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $externalCommandTimeoutSeconds "VM cached-release check" -SuppressOutput
+    if ($invocation.ExitCode -ne 0) {
+        Set-Blocked "vm_control" "build_cache_check" "Could not inspect the VM release cache; SSH exited with code $($invocation.ExitCode)."
+    }
+    return $invocation.StandardOutput.Trim()
+}
+
+function Invoke-VmBuildParity([string]$ManifestHash, [string]$ExpectedBuildId, [bool]$FullFileHashVerification) {
+    $vmRoot = $VmBuildRoot.TrimEnd('/', '\') -replace '/', '\'
+    $releaseDirectory = "$vmRoot\releases\$ManifestHash"
+    $fullVerificationLiteral = if ($FullFileHashVerification) { '$true' } else { '$false' }
+    $remoteScript = @"
+`$ErrorActionPreference = 'Stop'
+`$timer = [Diagnostics.Stopwatch]::StartNew()
+`$exportDirectory = '$releaseDirectory'
+`$manifestPath = Join-Path `$exportDirectory 'build_manifest.json'
+`$executable = Join-Path `$exportDirectory 'GameFactory.exe'
+if (-not (Test-Path -LiteralPath `$manifestPath) -or -not (Test-Path -LiteralPath `$executable)) { throw 'Cached release is missing its manifest or executable.' }
+`$manifest = Get-Content -LiteralPath `$manifestPath -Raw | ConvertFrom-Json
+`$manifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath `$manifestPath).Hash.ToLowerInvariant()
+if (`$manifestHash -ne '$ManifestHash') { throw "Manifest hash mismatch. Expected '$ManifestHash', observed '`$manifestHash'." }
+if ([string]`$manifest.build_id -ne '$ExpectedBuildId') { throw "Build ID mismatch. Expected '$ExpectedBuildId', observed '`$(`$manifest.build_id)'." }
+`$fullFileHashVerification = $fullVerificationLiteral
+foreach (`$file in `$manifest.files) {
+    `$relativePath = ([string]`$file.path).Replace('/', '\')
+    `$path = Join-Path `$exportDirectory `$relativePath
+    if (-not (Test-Path -LiteralPath `$path)) { throw "Manifest file is missing: `$relativePath" }
+    if ((Get-Item -LiteralPath `$path).Length -ne [long]`$file.size) { throw "Manifest size mismatch: `$relativePath" }
+    if (`$fullFileHashVerification) {
+        `$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath `$path).Hash.ToLowerInvariant()
+        if (`$hash -ne [string]`$file.sha256) { throw "Manifest hash mismatch: `$relativePath" }
+    }
+}
+if (`$fullFileHashVerification) {
+    `$parityDirectory = Join-Path '$vmRoot' 'parity'
+    New-Item -ItemType Directory -Force -Path `$parityDirectory | Out-Null
+    `$markerPath = Join-Path `$parityDirectory '$ManifestHash.json'
+    `$temporaryMarkerPath = "`$markerPath.tmp"
+    [ordered]@{ schema_version = 1; build_id = [string]`$manifest.build_id; manifest_sha256 = `$manifestHash; file_count = [int]`$manifest.file_count; verified_utc = [DateTimeOffset]::UtcNow.ToString('O') } | ConvertTo-Json | Set-Content -LiteralPath `$temporaryMarkerPath -Encoding utf8
+    Move-Item -LiteralPath `$temporaryMarkerPath -Destination `$markerPath -Force
+}
+[ordered]@{ result = 'passed'; stage = 'build_parity'; build_id = [string]`$manifest.build_id; manifest_sha256 = `$manifestHash; file_count = [int]`$manifest.file_count; parity_mode = if (`$fullFileHashVerification) { 'full' } else { 'cached' }; parity_verification_ms = `$timer.ElapsedMilliseconds } | ConvertTo-Json -Compress
+"@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $BuildStageTimeoutSeconds "VM build parity verification" -SuppressOutput
+    if ($invocation.ExitCode -ne 0) {
+        $detail = ($invocation.StandardError, $invocation.StandardOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
+        Set-Failure "build" "build_parity" "VM build parity verification failed: $detail"
+    }
+    try { return ($invocation.StandardOutput | ConvertFrom-Json) }
+    catch { Set-Failure "build" "build_parity" "VM build parity verification returned invalid JSON: $($invocation.StandardOutput)" }
+}
+
 function Stage-VmBuild([string]$ManifestHash) {
     if ($ManifestHash -notmatch '^[a-f0-9]{64}$') { Set-Failure "build" "stage_preflight" "Manifest hash must be a lowercase SHA-256 value." }
 
@@ -330,6 +432,10 @@ function Stop-TestProcesses {
     }
 
     Stop-VmClientBestEffort
+    if ($null -ne $script:hostLogTailProcess -and -not $script:hostLogTailProcess.HasExited) {
+        Stop-Process -Id $script:hostLogTailProcess.Id -Force -ErrorAction SilentlyContinue
+        Wait-Process -Id $script:hostLogTailProcess.Id -Timeout 5 -ErrorAction SilentlyContinue
+    }
     $localStopped = @(Get-Process -Name GameFactory -ErrorAction SilentlyContinue).Count -eq 0
     $script:result.cleanup_verified = $localStopped -and $script:vmCleanupSucceeded
 }
@@ -617,9 +723,12 @@ try {
     $cleanupToHost = [System.Diagnostics.Stopwatch]::StartNew()
 
     $result.stage = "build"
-    if (-not $SkipExport) {
+    $reuseExistingExport = $SkipExport -or ((-not $ForceExport) -and (Test-CurrentExportReusable))
+    if (-not $reuseExistingExport) {
         Write-Harness "exporting current build"
+        $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
         $buildInvocation = Invoke-BuildTestClientIsolated -BuildScript (Join-Path $repoRoot "tools\build_test_client.ps1") -Godot $Godot -OutputDirectory $outputDirectory -TimeoutSeconds $buildHelperTimeoutSeconds
+        $result.timings_ms["export"] = $exportTimer.ElapsedMilliseconds
         Set-Content -LiteralPath (Join-Path $artifactDirectory "build_helper.stdout.log") -Value $buildInvocation.StandardOutput -Encoding utf8
         Set-Content -LiteralPath (Join-Path $artifactDirectory "build_helper.stderr.log") -Value $buildInvocation.StandardError -Encoding utf8
         if ($buildInvocation.TimedOut) { Set-Failure "build" "export" "Build helper process $($buildInvocation.ProcessId) timed out after $buildHelperTimeoutSeconds seconds." }
@@ -627,6 +736,11 @@ try {
             $detail = ($buildInvocation.StandardError, $buildInvocation.StandardOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
             Set-Failure "build" "export" "Build helper process $($buildInvocation.ProcessId) exited with code $($buildInvocation.ExitCode): $detail"
         }
+        $result.build_mapping["host_export"] = "fresh"
+    }
+    else {
+        $result.build_mapping["host_export"] = if ($SkipExport) { "explicit_reuse" } else { "automatic_reuse" }
+        Write-Harness "reusing existing host export ($($result.build_mapping["host_export"]))"
     }
     if (-not (Test-Path $hostExecutable)) { Set-Failure "build" "output" "Host executable was not found at $hostExecutable." }
 
@@ -655,17 +769,32 @@ try {
         Complete-Stage "build_parity_reused"
     }
     else {
-        $vmExecutable = Stage-VmBuild $manifestHash
-        $runnerCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
-        if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
-        $hashUtilsCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localHashUtilsPath, "${VmAlias}:$vmHashUtilsPath")) $externalCommandTimeoutSeconds "VM hash utility installation"
-        if ($hashUtilsCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "hash_utility_install" "Could not install the VM hash utility; SCP exited with $($hashUtilsCopy.ExitCode)." }
-        Write-ClientConfig "verify_only" @() $manifest $manifestHash $vmExecutable
-        $parityStatus = Invoke-VmRunner "build_parity" $HostTimeoutSeconds
+        $stageTimer = [System.Diagnostics.Stopwatch]::StartNew()
+        $cacheState = Get-VmReleaseCacheState $manifestHash
+        if ($cacheState -eq "verified_hit") {
+            Write-Harness "VM immutable release cache verified hit; skipping archive staging and full file hashes"
+            $result.build_mapping["vm_release_cache"] = "verified_hit"
+        }
+        elseif ($cacheState -eq "hit") {
+            Write-Harness "VM immutable release cache hit; skipping archive staging"
+            $result.build_mapping["vm_release_cache"] = "hit"
+        }
+        elseif ($cacheState -eq "miss" -or $cacheState -eq "mismatch") {
+            Write-Harness "VM immutable release cache $cacheState; staging build"
+            $vmExecutable = Stage-VmBuild $manifestHash
+            $result.build_mapping["vm_release_cache"] = $cacheState
+        }
+        else {
+            Set-Failure "vm_control" "build_cache_check" "VM cached-release check returned unexpected state '$cacheState'."
+        }
+        $fullParity = $cacheState -ne "verified_hit" -or $ForceFullVmParity
+        $parityStatus = Invoke-VmBuildParity $manifestHash ([string]$manifest.build_id) $fullParity
         if ([string]$parityStatus.build_id -ne [string]$manifest.build_id -or [string]$parityStatus.manifest_sha256 -ne $manifestHash) {
             Set-Failure "build" "build_parity" "The VM parity result did not match the host manifest."
         }
+        $parityStatus | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $localStatusPath -Encoding utf8
         Copy-Item -LiteralPath $localStatusPath -Destination (Join-Path $artifactDirectory "vm_build_parity.json") -Force
+        $result.timings_ms["vm_stage_and_parity"] = $stageTimer.ElapsedMilliseconds
         $result.timings_ms["vm_parity_verification"] = [long]$parityStatus.parity_verification_ms
         Complete-Stage "build_parity"
     }
@@ -687,17 +816,25 @@ try {
     $result.stage = "host_launch"
     $hostConsolePath = Join-Path $hostOutputDirectory "console.log"
     $hostErrorPath = Join-Path $hostOutputDirectory "console.error.log"
+    New-Item -ItemType File -Path $hostConsolePath -Force | Out-Null
     $hostArguments = @(
         "--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath,
         "--run=$runTarget", "--steam-host",
         "--test-scenario=$Scenario", "--test-run-id=$runId"
     )
     Write-Harness "launching host"
+    $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
     $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList $hostArguments -WorkingDirectory $outputDirectory -PassThru -RedirectStandardOutput $hostConsolePath -RedirectStandardError $hostErrorPath
+    if ($ShowHostConsole) {
+        $quotedLogPath = $hostConsolePath.Replace("'", "''")
+        $hostLogTailProcess = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-NoExit", "-Command", "Get-Content -LiteralPath '$quotedLogPath' -Wait") -PassThru
+        Write-Harness "host console log viewer started (process $($hostLogTailProcess.Id))"
+    }
     $result.timings_ms["cleanup_to_host_launch"] = $cleanupToHost.ElapsedMilliseconds
 
     $result.stage = "lobby_creation"
     [void](Wait-ForLogEvent "steam.lifecycle" "lobby_created" "host" $HostTimeoutSeconds "steam" "lobby_creation")
+    $result.timings_ms["host_launch_to_lobby_created"] = $hostLobbyTimer.ElapsedMilliseconds
     Complete-Stage "A_lobby_creation"
     $hostReady = Wait-ForLogEvent $scenarioCategory "host_ready" "host" $HostTimeoutSeconds "steam" "host_lobby"
     $lobbyId = [string]$hostReady.Fields.lobby_id
@@ -706,6 +843,12 @@ try {
     Write-Harness "discovered lobby $lobbyId from structured host diagnostics"
 
     $result.stage = "client_config"
+    # The scheduled task is reserved for the graphical client process. Install
+    # its small runner dependencies here, after build parity is complete.
+    $runnerCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
+    if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
+    $hashUtilsCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @((Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1"), "${VmAlias}:C:/GameFactoryAgent/hash_utils.ps1")) $externalCommandTimeoutSeconds "VM hash utility installation"
+    if ($hashUtilsCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "hash_utility_install" "Could not install the VM hash utility; SCP exited with $($hashUtilsCopy.ExitCode)." }
     # The GPU-P guest now has the host AMD OpenGL ICD, so keep the participant
     # windowed. This is both the real player path and makes each A/B attempt
     # directly observable in the Hyper-V console.

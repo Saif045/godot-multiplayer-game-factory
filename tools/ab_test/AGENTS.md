@@ -21,3 +21,16 @@ participants, verify cleanup, and report the deepest completed checkpoint.
 evidence. Classify failures bottom-up: export/dependencies, Steam lobby, native
 peer, Godot connection, GameFactory lifecycle, Netfox, then gameplay. A harness
 assertion can be observability-only; inspect its supporting structured events.
+
+For manual A/B observation, use `-ShowHostConsole` to open a local terminal
+that tails the artifact-owned host console log. The harness has three paths:
+
+- unchanged clean checkout with matching export + verified VM marker: automatic
+  fast reuse (clean, cheap identity/parity check, then launch);
+- new manifest: export, stage, full SSH file-hash verification once, then
+  launch through the interactive task;
+- hardening: use `-ForceExport` and/or `-ForceFullVmParity` deliberately.
+
+The parity marker is external metadata under `C:\GameFactoryBuilds\parity`,
+not a modification of an immutable release. Verification runs through SSH; the
+interactive scheduled task is reserved for the graphical Steam/Godot client.
