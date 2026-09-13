@@ -2,9 +2,11 @@
 
 ## Role
 
-During an acceptance test, the agent executes a predefined experiment. The test
-plan is authoritative: do not reinterpret, expand, redesign, or repair it
-while it is running.
+For an interactive gameplay session, the harness is only operational
+infrastructure. The operator plays freely and reports what was visible; the
+agent reviews the preserved structured logs after cleanup. Feature acceptance
+requires those two sources to agree. The harness does not decide whether a
+gameplay feature passed.
 
 This protocol applies to runtime, multiplayer, VM, Steam, Netfox, benchmark,
 and other integration or acceptance attempts. It complements the lifecycle in
@@ -12,7 +14,7 @@ and other integration or acceptance attempts. It complements the lifecycle in
 
 ## Running the Hyper-V A/B harness
 
-From the repository root in PowerShell, run the 3D player acceptance scenario
+From the repository root in PowerShell, run the 3D player manual-test session
 with host logs visible:
 
 ```powershell
@@ -24,49 +26,49 @@ with host logs visible:
 
 Replace the run ID with a unique timestamp-like label. The harness exports the
 current immutable build when needed, verifies host/guest manifest parity, then
-launches the host and the VM client. It writes the terminal result to:
+launches the host and the VM client. It captures both structured logs and
+writes the infrastructure result to:
 
 ```text
 artifacts/ab_tests/<RunId>/result.json
 ```
 
-Use the normal command above for a retry of the *same* committed build. The
-VM release cache automatically reuses a verified matching manifest; do not add
-`-SkipExport` or force flags simply to make a run faster. A source/configuration
-change requires a new frozen attempt and normally produces a new export.
+The VM release cache automatically reuses a verified matching runtime artifact.
+Documentation and A/B-harness-only commits do not invalidate an existing export;
+runtime-input changes do. Do not add `-SkipExport` or force flags simply to make
+a run faster.
 
-For `netfox_player_3d`, act only after each printed `manual ... ready` prompt:
+For `netfox_player_3d`, the harness is infrastructure-only. It verifies startup
+through the two-player topology, then does not assert, sequence, or judge
+gameplay events. Use the game freely while it remains open:
 
-1. On the host game window, move with WASD and jump with Space until host
-   movement and jump are observed remotely.
-2. Focus the VM game window, then move with WASD and jump with Space until
-   client-local movement and jump are observed remotely. Focus matters: VM
-   console or PowerShell focus does not provide game input.
-3. Complete the existing switch prompts: approach the center switch and press
-   E once on the prompted participant.
-4. Complete carry M only as the harness separately prompts: do not press E or
-   Q before the M0 prompt; move the host to the green cube and press E once;
-   wait for the pickup confirmation; move with WASD; wait for the follow
-   confirmation; then press Q once when prompted.
-5. Complete carry N only as the harness separately prompts: focus the VM game
-   window before every input; do not press E or Q before N0; move the client
-   to the green cube and press E once; wait for pickup; move with WASD; wait
-   for follow; then press Q once when prompted.
+1. Confirm both players can see each other; move and jump on both machines.
+2. Toggle the switch from each machine.
+3. Have host and client each pick up the green cube, move/jump with it, and
+   drop it; repeat or vary interactions naturally if useful.
+4. Report visual behavior to the agent. The agent evaluates the preserved
+   structured timeline for authority, replication, holder state, follow, drop,
+   errors, and cleanup.
 
-Do not perform inputs early or alter Steam, VM, settings, source, timeout, or
-harness options after the attempt has started. Let the harness own teardown and
-use `result.json`, host console logs, and client logs as the acceptance evidence.
+When play is complete, the agent creates the completion marker printed by the
+harness (by default `operator_finished.complete` in that run's artifact folder).
+The harness then collects logs and cleans both participants. Feature acceptance
+comes from visual confirmation plus the agent's post-run log review, not from
+the harness result alone.
+
+The harness preserves evidence and infrastructure health only; feature
+acceptance is always the operator's visual report plus post-run log review.
 
 ## Frozen-attempt rule
 
-Once an attempt starts, the following are frozen:
+Once an attempt starts, the following infrastructure inputs are frozen:
 
 - source code;
 - tested build;
 - runtime configuration;
 - test scenario;
-- assertions; and
-- timeout and retry policy.
+- build/reuse policy; and
+- process/cleanup policy.
 
 Changing a frozen item ends the validity of that attempt. Finish it, capture
 evidence, clean up, and report its terminal result before any separate task
@@ -74,21 +76,22 @@ changes the system.
 
 ## Terminal states
 
-Every attempt ends as exactly one of:
+Every harness session ends as exactly one of:
 
-- **PASS:** all required assertions succeeded.
-- **FAIL:** the scenario began and a required assertion failed, a terminal
-  runtime error occurred, or a required condition timed out.
+- **PASS:** the infrastructure session started, was ended by the operator, and
+  cleanup/log preservation completed. This is not feature acceptance.
+- **FAIL:** infrastructure failed after launch, such as a terminal runtime
+  error or failed cleanup.
 - **BLOCKED:** the intended scenario could not begin because an external
   prerequisite was unavailable, such as a VM, SSH, Steam, required build, or
   build parity.
 
 ## Mandatory stop behavior
 
-At the first terminal condition:
+At an infrastructure terminal condition:
 
 1. Stop advancing the scenario.
-2. Record the failed checkpoint and deepest successful checkpoint.
+2. Record the failing infrastructure boundary, if any.
 3. Capture immediately relevant evidence.
 4. Tear down all test-owned processes.
 5. Verify cleanup.
@@ -125,7 +128,6 @@ continue-or-stop policy are specified before the suite starts.
 | Steam initialization fails after scenario launch | `FAIL / steam` | Capture the exact error, clean up, report, stop. |
 | Lobby creation or join fails | `FAIL / steam` | Capture structured and native evidence, clean up, report, stop. |
 | Peer is created but Godot never connects | `FAIL / godot_multiplayer` or the deepest evidenced lower layer | Capture peer-state and native evidence, clean up, report, stop. |
-| Netfox assertion fails after Godot connects | `FAIL / netfox` | Capture Netfox and transport evidence, clean up, report, stop. |
 | Unexpected runtime exception | `FAIL` at the deepest evidenced layer | Capture exception and logs, clean up, report, stop. |
 
 Use `unknown` when evidence cannot support a narrower owner. Do not change a
@@ -152,16 +154,15 @@ result.
 
 ## Required report
 
-Report exactly these minimum fields:
+For an infrastructure session, report these minimum fields:
 
 ```text
 Test:
 Run or attempt ID:
 Result: PASS | FAIL | BLOCKED
-Assertions:
-Deepest successful checkpoint:
-Failed checkpoint:
-Failure layer:
+Infrastructure boundary:
+Operator visual report:
+Post-run log review:
 Relevant evidence:
 Cleanup result:
 Artifact or log location:

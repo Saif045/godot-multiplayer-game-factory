@@ -30,7 +30,8 @@ param(
     [string]$ArtifactRoot,
     [switch]$VerifyBuildOnly,
     [switch]$KeepProcesses,
-    [switch]$ShowHostConsole
+    [switch]$ShowHostConsole,
+    [string]$OperatorCompletionFile
 )
 
 Set-StrictMode -Version Latest
@@ -74,6 +75,12 @@ $clientLiveLogPath = Join-Path $clientOutputDirectory "game.jsonl"
 $lastVmLogSyncUtc = [DateTimeOffset]::MinValue
 $vmLiveLogPath = $null
 $resultPath = Join-Path $artifactDirectory "result.json"
+$operatorCompletionPath = if ([string]::IsNullOrWhiteSpace($OperatorCompletionFile)) {
+    Join-Path $artifactDirectory "operator_finished.complete"
+}
+else {
+    [System.IO.Path]::GetFullPath($OperatorCompletionFile)
+}
 $hostProcess = $null
 $hostLogTailProcess = $null
 $vmCleanupSucceeded = $false
@@ -83,6 +90,7 @@ $result = [ordered]@{
     result = "failed"
     test_run_id = $runId
     scenario = $Scenario
+    mode = "infrastructure_only"
     layer = "harness"
     stage = "initializing"
     reason = $null
@@ -128,6 +136,16 @@ function Complete-Stage([string]$Stage) {
     $script:result.deepest_completed_stage = $Stage
     $script:result.completed_stages += $Stage
     Write-Harness "stage complete: $Stage"
+}
+
+function Wait-ForOperatorCompletion {
+    Write-Harness "both players are ready; harness is recording logs and will not evaluate gameplay events"
+    Write-Harness "agent completes the run by creating: $operatorCompletionPath"
+    while ($true) {
+        Assert-NoTerminalStartupFailure
+        if (Test-Path -LiteralPath $operatorCompletionPath) { return }
+        Start-Sleep -Milliseconds 500
+    }
 }
 
 function Invoke-ExternalCommand([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$Description, [switch]$SuppressOutput) {
@@ -279,10 +297,19 @@ function Test-CurrentExportReusable {
     if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $hostExecutable)) { return $false }
     try {
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-        $headCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
-        if ($LASTEXITCODE -ne 0 -or [string]$manifest.git_commit -ne $headCommit) { return $false }
-        $dirty = & git -C $repoRoot status --porcelain --untracked-files=all
-        if ($LASTEXITCODE -ne 0 -or -not [string]::IsNullOrWhiteSpace(($dirty -join [Environment]::NewLine))) { return $false }
+        $manifestCommit = [string]$manifest.git_commit
+        if ($manifestCommit -notmatch '^[0-9a-f]{40}$') { return $false }
+
+        # An immutable export is defined by its actual runtime inputs, not by
+        # documentation or A/B orchestration commits. Compare the manifest's
+        # source commit with HEAD while excluding the non-runtime scopes.
+        $runtimePathspec = @('.', ':(exclude)docs/**', ':(exclude)tools/ab_test/**')
+        & git -C $repoRoot diff --quiet "$manifestCommit..HEAD" -- @runtimePathspec
+        if ($LASTEXITCODE -ne 0) { return $false }
+        & git -C $repoRoot diff --quiet -- @runtimePathspec
+        if ($LASTEXITCODE -ne 0) { return $false }
+        & git -C $repoRoot diff --cached --quiet -- @runtimePathspec
+        if ($LASTEXITCODE -ne 0) { return $false }
         return $true
     }
     catch { return $false }
@@ -942,7 +969,13 @@ try {
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
     $result.timings_ms["client_process_to_godot_connected"] = [long]$godotConnected.ElapsedMilliseconds
     Complete-Stage "F_godot_signals"
-    if ($Scenario -eq "steam_basic") {
+    if ($Scenario -eq "netfox_player_3d") {
+        [void](Wait-ForLogEvent "netfox.player3d" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
+        $playersReady = Wait-ForLogEvent "netfox.player3d" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
+        if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
+        Wait-ForOperatorCompletion
+    }
+    elseif ($Scenario -eq "steam_basic") {
         [void](Wait-ForLogEvent "ab_test.scenario" "client_world_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_world")
         Complete-Stage "G_gamefactory_lifecycle"
         [void](Wait-ForLogEvent "ab_test.scenario" "client_passed" "client" $ScenarioTimeoutSeconds "replication" "client_door_confirmation")
@@ -1013,99 +1046,13 @@ try {
         [void](Wait-ForLogEvent "netfox.history_age" "sample" "client" $ScenarioTimeoutSeconds "netfox" "client_history_diagnostics")
         Complete-Stage "K_history_diagnostics"
     }
-    elseif ($Scenario -eq "netfox_player_3d") {
-        # Intentionally small manual acceptance: this scene is a visual
-        # factory composition, not another reconciliation harness.
-        $hostPlayerSpawn = Wait-ForLogEvent "netfox.player3d" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn"
-        $hostPlayerNetworkObjectId = [string]$hostPlayerSpawn.Fields.network_object_id
-        Complete-Stage "G_host_player_spawn"
-        $playersReady = Wait-ForLogEvent "netfox.player3d" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
-        if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
-        $clientPlayerSpawn = Wait-ForLogFieldValue "netfox.player3d" "player_spawned" "host" "owner_peer_id" ([string]$playersReady.Fields.local_peer_id) $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_player_spawn"
-        $clientPlayerNetworkObjectId = [string]$clientPlayerSpawn.Fields.network_object_id
-        Complete-Stage "H_client_two_player_topology"
-
-        $hostCheckpointUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual 3D acceptance ready: move and jump on the HOST for 15 seconds"
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "host" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_local_walk")
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_player_moved" "client" $hostCheckpointUtc $ScenarioTimeoutSeconds "replication" "host_walk_visible_on_client")
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_jump_observed" "host" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_local_jump")
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_jump_observed" "client" $hostCheckpointUtc $ScenarioTimeoutSeconds "replication" "host_jump_visible_on_client")
-        Complete-Stage "I_host_walk_and_jump_observed_remotely"
-
-        $clientCheckpointUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual 3D acceptance ready: move and jump on the CLIENT for 15 seconds"
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_local_walk")
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_player_moved" "host" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_walk_visible_on_host")
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_jump_observed" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_local_jump")
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_jump_observed" "host" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_jump_visible_on_host")
-        Complete-Stage "J_client_walk_and_jump_observed_remotely"
-
-        # Interaction is intentionally outside Netfox rollback: these prompts
-        # prove a local E press becomes a reliable request, a server-owned
-        # replicated switch mutation, and a visual change on the other peer.
-        $hostInteractionUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual interaction ready: move the HOST within 2.75m of the center switch, then press E once"
-        $hostRequest = Wait-ForLogEventAfterUtc "interaction" "requested" "host" $hostInteractionUtc $ScenarioTimeoutSeconds "gameplay" "host_interaction_request"
-        $hostState = Wait-ForLogFieldValueAfterUtc "interaction.switch" "state_changed" "host" "is_on" "True" (Get-LogUtc $hostRequest) $ScenarioTimeoutSeconds "replication" "host_interaction_server_state"
-        [void](Wait-ForLogFieldValueAfterUtc "interaction.switch" "visual_applied" "client" "is_on" "True" (Get-LogUtc $hostState) $ScenarioTimeoutSeconds "replication" "host_interaction_visible_on_client")
-        Complete-Stage "K_host_interaction_server_authority_and_client_replication"
-
-        $clientInteractionUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual interaction ready: move the CLIENT within 2.75m of the center switch, then press E once"
-        $clientRequest = Wait-ForLogEventAfterUtc "interaction" "requested" "client" $clientInteractionUtc $ScenarioTimeoutSeconds "gameplay" "client_interaction_request"
-        $clientState = Wait-ForLogFieldValueAfterUtc "interaction.switch" "state_changed" "host" "is_on" "False" (Get-LogUtc $clientRequest) $ScenarioTimeoutSeconds "replication" "client_interaction_server_state"
-        [void](Wait-ForLogFieldValueAfterUtc "interaction.switch" "visual_applied" "client" "is_on" "False" (Get-LogUtc $clientState) $ScenarioTimeoutSeconds "replication" "client_interaction_visible_on_client")
-        Complete-Stage "L_client_interaction_server_authority_and_client_replication"
-
-        # Carry is discrete server state, not rollback state. Each manual
-        # input has a distinct UTC checkpoint so early E/Q input cannot make a
-        # later assertion pass. The initial replicated state identifies the
-        # single cube without depending on a hard-coded Netfox object ID.
-        $carryableInitialState = Wait-ForLogFieldValue "carry" "state_applied" "host" "holder_network_object_id" "0" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "carryable_initial_world_state"
-        $carryableNetworkObjectId = [string]$carryableInitialState.Fields.item_network_object_id
-
-        $hostCarryPickupUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry M0 ready: Do not press E or Q until prompted. HOST: move near the green cube. Do not press Q. Press E once to pick it up."
-        $hostCarryRequest = Wait-ForLogFieldValueAfterUtc "interaction" "requested" "host" "target_network_object_id" $carryableNetworkObjectId $hostCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_pickup_request"
-        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $hostPlayerNetworkObjectId $hostCarryPickupUtc "host_carry_pickup"
-        $hostCarryPickup = Wait-ForLogFieldsAfterUtc "carry" "picked_up" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $hostPlayerNetworkObjectId } (Get-LogUtc $hostCarryRequest) $ScenarioTimeoutSeconds "gameplay" "host_carry_pickup"
-        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $hostPlayerNetworkObjectId (Get-LogUtc $hostCarryRequest) "host_carry_pickup"
-        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "client" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $hostPlayerNetworkObjectId } (Get-LogUtc $hostCarryPickup) $ScenarioTimeoutSeconds "replication" "host_carry_visible_on_client")
-        $hostCarryMoveUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry M3 ready: HOST: move with WASD while carrying the cube. Do not press Q yet."
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "host" $hostCarryMoveUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_movement")
-        [void](Wait-ForCarryFollowAfterUtc "client" $carryableNetworkObjectId $hostPlayerNetworkObjectId $hostCarryMoveUtc $ScenarioTimeoutSeconds "host_carry_follow_visible_on_client")
-        $hostDropUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry M5 ready: HOST: press Q once to drop the cube."
-        $hostDrop = Wait-ForLogFieldsAfterUtc "carry" "dropped" "host" @{ item_network_object_id = $carryableNetworkObjectId; player_network_object_id = $hostPlayerNetworkObjectId } $hostDropUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_drop"
-        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "client" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = "0" } (Get-LogUtc $hostDrop) $ScenarioTimeoutSeconds "replication" "host_drop_visible_on_client")
-        Complete-Stage "M_host_carry_pickup_follow_and_drop"
-
-        $clientCarryPickupUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry N0 ready: Do not press E or Q until prompted. CLIENT: focus the VM game window, move near the green cube. Do not press Q. Press E once to pick it up."
-        $clientCarryRequest = Wait-ForLogFieldValueAfterUtc "interaction" "requested" "client" "target_network_object_id" $carryableNetworkObjectId $clientCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup_request"
-        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $clientPlayerNetworkObjectId $clientCarryPickupUtc "client_carry_pickup"
-        $clientCarryPickup = Wait-ForLogFieldsAfterUtc "carry" "picked_up" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $clientPlayerNetworkObjectId } (Get-LogUtc $clientCarryRequest) $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup"
-        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $clientPlayerNetworkObjectId (Get-LogUtc $clientCarryRequest) "client_carry_pickup"
-        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $clientPlayerNetworkObjectId } (Get-LogUtc $clientCarryPickup) $ScenarioTimeoutSeconds "replication" "client_carry_visible_on_host")
-        $clientCarryMoveUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry N3 ready: CLIENT: focus the VM game window, then move with WASD while carrying the cube. Do not press Q yet."
-        [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "client" $clientCarryMoveUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_movement")
-        [void](Wait-ForCarryFollowAfterUtc "host" $carryableNetworkObjectId $clientPlayerNetworkObjectId $clientCarryMoveUtc $ScenarioTimeoutSeconds "client_carry_follow_visible_on_host")
-        $clientDropUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry N5 ready: CLIENT: focus the VM game window, then press Q once to drop the cube."
-        $clientDrop = Wait-ForLogFieldsAfterUtc "carry" "dropped" "host" @{ item_network_object_id = $carryableNetworkObjectId; player_network_object_id = $clientPlayerNetworkObjectId } $clientDropUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_drop"
-        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = "0" } (Get-LogUtc $clientDrop) $ScenarioTimeoutSeconds "replication" "client_drop_visible_on_host")
-        Complete-Stage "N_client_carry_pickup_follow_and_drop"
-    }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 
     $result.result = "passed"
     $result.layer = $null
-    $result.stage = "complete"
+    $result.stage = "infrastructure_complete"
     $result.reason = $null
-    Write-Harness "PASS scenario=$Scenario lobby=$lobbyId"
+    Write-Harness "infrastructure session complete scenario=$Scenario lobby=$lobbyId"
 }
 catch {
     if ($null -eq $result.reason) {
