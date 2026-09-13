@@ -13,29 +13,28 @@ replacement for architecture or protocol documentation.
 - The host-PC -> SSH/SCP -> GPU-P Hyper-V guest release and interactive-task
   path has verified build parity and cleanup behavior.
 
-## Implemented, not yet acceptance-proven
-
-- Server-authoritative interaction: a local E press requests a target by
-  `NetworkObjectId`; the server validates and toggles a replicated switch.
-- Deterministic per-owner player colors are presentation-only.
-- The switch UID startup defect is fixed by `9ad446b`; local validation passed.
+- Server-authoritative interaction is acceptance-proven: a local E press
+  requests a target by `NetworkObjectId`; the server validates and toggles a
+  replicated switch visible to the other peer. Deterministic per-owner player
+  colors remain presentation-only.
 
 ## Latest runtime evidence
 
-The focused diagnostic build `gf_295f0fe3_9815b8fad1a3` connected successfully
-on the two-account path: lobby membership, native Steam peer Connected, Godot
-connection, and two-player lifecycle all passed. The peer mapping was correct:
-host owner mapped to Godot peer `1`, and the guest mapped to its distinct local
-peer.
+The fresh two-account acceptance run on `e8baba1` passed transport/lifecycle,
+distinct player presentation, host and client walking/jumping observed by the
+other peer, and both directions of server-authoritative switch interaction.
+The immutable host/guest build was `gf_e8baba1b_9ab955e4903e` with manifest
+`62ff40e4f22fd017993d2a241e88fa2942ed9bb780b32f26cdf4430b1d89743a`; cleanup
+was verified for both processes.
 
-The same run was terminal `FAIL` later at
-`client_jump_visible_on_host`: client local jumps and host-side remote movement
-were recorded, but no host `remote_jump_observed` event appeared within the
-assertion window. The operator visually observed both players moving/jumping
-and the shared light interaction working. This is evidence of a gameplay
-observability/assertion discrepancy, not a Steam transport failure.
+The preceding `client_jump_visible_on_host` failure was a probe false negative:
+the host log already showed the remote client airborne but sampled it only
+after upward velocity had become negative. `e8baba1` moves that acceptance
+observation to a debounced frame-cadence grounded-to-airborne edge while
+retaining the 0.5-second diagnostic samples; it changes no player networking
+or gameplay state.
 
-Evidence: `artifacts/ab_tests/transport_mapping_20260913_115400/result.json`.
+Evidence: `artifacts/ab_tests/jump_observability_20260913_124200/result.json`.
 
 ## Transport history
 
@@ -51,7 +50,8 @@ if it recurs; do not attribute it to Netfox or interaction.
 - `9ad446b` — valid UID for the interaction switch scene.
 - `295f0fe` — transport-only Steam peer/mapping diagnostics.
 - `d0ed7b2` — app bootstrap UID metadata and Maaack translations registration.
+- `e8baba1` — frame-cadence, debounced jump acceptance observation.
 
 ## Working tree
 
-Clean after `d0ed7b2` before this documentation task.
+Clean after `e8baba1` before this documentation update.
