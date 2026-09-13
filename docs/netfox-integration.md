@@ -133,6 +133,17 @@ also emits the standard `steam.peer_status` initial, changed, and periodic
 records so the shared A/B harness can establish native transport readiness
 before its Godot and gameplay checkpoints.
 
+The same probe includes one ordinary server-authoritative interaction target.
+`E` is a local, edge-triggered request handled by
+`factory/gameplay/interaction/PlayerInteractor.cs`: the server resolves the
+requested `NetworkObjectId` via `NetworkWorld`, checks RPC sender ownership,
+target type, and server-side range, then invokes the target's narrow
+`IInteractable` contract. The sample switch uses the factory
+`ReplicationComponent` to replicate only `IsOn`; it is not in Netfox rollback
+history and has no prediction. The capsule material is presentation-only and
+derived deterministically from `OwnerPeerId`, so players are visibly distinct
+without replicated color state.
+
 This is a manual playground, not the former deterministic divergence/convergence
 acceptance scenario. Its small `netfox.movement` logs report player spawn and
 configuration, input activation, and rate-limited local/remote movement.

@@ -1,0 +1,46 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://factory/gameplay/interaction/InteractableSwitch.cs" id="1_switch"]
+[ext_resource type="PackedScene" path="res://factory/networking/objects/network_object.tscn" id="2_network_object"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_switch"]
+albedo_color = Color(0.153, 0.192, 0.239, 1)
+roughness = 0.45
+
+[sub_resource type="BoxMesh" id="BoxMesh_switch"]
+material = SubResource("StandardMaterial3D_switch")
+size = Vector3(0.8, 1.25, 0.8)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_switch"]
+size = Vector3(0.8, 1.25, 0.8)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_cap"]
+top_radius = 0.24
+bottom_radius = 0.24
+height = 0.14
+
+[node name="InteractableSwitch" type="Node3D" groups=["interactable"]]
+script = ExtResource("1_switch")
+
+[node name="NetworkObject" parent="." instance=ExtResource("2_network_object")]
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_switch")
+
+[node name="Cap" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.695, 0)
+mesh = SubResource("CylinderMesh_cap")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_switch")
+
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+position = Vector3(0, 1.05, 0)
+light_color = Color(1, 0.62, 0.11, 1)
+light_energy = 2.3
+omni_range = 6.0
+visible = false
+
+[editable path="NetworkObject"]
+[editable path="NetworkObject/ReplicationComponent"]
+[editable path="NetworkObject/AuthorityComponent"]

@@ -838,6 +838,23 @@ try {
         [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_jump_observed" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_local_jump")
         [void](Wait-ForLogEventAfterUtc "netfox.player3d" "remote_jump_observed" "host" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_jump_visible_on_host")
         Complete-Stage "J_client_walk_and_jump_observed_remotely"
+
+        # Interaction is intentionally outside Netfox rollback: these prompts
+        # prove a local E press becomes a reliable request, a server-owned
+        # replicated switch mutation, and a visual change on the other peer.
+        $hostInteractionUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual interaction ready: move the HOST within 2.75m of the center switch, then press E once"
+        $hostRequest = Wait-ForLogEventAfterUtc "interaction" "requested" "host" $hostInteractionUtc $ScenarioTimeoutSeconds "gameplay" "host_interaction_request"
+        $hostState = Wait-ForLogFieldValueAfterUtc "interaction.switch" "state_changed" "host" "is_on" "True" (Get-LogUtc $hostRequest) $ScenarioTimeoutSeconds "replication" "host_interaction_server_state"
+        [void](Wait-ForLogFieldValueAfterUtc "interaction.switch" "visual_applied" "client" "is_on" "True" (Get-LogUtc $hostState) $ScenarioTimeoutSeconds "replication" "host_interaction_visible_on_client")
+        Complete-Stage "K_host_interaction_server_authority_and_client_replication"
+
+        $clientInteractionUtc = [DateTimeOffset]::UtcNow
+        Write-Harness "manual interaction ready: move the CLIENT within 2.75m of the center switch, then press E once"
+        $clientRequest = Wait-ForLogEventAfterUtc "interaction" "requested" "client" $clientInteractionUtc $ScenarioTimeoutSeconds "gameplay" "client_interaction_request"
+        $clientState = Wait-ForLogFieldValueAfterUtc "interaction.switch" "state_changed" "host" "is_on" "False" (Get-LogUtc $clientRequest) $ScenarioTimeoutSeconds "replication" "client_interaction_server_state"
+        [void](Wait-ForLogFieldValueAfterUtc "interaction.switch" "visual_applied" "client" "is_on" "False" (Get-LogUtc $clientState) $ScenarioTimeoutSeconds "replication" "client_interaction_visible_on_client")
+        Complete-Stage "L_client_interaction_server_authority_and_client_replication"
     }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using GameFactory.Diagnostics;
+using GameFactory.Gameplay.Interaction;
 using GameFactory.Networking.Netfox.Player3D;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Peers;
@@ -33,6 +34,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
     private double _peerStatusSampleElapsed;
 
     [Export] public PackedScene PlayerScene { get; set; } = null!;
+    [Export] public PackedScene SwitchScene { get; set; } = null!;
 
     public override async void _Ready()
     {
@@ -67,7 +69,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
         {
             _playersReady = true;
             Log("players_ready", new Dictionary<string, string?> { ["player_count"] = players.Length.ToString() });
-            GD.Print("[netfox-player-3d] Connected. WASD moves your player; Space jumps.");
+            GD.Print("[netfox-player-3d] Connected. WASD moves, Space jumps, and E toggles the nearby switch.");
         }
         _sampleElapsed += delta;
         if (_sampleElapsed < .5 || !_playersReady) return;
@@ -88,6 +90,19 @@ public partial class NetfoxPlayer3DProbe : Node3D
         _runtime.SetMode(RuntimeMode.ListenServer);
         _playerLifecycle = new PlayerLifecycle(_peers, _players, _runtime, SpawnPlayer, _world.Despawn);
         _peers.Add(PeerId.Server, isLocal: true);
+        InteractableSwitch interactableSwitch = _world.Spawn<InteractableSwitch>(
+            SwitchScene,
+            PeerId.Server,
+            new Godot.Collections.Dictionary
+            {
+                ["spawn_position"] = new Vector3(0, 0.625f, -1.5f)
+            });
+        Log("switch_spawned", new Dictionary<string, string?>
+        {
+            ["network_object_id"] = interactableSwitch
+                .GetNode<NetworkObject>("NetworkObject")
+                .Id.ToString()
+        });
         LogPeerStatus("initial");
         Log("host_ready", new Dictionary<string, string?> { ["lobby_id"] = lobby.Id.ToString() });
         GD.Print($"[netfox-player-3d] Hosting lobby {lobby.Id}.");

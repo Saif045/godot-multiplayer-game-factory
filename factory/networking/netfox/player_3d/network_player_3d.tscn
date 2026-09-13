@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://d0h5mnq4x8v9p"]
+[gd_scene load_steps=14 format=3 uid="uid://d0h5mnq4x8v9p"]
 
 [ext_resource type="Script" path="res://factory/networking/netfox/player_3d/NetworkPlayer3D.cs" id="1_player"]
 [ext_resource type="PackedScene" path="res://factory/networking/objects/network_object.tscn" id="2_network_object"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://addons/netfox/rollback/rollback-synchronizer.gd" id="7_rollback"]
 [ext_resource type="Script" path="res://addons/netfox/tick-interpolator.gd" id="8_interpolator"]
 [ext_resource type="Script" path="res://factory/networking/netfox/player_3d/network_player_3d_camera.gd" id="9_camera"]
+[ext_resource type="Script" path="res://factory/gameplay/interaction/PlayerInteractor.cs" id="10_interactor"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.45
@@ -17,6 +18,10 @@ height = 1.8
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
 radius = 0.45
 height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_player"]
+albedo_color = Color(0.3, 0.66, 0.87, 1)
+roughness = 0.55
 
 [node name="NetworkPlayer3D" type="CharacterBody3D" groups=["network_player_3d"]]
 script = ExtResource("1_player")
@@ -40,6 +45,10 @@ script = ExtResource("6_presentation")
 
 [node name="Mesh" type="MeshInstance3D" parent="Presentation/VisualRoot"]
 mesh = SubResource("CapsuleMesh_player")
+material_override = SubResource("StandardMaterial3D_player")
+
+[node name="PlayerInteractor" type="Node" parent="."]
+script = ExtResource("10_interactor")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("CapsuleShape3D_player")

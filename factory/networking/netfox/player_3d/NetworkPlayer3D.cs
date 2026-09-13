@@ -11,6 +11,21 @@ namespace GameFactory.Networking.Netfox.Player3D;
 /// </summary>
 public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializable
 {
+    private static readonly Color[] OwnerColors =
+    [
+        new Color("4ea8de"),
+        new Color("f4a261"),
+        new Color("80ed99"),
+        new Color("c77dff"),
+        new Color("ffd166"),
+        new Color("ef476f")
+    ];
+
+    public override void _Ready()
+    {
+        ApplyOwnerColor();
+    }
+
     public void ApplyNetworkSpawnData(Variant data)
     {
         if (data.VariantType != Variant.Type.Dictionary)
@@ -24,4 +39,27 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     }
 
     public NetworkObject GetNetworkObject() => GetNode<NetworkObject>("NetworkObject");
+
+    private void ApplyOwnerColor()
+    {
+        NetworkObject networkObject = GetNetworkObject();
+        int paletteIndex = (int)(networkObject.OwnerPeerId.Value % OwnerColors.Length);
+        if (paletteIndex < 0)
+            paletteIndex += OwnerColors.Length;
+
+        MeshInstance3D mesh = GetNode<MeshInstance3D>("Presentation/VisualRoot/Mesh");
+        if (mesh.GetActiveMaterial(0) is not StandardMaterial3D source)
+        {
+            throw new InvalidOperationException(
+                "NetworkPlayer3D requires a StandardMaterial3D on its presentation mesh.");
+        }
+
+        StandardMaterial3D material = source.Duplicate() as StandardMaterial3D
+            ?? throw new InvalidOperationException(
+                "NetworkPlayer3D could not duplicate its presentation material.");
+        material.AlbedoColor = OwnerColors[paletteIndex];
+        material.EmissionEnabled = true;
+        material.Emission = OwnerColors[paletteIndex] * 0.18f;
+        mesh.MaterialOverride = material;
+    }
 }
