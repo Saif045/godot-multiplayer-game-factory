@@ -44,9 +44,14 @@ For `netfox_player_3d`, act only after each printed `manual ... ready` prompt:
    console or PowerShell focus does not provide game input.
 3. Complete the existing switch prompts: approach the center switch and press
    E once on the prompted participant.
-4. Complete carry M: host approaches the green cube, presses E, moves while
-   carrying, then presses Q to drop.
-5. Complete carry N with the VM client using the same E, move, Q sequence.
+4. Complete carry M only as the harness separately prompts: do not press E or
+   Q before the M0 prompt; move the host to the green cube and press E once;
+   wait for the pickup confirmation; move with WASD; wait for the follow
+   confirmation; then press Q once when prompted.
+5. Complete carry N only as the harness separately prompts: focus the VM game
+   window before every input; do not press E or Q before N0; move the client
+   to the green cube and press E once; wait for pickup; move with WASD; wait
+   for follow; then press Q once when prompted.
 
 Do not perform inputs early or alter Steam, VM, settings, source, timeout, or
 harness options after the attempt has started. Let the harness own teardown and

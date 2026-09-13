@@ -631,6 +631,62 @@ function Wait-ForLogFieldValueAfterUtc([string]$Category, [string]$Event, [strin
     Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event $Field=$Value after utc=$AfterUtc ($Role)."
 }
 
+function Wait-ForLogFieldsAfterUtc([string]$Category, [string]$Event, [string]$Role, [hashtable]$ExpectedFields, [DateTimeOffset]$AfterUtc, [int]$TimeoutSeconds, [string]$Layer, [string]$Stage) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        if ($Category -eq "carry" -and $ExpectedFields.ContainsKey("item_network_object_id") -and $ExpectedFields.ContainsKey("holder_network_object_id")) {
+            Assert-NoUnexpectedCarryHolderAfterUtc ([string]$ExpectedFields["item_network_object_id"]) ([string]$ExpectedFields["holder_network_object_id"]) $AfterUtc $Stage
+        }
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne $Category -or $entry.Event -ne $Event) { continue }
+            if ($Role -and $entry.Fields.role -ne $Role) { continue }
+            if ((Get-LogUtc $entry) -le $AfterUtc) { continue }
+            $matches = $true
+            foreach ($field in $ExpectedFields.Keys) {
+                if ([string]$entry.Fields.$field -ne [string]$ExpectedFields[$field]) {
+                    $matches = $false
+                    break
+                }
+            }
+            if ($matches) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    $expected = ($ExpectedFields.Keys | ForEach-Object { "$_=$($ExpectedFields[$_])" }) -join ", "
+    Set-Failure $Layer $Stage "Timed out after $TimeoutSeconds seconds waiting for $Category/$Event fields [$expected] after utc=$AfterUtc ($Role)."
+}
+
+function Assert-NoUnexpectedCarryHolderAfterUtc([string]$ItemNetworkObjectId, [string]$ExpectedHolderNetworkObjectId, [DateTimeOffset]$AfterUtc, [string]$Stage) {
+    foreach ($entry in Get-LogEntries) {
+        if ($entry.Category -ne "carry" -or ($entry.Event -ne "picked_up" -and $entry.Event -ne "state_applied")) { continue }
+        if ((Get-LogUtc $entry) -le $AfterUtc) { continue }
+        if ([string]$entry.Fields.item_network_object_id -ne $ItemNetworkObjectId) { continue }
+        $observedHolder = [string]$entry.Fields.holder_network_object_id
+        if ($observedHolder -ne "0" -and $observedHolder -ne $ExpectedHolderNetworkObjectId) {
+            Set-Failure "gameplay" $Stage "carryable entered held state for unexpected holder after stage checkpoint (item=$ItemNetworkObjectId expected_holder=$ExpectedHolderNetworkObjectId observed_holder=$observedHolder)."
+        }
+    }
+}
+
+function Wait-ForCarryFollowAfterUtc([string]$Role, [string]$ItemNetworkObjectId, [string]$HolderNetworkObjectId, [DateTimeOffset]$AfterUtc, [int]$TimeoutSeconds, [string]$Stage) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        Assert-NoTerminalStartupFailure
+        Assert-NoUnexpectedCarryHolderAfterUtc $ItemNetworkObjectId $HolderNetworkObjectId $AfterUtc $Stage
+        foreach ($entry in Get-LogEntries) {
+            if ($entry.Category -ne "carry" -or $entry.Event -ne "follow_observed") { continue }
+            if ($entry.Fields.role -ne $Role -or (Get-LogUtc $entry) -le $AfterUtc) { continue }
+            if ([string]$entry.Fields.item_network_object_id -ne $ItemNetworkObjectId) { continue }
+            if ([string]$entry.Fields.holder_network_object_id -ne $HolderNetworkObjectId) { continue }
+            $anchorDistance = [double]::Parse([string]$entry.Fields.anchor_distance, [Globalization.CultureInfo]::InvariantCulture)
+            if ($anchorDistance -le 0.1) { return $entry }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure "replication" $Stage "Timed out after $TimeoutSeconds seconds waiting for carry follow within 0.1m (item=$ItemNetworkObjectId holder=$HolderNetworkObjectId role=$Role) after utc=$AfterUtc."
+}
+
 function Get-VectorDistance([string]$Left, [string]$Right) {
     $pattern = '^\(([-+]?[0-9]*\.?[0-9]+),\s*([-+]?[0-9]*\.?[0-9]+)\)$'
     $leftMatch = [regex]::Match($Left, $pattern)
@@ -960,10 +1016,13 @@ try {
     elseif ($Scenario -eq "netfox_player_3d") {
         # Intentionally small manual acceptance: this scene is a visual
         # factory composition, not another reconciliation harness.
-        [void](Wait-ForLogEvent "netfox.player3d" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
+        $hostPlayerSpawn = Wait-ForLogEvent "netfox.player3d" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn"
+        $hostPlayerNetworkObjectId = [string]$hostPlayerSpawn.Fields.network_object_id
         Complete-Stage "G_host_player_spawn"
         $playersReady = Wait-ForLogEvent "netfox.player3d" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
         if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
+        $clientPlayerSpawn = Wait-ForLogFieldValue "netfox.player3d" "player_spawned" "host" "owner_peer_id" ([string]$playersReady.Fields.local_peer_id) $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_player_spawn"
+        $clientPlayerNetworkObjectId = [string]$clientPlayerSpawn.Fields.network_object_id
         Complete-Stage "H_client_two_player_topology"
 
         $hostCheckpointUtc = [DateTimeOffset]::UtcNow
@@ -999,36 +1058,45 @@ try {
         [void](Wait-ForLogFieldValueAfterUtc "interaction.switch" "visual_applied" "client" "is_on" "False" (Get-LogUtc $clientState) $ScenarioTimeoutSeconds "replication" "client_interaction_visible_on_client")
         Complete-Stage "L_client_interaction_server_authority_and_client_replication"
 
-        # Carry is discrete server state, not rollback state: E uses the same
-        # validated interaction request path, Q sends only a drop request, and
-        # peers derive the held visual from the replicated holder ID.
+        # Carry is discrete server state, not rollback state. Each manual
+        # input has a distinct UTC checkpoint so early E/Q input cannot make a
+        # later assertion pass. The initial replicated state identifies the
+        # single cube without depending on a hard-coded Netfox object ID.
+        $carryableInitialState = Wait-ForLogFieldValue "carry" "state_applied" "host" "holder_network_object_id" "0" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "carryable_initial_world_state"
+        $carryableNetworkObjectId = [string]$carryableInitialState.Fields.item_network_object_id
+
         $hostCarryPickupUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry ready: move the HOST to the green cube near the center, then press E once"
-        $hostCarryPickup = Wait-ForLogEventAfterUtc "carry" "picked_up" "host" $hostCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_pickup"
-        [void](Wait-ForLogEventAfterUtc "carry" "state_applied" "client" (Get-LogUtc $hostCarryPickup) $ScenarioTimeoutSeconds "replication" "host_carry_visible_on_client")
+        Write-Harness "manual carry M0 ready: Do not press E or Q until prompted. HOST: move near the green cube. Do not press Q. Press E once to pick it up."
+        $hostCarryRequest = Wait-ForLogFieldValueAfterUtc "interaction" "requested" "host" "target_network_object_id" $carryableNetworkObjectId $hostCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_pickup_request"
+        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $hostPlayerNetworkObjectId $hostCarryPickupUtc "host_carry_pickup"
+        $hostCarryPickup = Wait-ForLogFieldsAfterUtc "carry" "picked_up" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $hostPlayerNetworkObjectId } (Get-LogUtc $hostCarryRequest) $ScenarioTimeoutSeconds "gameplay" "host_carry_pickup"
+        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $hostPlayerNetworkObjectId (Get-LogUtc $hostCarryRequest) "host_carry_pickup"
+        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "client" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $hostPlayerNetworkObjectId } (Get-LogUtc $hostCarryPickup) $ScenarioTimeoutSeconds "replication" "host_carry_visible_on_client")
         $hostCarryMoveUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry ready: move the HOST while carrying the green cube for 15 seconds"
+        Write-Harness "manual carry M3 ready: HOST: move with WASD while carrying the cube. Do not press Q yet."
         [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "host" $hostCarryMoveUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_movement")
-        [void](Wait-ForLogEventAfterUtc "carry" "follow_observed" "client" $hostCarryMoveUtc $ScenarioTimeoutSeconds "replication" "host_carry_follow_visible_on_client")
+        [void](Wait-ForCarryFollowAfterUtc "client" $carryableNetworkObjectId $hostPlayerNetworkObjectId $hostCarryMoveUtc $ScenarioTimeoutSeconds "host_carry_follow_visible_on_client")
         $hostDropUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry ready: press Q on the HOST to drop the green cube"
-        $hostDrop = Wait-ForLogEventAfterUtc "carry" "dropped" "host" $hostDropUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_drop"
-        [void](Wait-ForLogFieldValueAfterUtc "carry" "state_applied" "client" "holder_network_object_id" "0" (Get-LogUtc $hostDrop) $ScenarioTimeoutSeconds "replication" "host_drop_visible_on_client")
+        Write-Harness "manual carry M5 ready: HOST: press Q once to drop the cube."
+        $hostDrop = Wait-ForLogFieldsAfterUtc "carry" "dropped" "host" @{ item_network_object_id = $carryableNetworkObjectId; player_network_object_id = $hostPlayerNetworkObjectId } $hostDropUtc $ScenarioTimeoutSeconds "gameplay" "host_carry_drop"
+        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "client" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = "0" } (Get-LogUtc $hostDrop) $ScenarioTimeoutSeconds "replication" "host_drop_visible_on_client")
         Complete-Stage "M_host_carry_pickup_follow_and_drop"
 
         $clientCarryPickupUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry ready: move the CLIENT to the green cube near the center, then press E once"
-        $clientCarryRequest = Wait-ForLogEventAfterUtc "interaction" "requested" "client" $clientCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup_request"
-        $clientCarryPickup = Wait-ForLogEventAfterUtc "carry" "picked_up" "host" (Get-LogUtc $clientCarryRequest) $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup"
-        [void](Wait-ForLogEventAfterUtc "carry" "state_applied" "client" (Get-LogUtc $clientCarryPickup) $ScenarioTimeoutSeconds "replication" "client_carry_visible_on_client")
+        Write-Harness "manual carry N0 ready: Do not press E or Q until prompted. CLIENT: focus the VM game window, move near the green cube. Do not press Q. Press E once to pick it up."
+        $clientCarryRequest = Wait-ForLogFieldValueAfterUtc "interaction" "requested" "client" "target_network_object_id" $carryableNetworkObjectId $clientCarryPickupUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup_request"
+        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $clientPlayerNetworkObjectId $clientCarryPickupUtc "client_carry_pickup"
+        $clientCarryPickup = Wait-ForLogFieldsAfterUtc "carry" "picked_up" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $clientPlayerNetworkObjectId } (Get-LogUtc $clientCarryRequest) $ScenarioTimeoutSeconds "gameplay" "client_carry_pickup"
+        Assert-NoUnexpectedCarryHolderAfterUtc $carryableNetworkObjectId $clientPlayerNetworkObjectId (Get-LogUtc $clientCarryRequest) "client_carry_pickup"
+        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = $clientPlayerNetworkObjectId } (Get-LogUtc $clientCarryPickup) $ScenarioTimeoutSeconds "replication" "client_carry_visible_on_host")
         $clientCarryMoveUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry ready: move the CLIENT while carrying the green cube for 15 seconds"
+        Write-Harness "manual carry N3 ready: CLIENT: focus the VM game window, then move with WASD while carrying the cube. Do not press Q yet."
         [void](Wait-ForLogEventAfterUtc "netfox.player3d" "local_player_moved" "client" $clientCarryMoveUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_movement")
-        [void](Wait-ForLogEventAfterUtc "carry" "follow_observed" "host" $clientCarryMoveUtc $ScenarioTimeoutSeconds "replication" "client_carry_follow_visible_on_host")
+        [void](Wait-ForCarryFollowAfterUtc "host" $carryableNetworkObjectId $clientPlayerNetworkObjectId $clientCarryMoveUtc $ScenarioTimeoutSeconds "client_carry_follow_visible_on_host")
         $clientDropUtc = [DateTimeOffset]::UtcNow
-        Write-Harness "manual carry ready: press Q on the CLIENT to drop the green cube"
-        $clientDrop = Wait-ForLogEventAfterUtc "carry" "dropped" "host" $clientDropUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_drop"
-        [void](Wait-ForLogFieldValueAfterUtc "carry" "state_applied" "client" "holder_network_object_id" "0" (Get-LogUtc $clientDrop) $ScenarioTimeoutSeconds "replication" "client_drop_visible_on_client")
+        Write-Harness "manual carry N5 ready: CLIENT: focus the VM game window, then press Q once to drop the cube."
+        $clientDrop = Wait-ForLogFieldsAfterUtc "carry" "dropped" "host" @{ item_network_object_id = $carryableNetworkObjectId; player_network_object_id = $clientPlayerNetworkObjectId } $clientDropUtc $ScenarioTimeoutSeconds "gameplay" "client_carry_drop"
+        [void](Wait-ForLogFieldsAfterUtc "carry" "state_applied" "host" @{ item_network_object_id = $carryableNetworkObjectId; holder_network_object_id = "0" } (Get-LogUtc $clientDrop) $ScenarioTimeoutSeconds "replication" "client_drop_visible_on_host")
         Complete-Stage "N_client_carry_pickup_follow_and_drop"
     }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
