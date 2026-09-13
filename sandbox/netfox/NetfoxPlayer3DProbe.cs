@@ -24,6 +24,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
     private readonly PlayerRegistry _players = new();
     private readonly RuntimeContext _runtime = new();
     private readonly Dictionary<NetworkObjectId, Vector3> _lastPositions = [];
+    private readonly Dictionary<NetworkObjectId, JumpObservation> _jumpObservations = [];
     private SteamSession? _session;
     private GodotSteamAdapter _adapter = null!;
     private PlayerLifecycle? _playerLifecycle;
@@ -72,6 +73,8 @@ public partial class NetfoxPlayer3DProbe : Node3D
             Log("players_ready", new Dictionary<string, string?> { ["player_count"] = players.Length.ToString() });
             GD.Print("[netfox-player-3d] Connected. WASD moves, Space jumps, and E toggles the nearby switch.");
         }
+        if (_playersReady)
+            foreach (NetworkPlayer3D player in players) ObserveJumpEdge(player);
         _sampleElapsed += delta;
         if (_sampleElapsed < .5 || !_playersReady) return;
         _sampleElapsed = 0;
@@ -134,11 +137,39 @@ public partial class NetfoxPlayer3DProbe : Node3D
         _lastPositions.TryGetValue(networkObject.Id, out Vector3 previous);
         float distance = previous.DistanceTo(position);
         _lastPositions[networkObject.Id] = position;
-        Node simulation = player.GetNode<Node>("Simulation");
-        Log("player_sample", new Dictionary<string, string?> { ["network_object_id"] = networkObject.Id.ToString(), ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(), ["is_local_owner"] = isLocalOwner.ToString(), ["position"] = position.ToString(), ["velocity"] = player.Velocity.ToString(), ["grounded"] = simulation.Get("grounded").AsBool().ToString(), ["position_delta"] = distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) });
+        bool grounded = GetGrounded(player);
+        Log("player_sample", new Dictionary<string, string?> { ["network_object_id"] = networkObject.Id.ToString(), ["owner_peer_id"] = networkObject.OwnerPeerId.ToString(), ["is_local_owner"] = isLocalOwner.ToString(), ["position"] = position.ToString(), ["velocity"] = player.Velocity.ToString(), ["grounded"] = grounded.ToString(), ["position_delta"] = distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) });
         if (distance > .05f) Log(isLocalOwner ? "local_player_moved" : "remote_player_moved", new Dictionary<string, string?> { ["network_object_id"] = networkObject.Id.ToString(), ["position_delta"] = distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) });
-        if (player.Velocity.Y > .1f) Log(isLocalOwner ? "local_jump_observed" : "remote_jump_observed", new Dictionary<string, string?> { ["network_object_id"] = networkObject.Id.ToString(), ["velocity_y"] = player.Velocity.Y.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) });
     }
+
+    private void ObserveJumpEdge(NetworkPlayer3D player)
+    {
+        NetworkObject networkObject = player.GetNetworkObject();
+        bool grounded = GetGrounded(player);
+        float positionY = player.GlobalPosition.Y;
+        if (!_jumpObservations.TryGetValue(networkObject.Id, out JumpObservation observation))
+        {
+            _jumpObservations[networkObject.Id] = new JumpObservation(grounded, !grounded, positionY);
+            return;
+        }
+
+        bool roseSinceLastObservation = positionY > observation.PositionY + .01f;
+        if (!grounded && !observation.Airborne && observation.Grounded &&
+            (player.Velocity.Y > .1f || roseSinceLastObservation))
+        {
+            bool isLocalOwner = networkObject.OwnerPeerId.Value == Multiplayer.GetUniqueId();
+            Log(isLocalOwner ? "local_jump_observed" : "remote_jump_observed", new Dictionary<string, string?>
+            {
+                ["network_object_id"] = networkObject.Id.ToString(),
+                ["velocity_y"] = player.Velocity.Y.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["observation"] = player.Velocity.Y > .1f ? "rising_velocity" : "rising_position"
+            });
+        }
+
+        _jumpObservations[networkObject.Id] = new JumpObservation(grounded, !grounded, positionY);
+    }
+
+    private static bool GetGrounded(NetworkPlayer3D player) => player.GetNode<Node>("Simulation").Get("grounded").AsBool();
 
     private void OnPeerConnected(long peerValue) { if (!Multiplayer.IsServer()) return; _peers.Add(new PeerId(peerValue), isLocal: false); Log("peer_connected", new Dictionary<string, string?> { ["peer_id"] = peerValue.ToString() }); }
     private void OnPeerDisconnected(long peerValue) { if (Multiplayer.IsServer()) _peers.Remove(new PeerId(peerValue)); Log("peer_disconnected", new Dictionary<string, string?> { ["peer_id"] = peerValue.ToString() }); }
@@ -168,6 +199,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
                 fields[key] = value;
         GameLog.Info("steam.peer_status", changed ? "changed" : "sampled", fields: fields);
     }
+    private readonly record struct JumpObservation(bool Grounded, bool Airborne, float PositionY);
     private NetworkPlayer3D[] GetPlayers() => GetTree().GetNodesInGroup("network_player_3d").OfType<NetworkPlayer3D>().ToArray();
     private static bool HasExpectedAuthority(NetworkPlayer3D player) { NetworkObject networkObject = player.GetNetworkObject(); return player.GetMultiplayerAuthority() == PeerId.Server.Value && player.GetNode<Node>("Simulation").GetMultiplayerAuthority() == PeerId.Server.Value && player.GetNode<Node>("Input").GetMultiplayerAuthority() == networkObject.OwnerPeerId.Value; }
     private void SubscribeToMultiplayer() { Multiplayer.PeerConnected += OnPeerConnected; Multiplayer.PeerDisconnected += OnPeerDisconnected; Multiplayer.ConnectedToServer += OnConnectedToServer; Multiplayer.ConnectionFailed += OnConnectionFailed; Multiplayer.ServerDisconnected += OnServerDisconnected; }
