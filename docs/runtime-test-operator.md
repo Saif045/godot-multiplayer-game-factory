@@ -10,6 +10,48 @@ This protocol applies to runtime, multiplayer, VM, Steam, Netfox, benchmark,
 and other integration or acceptance attempts. It complements the lifecycle in
 [`testing-protocol.md`](testing-protocol.md).
 
+## Running the Hyper-V A/B harness
+
+From the repository root in PowerShell, run the 3D player acceptance scenario
+with host logs visible:
+
+```powershell
+.\tools\ab_test\run.ps1 `
+    -Scenario netfox_player_3d `
+    -RunId carryable_item_YYYYMMDD_HHMMSS `
+    -ShowHostConsole
+```
+
+Replace the run ID with a unique timestamp-like label. The harness exports the
+current immutable build when needed, verifies host/guest manifest parity, then
+launches the host and the VM client. It writes the terminal result to:
+
+```text
+artifacts/ab_tests/<RunId>/result.json
+```
+
+Use the normal command above for a retry of the *same* committed build. The
+VM release cache automatically reuses a verified matching manifest; do not add
+`-SkipExport` or force flags simply to make a run faster. A source/configuration
+change requires a new frozen attempt and normally produces a new export.
+
+For `netfox_player_3d`, act only after each printed `manual ... ready` prompt:
+
+1. On the host game window, move with WASD and jump with Space until host
+   movement and jump are observed remotely.
+2. Focus the VM game window, then move with WASD and jump with Space until
+   client-local movement and jump are observed remotely. Focus matters: VM
+   console or PowerShell focus does not provide game input.
+3. Complete the existing switch prompts: approach the center switch and press
+   E once on the prompted participant.
+4. Complete carry M: host approaches the green cube, presses E, moves while
+   carrying, then presses Q to drop.
+5. Complete carry N with the VM client using the same E, move, Q sequence.
+
+Do not perform inputs early or alter Steam, VM, settings, source, timeout, or
+harness options after the attempt has started. Let the harness own teardown and
+use `result.json`, host console logs, and client logs as the acceptance evidence.
+
 ## Frozen-attempt rule
 
 Once an attempt starts, the following are frozen:
