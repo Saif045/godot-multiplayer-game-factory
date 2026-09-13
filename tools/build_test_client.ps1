@@ -76,11 +76,17 @@ try {
         (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($OutputExe, ".pck"))) -and
         (Test-Path -LiteralPath $stdoutPath) -and
         ((Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) -match '(?s)\[\s*DONE\s*\].{0,100}savepack')
-    $exportLog = if (Test-Path -LiteralPath $stdoutPath) {
-        Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
-    } else {
-        ""
-    }
+    # Godot emits managed-export diagnostics on stderr. Inspect both streams:
+    # accepting a packed executable after an ERROR here can leave a stale or
+    # incomplete managed payload that the A/B harness cannot meaningfully test.
+    $exportLog = @(
+        if (Test-Path -LiteralPath $stdoutPath) {
+            Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $stderrPath) {
+            Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+        }
+    ) -join [Environment]::NewLine
     if ($exportLog -match 'dotnet publish exited with code: [1-9]' -or
         $exportLog -match 'ERROR: Export \.NET Project:' -or
         $exportLog -match 'ERROR: Project export for preset') {

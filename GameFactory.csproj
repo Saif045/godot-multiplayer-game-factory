@@ -5,6 +5,10 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <RootNamespace>GameFactory</RootNamespace>
     <Nullable>enable</Nullable>
+    <!-- Godot's export plugin treats an offline NuGet audit warning as a
+         managed-export failure even when publish itself succeeds. This
+         project restores from its locked local cache for test exports. -->
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
