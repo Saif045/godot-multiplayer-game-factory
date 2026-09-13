@@ -1,10 +1,18 @@
-# Netfox Phase 1
+# Netfox Integration
 
 ## Scope and status
 
-Netfox Phase 1 installs the native GDScript Netfox addon, adds an isolated
-Steam-backed NetworkTime probe, and includes an interactive two-player movement
-sandbox. It does not introduce GAS, NetfoxSharp, Noray, or a replication migration.
+Netfox v1.35.3 is the pinned native GDScript rollback dependency for the
+acceptance-proven Steam-backed two-player movement/player slice. GameFactory
+uses it selectively for responsive deterministic simulation; it does not
+introduce GAS, NetfoxSharp, Noray, a parallel reconciliation system, or a
+generic replication migration.
+
+Use Netfox for continuous latency-sensitive deterministic simulation.
+Discrete authoritative gameplay uses reliable RPC, server validation, and
+ordinary `ReplicationComponent`/`MultiplayerSynchronizer` replication. Do
+canonical integration before reconciliation instrumentation; `is_fresh ==
+false` means resimulation, not proof of a correction.
 
 The intended ownership boundary is:
 

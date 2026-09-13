@@ -10,15 +10,15 @@ This inventory describes tracked paths and current responsibilities. Directories
 | `factory/networking/peers/` | Transient `PeerId`, peer model, and local registry. | Implemented |
 | `factory/networking/players/` | Session-scoped player IDs, registry, and server-side lifecycle delegates. | Implemented |
 | `factory/networking/objects/` | Compositional network object host, authority, and replication components. | Implemented |
-| `factory/networking/netfox/` | Reusable Netfox rollback-player lifecycle/split-authority glue and the first visible `CharacterBody3D` composition under `player_3d/`. | Phase-1 integration |
+| `factory/networking/netfox/` | Reusable Netfox rollback-player lifecycle/split-authority glue and proven visible `CharacterBody3D` composition under `player_3d/`. | Implemented / acceptance-proven |
 | `factory/networking/world/` | Dynamic object IDs, generated spawn groups, and world spawn/despawn routing. | Implemented |
 | `factory/steam/` | Process-lifetime Steam platform owner plus scene-local session/lobby/peer boundary and GodotSteam adapter bridge. | Implemented listen-server path |
 | `factory/diagnostics/` | Structured process logs, exported-build identity, replication confirmation, and distributed session evidence. | Implemented |
-| `factory/gameplay/interaction/` | Narrow server-authoritative player interaction request/validation contract and replicated sample switch. | Implemented sandbox slice |
+| `factory/gameplay/interaction/` | Narrow server-authoritative player interaction request/validation contract and replicated sample switch. | Implemented / locally validated; runtime acceptance blocked by the switch scene resource UID |
 | `factory/shell/` | Minimal C# bootstrap/host/leave flow plus project-owned Maaack options composition around the retained Steam gameplay probe. | Implemented shell slice |
 | `addons/maaacks_game_template/` | Vendored Maaack Game Template: local menus, settings, remapping, loading, audio, and optional local game helpers. | Implemented dependency |
 | `addons/plugin_updater/` | Vendored Maaack Plugin Updater required by the full template's GDScript classes. | Implemented dependency |
-| `addons/netfox/`, `addons/netfox.internals/` | Pinned native Netfox v1.35.3 addon and required internals; plugin-managed time, events, rollback, and performance autoloads. | Phase-1 integration; no gameplay migration |
+| `addons/netfox/`, `addons/netfox.internals/` | Pinned native Netfox v1.35.3 addon and required internals; plugin-managed time, events, rollback, and performance autoloads. | Implemented rollback dependency; no generic migration |
 
 `factory/steam/SteamPlatform` owns the process-lifetime GodotSteam adapter; `SteamSession` owns one current online lobby and `MultiplayerPeer` lifecycle. No generic transport or generic network-session module exists. `RuntimeMode.DedicatedServer` is retained as an intended gameplay role, but dedicated Steam hosting is not implemented.
 

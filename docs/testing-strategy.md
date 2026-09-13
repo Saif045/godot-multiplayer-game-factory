@@ -4,7 +4,7 @@
 
 `tests/GameFactory.Tests/` is a separate xUnit project. Its engine-independent tests cover peer/player value types and registries, `PlayerLifecycle` role policy, `NetworkObjectId`, spawn-group values, diagnostics records and writers, replication-confirmation tracking, and distributed-log batching/sequence handling. They do not launch Godot, create a scene tree, open a Steam connection, or validate GodotSteam.
 
-There is no CI workflow or generic Godot integration-test framework. `tools/ab_test/run.ps1` is a concrete two-account Steam scenario runner. It creates one clean, configurable export; records every runtime file in `build_manifest.json`; verifies the configured VirtualBox share and every manifest hash from the VM's interactive scheduled-task session before Steam starts; then hosts on the PC, discovers the current lobby ID from structured diagnostics, and launches the VM client. It is deliberately a laboratory harness for the existing Steam gameplay slice, not a generic multiplayer test framework or a substitute for CI.
+There is no CI workflow or generic Godot integration-test framework. `tools/ab_test/run.ps1` is a concrete two-account Steam scenario runner. It creates one clean, configurable export; records every runtime file in `build_manifest.json`; transfers the immutable release through SSH/SCP to the GPU-P Hyper-V guest at `C:\GameFactoryBuilds\releases\<manifest-hash>`; verifies that guest's manifest hash; and starts its interactive scheduled task before Steam starts. It then hosts on the PC, discovers the current lobby ID from structured diagnostics, and launches the guest client. It is deliberately a laboratory harness for the existing Steam gameplay slice, not a generic multiplayer test framework or a substitute for CI.
 
 The Maaack shell has a headless Godot startup smoke for addon/script/autoload/scene-load failures. Visual UX remains manual acceptance: menu focus/navigation, settings persistence, keyboard/mouse/controller remapping and reset persistence, loading transition, pause/resume, first-click leave-to-menu, and host/leave/re-host without a Steam reinitialization must be checked in a normal exported run. Maaack's physical-key display support requires a normal display server, so loading its Controls scene headlessly can emit expected display-server warnings while input labels are formatted.
 
@@ -30,5 +30,20 @@ Godot peer status before changing timing, authority, history limits, or Steam
 behavior.
 
 `tools/ab_test/run_suite.ps1` is the repeated-reliability mode. It exports once (unless `-SkipExport` is explicitly requested), records one immutable manifest, and runs independent clean attempts beneath `artifacts/ab_suites/<suite-id>/attempts/`. The first attempt proves VM parity. Later attempts reuse that proof only after verifying the same host manifest hash, while retaining normal per-attempt preflight, runtime assertions, artifact capture, teardown, and cleanup verification. `summary.json` records the build identity, pass/fail totals, failed-stage distribution, connection-time samples, and every attempt artifact path. A suite never retries a failed attempt in place.
+
+## Normal work versus hardening
+
+Normal feature work can build a coherent playable slice, validate its local
+contracts, and then define a fresh acceptance scenario. Hardening and
+investigation begin only after a frozen build and a precise question are
+recorded. They preserve the failed attempt's evidence, vary one factor at a
+time, and do not silently convert a runtime run into a source-editing session.
+
+Failures are reported at the earliest demonstrated boundary: build/export,
+Steam lobby, native Steam peer, Godot connection, GameFactory lifecycle,
+Netfox, or gameplay. Startup is not success; a test is only PASS when every
+declared assertion and cleanup verification passes. A test can be FAIL with
+good evidence, or BLOCKED when a required external prerequisite prevents an
+attempt.
 
 New coverage should follow coherent playable slices rather than speculative helpers. Tests must be deterministic, explicit about authority and runtime role, and honest about external environment requirements.

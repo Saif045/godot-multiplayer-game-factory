@@ -1,6 +1,7 @@
 # Architecture
 
-This is the canonical architectural overview. It distinguishes current implementation from planned work.
+This is the canonical overview. It distinguishes proven implementation,
+implemented-but-not-yet-accepted slices, and planned work.
 
 ## Current dependency shape
 
@@ -34,6 +35,18 @@ Gameplay code is not coupled to GodotSteam. `ISteamAdapter` and `GodotSteamAdapt
 `NetworkObject` is an open component host attached beneath a gameplay node. Default authority and replication component scenes are replaceable, discovered through capability interfaces. `ReplicationComponent` owns its `MultiplayerSynchronizer` and interprets `[Replicated]` metadata; gameplay can still use direct Godot RPC where appropriate.
 
 `NetworkWorld` server-allocates positive IDs, owns dynamic object registration, and routes scene instantiation through generated `MultiplayerSpawner` groups. It binds object identity and represented owner peer before tree entry. Owner-peer metadata does not transfer Godot authority from the server. Static/authored object registration and persistent identity are planned.
+
+`factory/gameplay/interaction/` is the narrow discrete-gameplay boundary:
+clients send a target `NetworkObjectId`, while the server resolves it through
+`NetworkWorld` and validates sender ownership, target, and server-side range.
+The sample switch's ordinary replicated state intentionally stays outside
+Netfox rollback. This slice is **implemented** and **locally validated**, but
+its runtime acceptance is currently **blocked/failed at startup**:
+`interactable_switch.tscn` has no valid resource UID, so `NetworkWorld`
+correctly rejects the spawn before the client launches. This is an asset
+identity issue, not evidence against the interaction ownership/networking
+design; the slice is not runtime-proven until a corrected-scene acceptance run
+passes.
 
 ## Evidence and direction
 

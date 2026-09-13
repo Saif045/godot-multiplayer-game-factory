@@ -1,74 +1,191 @@
-# GameFactory Agent Guidance
+# GameFactory Fast Start
 
-## Product boundary
+GameFactory is a reusable Godot C# foundation for small-session online co-op.
+Server-authoritative shared gameplay is the default. Steam listen-server
+transport and the two-account Hyper-V path are implemented and proven.
 
-GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games. It targets player-hosted/listen-server and dedicated-server games; server-authoritative shared gameplay is the default. Steam is a planned first-class online/platform target, not a current implementation.
+Build small reusable technical boundaries justified by playable slices. Do not
+add custom rules, progression, a mini-engine, a generic command bus, transport
+abstraction, or Netfox wrapper without multiple concrete uses.
 
-Build reusable infrastructure and primitives, not a custom mini-engine or game-specific mechanics, content, rules, balance, progression, or art.
+## Proven stack
 
-## Working principles
+```text
+SteamSession -> GodotSteamAdapter -> SteamMultiplayerPeer -> MultiplayerAPI
+PeerRegistry / PlayerLifecycle -> NetworkWorld -> NetworkObject
+NetworkObject -> NetfoxRollbackPlayerComponent -> RollbackSynchronizer
+              -> TickInterpolator -> CharacterBody3D
+```
 
-- Preserve normal Godot workflows and direct Godot access where a factory layer is incomplete or unnecessary.
-- Prefer convention, then explicit configuration, then replacement or raw access where the domain warrants those paths.
-- Prefer composition over required gameplay inheritance.
-- Keep peer, player, and network-object identities distinct.
-- Avoid speculative abstractions. Use real playable co-op scenarios to justify reusable systems.
-- Implement coherent, settled vertical slices rather than unrelated micro-features.
-- Before rebuilding a common subsystem, investigate valuable existing Godot libraries, plugins, templates, and open-source projects. Deliberately choose to use, adapt/learn from, or build; do not add dependencies merely to avoid trivial code.
-- Do not make product or architectural decisions silently. Surface material alternatives and uncertainties for review.
+Proven: Steam transport, NetworkWorld/player lifecycle, Netfox lifecycle,
+split server-state/client-input authority, 3D rollback player, walking,
+queued jumping, bidirectional observation, and Hyper-V A/B execution.
+Interaction status: **implemented** and **locally validated**, but runtime
+acceptance is **blocked/failed at startup**. `interactable_switch.tscn` lacks a
+valid resource UID, so `NetworkWorld` correctly rejected its spawn before a
+client launched. That asset issue is not evidence of a networking or authority
+defect; do not call the interaction primitive runtime-proven until its fresh
+acceptance run passes.
 
-## Repository discipline
+## Identity and authority
 
-- The repository and its documentation are the source of truth for implemented behavior. Mark planned work as planned; do not invent APIs or claims of completion.
-- Follow the naming rules in `docs/coding-standards.md`: PascalCase for C# namespaces, types, and filenames; lowercase or snake_case for directories, scenes, resources, and assets.
-- Keep reusable code under `factory/` and exploration under `sandbox/`.
-- Preserve unrelated working-tree changes. Keep commits focused.
-- Run the narrowest relevant build and tests before committing, and report the commands and results.
-- Update the module map and relevant documentation when implementation responsibilities or maturity change.
+| Identity | Meaning |
+|---|---|
+| Steam/account ID | platform identity |
+| `PeerId` | transient Godot transport identity |
+| `PlayerId` | session gameplay identity |
+| `NetworkObjectId` | runtime object identity |
+| `NetworkObject.OwnerPeerId` | represented-owner metadata |
 
-## Runtime test protocol
+For rollback players, root state and Simulation authority are server peer `1`;
+only Input has owning-peer authority. **Never recursively map `OwnerPeerId` to
+the whole player node's Godot authority.** Clients never authoritatively spawn
+players.
 
-Any test that launches Godot, host/client processes, multiplayer peers, VMs,
-external services, benchmarks, or other persistent runtime processes MUST follow
-`docs/testing-protocol.md` and `docs/runtime-test-operator.md`.
+## Networking choice
 
-This is mandatory. In particular:
+| Problem | Default mechanism |
+|---|---|
+| Latency-sensitive locomotion | Netfox rollback |
+| Player simulation input | Netfox input history |
+| Visual smoothing | `TickInterpolator` |
+| Discrete replicated state | `ReplicationComponent` / `MultiplayerSynchronizer` |
+| Client asks server for action | reliable RPC + server validation |
+| Spawn/despawn | `NetworkWorld` / `MultiplayerSpawner` |
+| Steam connectivity | `SteamSession` / `SteamMultiplayerPeer` |
 
-- define assertions before launch;
-- distinguish process startup from test success;
-- give every wait an observable condition and timeout;
-- never abandon an active test;
-- finish every attempt as PASS, FAIL, or BLOCKED;
-- capture evidence before diagnosis;
-- tear down test-owned processes after PASS, FAIL, timeout, or exception; and
-- verify cleanup before reporting completion.
+Continuous deterministic simulation belongs to Netfox. Discrete authoritative
+commands/state use RPC, server validation, and ordinary replication; do not
+put switches, doors, or inventory in player rollback history without evidence.
 
-Do not leave host/client applications running unless the user explicitly asks
-for that behavior.
+## Netfox rules
 
-## Task execution and turn completion
+- Pinned to **v1.35.3**; do not blindly update upstream `main`.
+- Steam is transport below Godot MultiplayerAPI; Netfox owns time sync,
+  history, prediction, rollback/resimulation, and interpolation.
+- Configure authority before Netfox child initialization.
+  `NetfoxRollbackPlayerComponent` owns only root/lifecycle glue.
+- Do not call `process_settings()` during normal player initialization.
+- Every `_rollback_tick()` input/result value is synchronized or deterministic.
+  `is_fresh == false` means resimulation, not necessarily correction.
+- Keep history 64 and `enable_input_broadcast=false` unless evidence requires
+  change. Use `NetworkTime.physics_factor` only around `move_and_slide()`.
+- Queue edge input such as jump. Keep presentation, camera, and owner colors
+  outside rollback state. Do canonical integration before heavy diagnostics.
 
-When an implementation task is sufficiently specified, execute it in the
-current work turn. A user-visible final response ends that work turn; no
-implementation continues invisibly afterward.
+## Work rules
 
-Do not end an implementation turn merely to report that work has started,
-continues, or will happen next. Inspection, a partial edit, or a build of an
-incomplete slice is not a terminal checkpoint. Continue through the requested
-implementation and its required local validation in the same turn.
+Keep reusable code in `factory/`, experiments in `sandbox/`. Use PascalCase
+for C# types/files and lowercase or snake_case for Godot paths. Preserve
+unrelated changes, keep commits focused, update docs/module map, and push each
+commit when requested.
 
-End a turn only when the requested implementation and validation are complete,
-an explicit planner stop boundary has been reached, a genuine blocker requires
-user action, or the runtime test protocol requires a PASS, FAIL, or BLOCKED
-report. Do not send unsolicited status updates while implementation is in
-progress; tool activity is the progress record.
+Normal build work implements one coherent feature and runs narrow checks.
+Hardening/investigation work freezes a build, asks one question, collects
+narrow evidence, and changes one variable only after the attempt is terminal.
 
-During an active acceptance test, act as a test operator, not an autonomous
-debugger. Do not modify source, alter the scenario, retry, restart Steam,
-reconfigure the VM or network, fix newly discovered bugs, or run alternate
-experiments unless the explicit test plan permits it. Complete the attempt as
-PASS, FAIL, or BLOCKED; capture evidence; clean up; verify cleanup; report; and
-stop.
+Any Godot/Steam/VM/process test follows `docs/testing-protocol.md` and
+`docs/runtime-test-operator.md`: define assertions/timeouts, preflight, clean,
+launch in order, classify PASS/FAIL/BLOCKED, capture evidence, tear down, and
+verify host/VM cleanup. Never change source, retry, restart Steam, or change
+VM settings during a frozen attempt.
 
-Investigation and fixes are separate tasks. They must follow
-`docs/investigation-protocol.md`.
+## Implementation workflow
+
+1. Read the relevant module and its focused documentation before altering a
+   networking boundary.
+2. State the smallest coherent contract: role, authority, state ownership,
+   success evidence, and cleanup condition.
+3. Prefer an existing Godot/Netfox primitive before adding a factory wrapper.
+4. Keep domain code composed from normal nodes and components. A component is
+   worthwhile when it is a focused reusable capability, not a disguised
+   application controller.
+5. Make a focused change and update architecture/module documentation whenever
+   responsibility, maturity, or a supported workflow changes.
+6. Run the narrowest relevant build/test/check. Never describe an unrun test as
+   passing.
+7. Review the diff for authority leaks, cross-layer coupling, generated files,
+   and unrelated changes before staging.
+8. Commit only the task's files. Do not sweep the working tree into a commit.
+
+## Validation workflow
+
+For a source-only change, use the relevant compile/test set and
+`git diff --check`. For an export change, validate the actual export manifest
+and its runtime dependencies, not merely a directory left by an older build.
+
+For an A/B run, record these facts before launch:
+
+- immutable build id and manifest hash;
+- host/guest build parity;
+- required Steam accounts/session state;
+- scenario assertions, input/operator prompts, and each timeout;
+- artifact directory and test-owned process identities.
+
+At the end, retain the host and guest logs plus `result.json`. Report the
+terminal boundary, not a broad guess. `PASS` means all stated assertions and
+cleanup passed. `FAIL` means a stated assertion failed with evidence.
+`BLOCKED` means required external preconditions were unavailable before a
+meaningful attempt. A process opening is only startup evidence.
+
+## Failure layering
+
+Read failures from the bottom of the dependency stack upward:
+
+1. export/build identity and executable dependencies;
+2. Steam session and lobby membership;
+3. native Steam peer creation/handshake;
+4. Godot `MultiplayerAPI` connection events;
+5. GameFactory player/world lifecycle;
+6. Netfox topology, clocks, input/history, and rollback;
+7. scenario gameplay and visuals.
+
+Do not infer a Netfox defect from a transport failure, or infer a gameplay
+failure from an invalid scene UID that stopped world setup. Conversely, a
+harness's layer label is a checkpoint classification; inspect structured logs
+for the first concrete engine/application error too.
+
+## Hyper-V operator model
+
+The two-account path is host PC ↔ SSH/SCP ↔ GPU-P Hyper-V guest. The guest
+receives immutable releases under
+`C:\GameFactoryBuilds\releases\<manifest-hash>` and starts an interactive
+scheduled task so Godot has a real desktop/Steam session. It is not VirtualBox
+and must not rely on a shared-folder contract.
+
+The guest must use its designated Windows/Steam account. SSH verifies control
+and file transfer; it does not turn a noninteractive service session into a
+usable Steam/Godot graphics session. A missing DLL, blank renderer, or Steam
+client failure is an export/guest environment issue until artifacts prove
+otherwise.
+
+## Important don’ts
+
+- Do not change `NetworkWorld` global multiplayer authority to express player
+  ownership.
+- Do not use a peer id as a durable player id or Steam account identity.
+- Do not synchronize cosmetic material/color state through rollback.
+- Do not create a second prediction/rollback scheduler beside Netfox.
+- Do not use a generic event bus to hide direct ownership/lifecycle links.
+- Do not diagnose by repeatedly rerunning the same failed frozen scenario.
+- Do not restart Steam, reconfigure the VM, or alter source mid-attempt.
+- Do not treat manual visual observation as a replacement for asserted logs,
+  and do not dismiss visual observations when a scenario intentionally needs
+  operator input.
+- Do not call a feature proven until its documented acceptance contract passes.
+
+Diagnose layers in order: Steam lobby -> native peer -> Godot connection ->
+GameFactory lifecycle -> Netfox -> gameplay. An earlier failure is not
+evidence against a later layer; harness failure can be observability-only.
+
+## Deeper references
+
+Read only the deeper document relevant to the task:
+
+- ordinary scoped feature: this file;
+- Netfox/player work: also `docs/netfox-integration.md`;
+- Steam/session work: also `docs/steam-integration.md`;
+- runtime A/B work: also `docs/runtime-test-operator.md` and
+  `docs/testing-protocol.md`;
+- architecture boundary change: also `docs/architecture.md` and relevant ADRs;
+- investigation/fix boundary: `docs/investigation-protocol.md`.
