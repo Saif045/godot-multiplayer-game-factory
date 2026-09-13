@@ -25,6 +25,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
     private readonly RuntimeContext _runtime = new();
     private readonly Dictionary<NetworkObjectId, Vector3> _lastPositions = [];
     private SteamSession? _session;
+    private GodotSteamAdapter _adapter = null!;
     private PlayerLifecycle? _playerLifecycle;
     private NetworkWorld _world = null!;
     private string? _role;
@@ -45,8 +46,8 @@ public partial class NetfoxPlayer3DProbe : Node3D
             _role = arguments.Contains("--steam-host") ? "host" : "client";
             _world = GetNode<NetworkWorld>("NetworkWorld");
             SubscribeToMultiplayer();
-            GodotSteamAdapter adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
-            _session = new SteamSession(adapter, Multiplayer);
+            _adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
+            _session = new SteamSession(_adapter, Multiplayer);
             await _session.InitializeAsync();
             if (arguments.Contains("--steam-host")) await HostAsync();
             else if (TryReadLobby(arguments, out SteamLobbyId lobbyId)) await JoinAsync(lobbyId);
@@ -153,7 +154,7 @@ public partial class NetfoxPlayer3DProbe : Node3D
         MultiplayerPeer.ConnectionStatus status = peer.GetConnectionStatus();
         bool changed = _lastPeerConnectionStatus != status;
         _lastPeerConnectionStatus = status;
-        GameLog.Info("steam.peer_status", changed ? "changed" : "sampled", fields: new Dictionary<string, string?>
+        Dictionary<string, string?> fields = new()
         {
             ["reason"] = reason,
             ["role"] = _role,
@@ -161,7 +162,11 @@ public partial class NetfoxPlayer3DProbe : Node3D
             ["connection_status"] = status.ToString(),
             ["local_unique_id"] = Multiplayer.GetUniqueId().ToString(),
             ["lobby_id"] = _session?.Lobby?.Id.ToString()
-        });
+        };
+        if (_adapter is not null)
+            foreach ((string key, string? value) in _adapter.GetTransportDiagnostics(new PeerId(Multiplayer.GetUniqueId())))
+                fields[key] = value;
+        GameLog.Info("steam.peer_status", changed ? "changed" : "sampled", fields: fields);
     }
     private NetworkPlayer3D[] GetPlayers() => GetTree().GetNodesInGroup("network_player_3d").OfType<NetworkPlayer3D>().ToArray();
     private static bool HasExpectedAuthority(NetworkPlayer3D player) { NetworkObject networkObject = player.GetNetworkObject(); return player.GetMultiplayerAuthority() == PeerId.Server.Value && player.GetNode<Node>("Simulation").GetMultiplayerAuthority() == PeerId.Server.Value && player.GetNode<Node>("Input").GetMultiplayerAuthority() == networkObject.OwnerPeerId.Value; }

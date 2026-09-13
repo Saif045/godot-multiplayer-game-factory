@@ -240,6 +240,33 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         return true;
     }
 
+    /// <summary>
+    /// Returns a bounded view of the active lobby and the native peer mappings.
+    /// It is observability only: callers must not use it to make session policy.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?> GetTransportDiagnostics(PeerId localPeerId)
+    {
+        Dictionary<string, string?> diagnostics = new()
+        {
+            ["local_steam_id"] = IsInitialized ? LocalUser.Id.ToString() : null,
+            ["local_peer_id"] = localPeerId.ToString(),
+            ["active_peer_present"] = (_activePeer is not null).ToString()
+        };
+
+        if (CurrentLobby is not { } lobby) return diagnostics;
+
+        diagnostics["lobby_owner_steam_id"] = lobby.OwnerId.ToString();
+        diagnostics["lobby_member_steam_ids"] = string.Join(',', lobby.Members.Select(member => member.User.Id.ToString()));
+        diagnostics["lobby_member_count"] = lobby.Members.Count.ToString();
+        diagnostics["owner_peer_id"] = TryGetPeerForSteamUser(lobby.OwnerId, out PeerId ownerPeer)
+            ? ownerPeer.ToString()
+            : null;
+        diagnostics["local_peer_steam_id"] = TryGetSteamUserForPeer(localPeerId, out SteamUserId localPeerSteam)
+            ? localPeerSteam.ToString()
+            : null;
+        return diagnostics;
+    }
+
     public Task<MultiplayerPeer> CreateListenServerPeerAsync(SteamListenServerOptions options, CancellationToken cancellationToken = default)
     {
         SteamLobby lobby = RequireLobby();
