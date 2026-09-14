@@ -21,6 +21,7 @@ default_bus_layout="res://factory/shell/default_bus_layout.tres"
 
 [autoload]
 
+GameplayCueManager="*res://addons/GodotGAS/managers/gameplay_cue_manager.gd"
 MaaackStartUp="*res://addons/maaacks_game_template/base/nodes/config/start_up/start_up.tscn"
 SteamPlatform="*res://factory/steam/steam_platform.tscn"
 GameShell="*res://factory/shell/game_shell.tscn"
@@ -44,7 +45,7 @@ project/assembly_name="GameFactory"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/plugin_updater/plugin.cfg", "res://addons/maaacks_game_template/plugin.cfg", "res://addons/netfox.internals/plugin.cfg", "res://addons/netfox/plugin.cfg")
+enabled=PackedStringArray("res://addons/plugin_updater/plugin.cfg", "res://addons/maaacks_game_template/plugin.cfg", "res://addons/netfox.internals/plugin.cfg", "res://addons/netfox/plugin.cfg", "res://addons/GodotGAS/plugin.cfg")
 
 [input]
 

@@ -23,6 +23,10 @@ replacement for architecture or protocol documentation.
   The server computes world drop transforms and no carry state enters Netfox
   rollback. Both host and client have picked up, moved/jumped with, and
   dropped the item, with remote follow observed on the other peer.
+- GodotGAS v1.0.6 is vendored under `addons/GodotGAS` and its editor plugin is
+  enabled. GameFactory C# can create a real GodotGAS Ability System Component,
+  call it, and read state back through the scoped GAS adapter. Networked GAS is
+  not implemented or claimed yet.
 
 ## Latest runtime evidence
 
