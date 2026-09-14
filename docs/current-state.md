@@ -40,6 +40,11 @@ replacement for architecture or protocol documentation.
   position, velocity, and grounded state remain in rollback history. Both
   owners observed `6 → 18 → 6`, repeated activation was rejected while active,
   and the remote presentation retained the boost until authoritative expiry.
+- Sprint + Stamina is acceptance-proven: Netfox records only sprint intent;
+  server GodotGAS owns periodic Stamina drain/regeneration and the Sprinting /
+  Exhausted tags; normal replication projects Stamina and sprint permission.
+  Netfox reads that projection for `6 → 9 → 6` movement while Stamina and
+  exhaustion remain outside rollback history.
 
 ## Latest runtime evidence
 
@@ -73,6 +78,14 @@ in the same frame. No severe events occurred. Evidence:
 `artifacts/ab_tests/gas_speedboost_boundary_20260915_023000/result.json` and
 its captured host/client JSONL.
 
+Sprint + Stamina run `gas_stamina_sprint_20260915_024000` passed on immutable
+build `4f213f5`. Both owners drained `100 → 0` while sprinting, were exhausted
+at zero and returned to speed 6, regenerated after release, cleared exhaustion
+at 27, and sprinted again. Replicated client projections matched server state;
+no severe events occurred. Evidence:
+`artifacts/ab_tests/gas_stamina_sprint_20260915_024000/result.json` and its
+captured host/client JSONL.
+
 ## Transport history
 
 The free-play launch immediately preceding the accepted run reached lobby
@@ -90,6 +103,7 @@ evidence and investigate it only if it recurs.
 - `574b16d` — infrastructure-only A/B harness and operator workflow.
 - `0c265dd` — accepted server-authoritative networked GodotGAS Health slice.
 - `5bcfbaf` — accepted non-stackable GodotGAS SpeedBoost / Netfox boundary.
+- `4f213f5` — accepted GAS Sprint + Stamina / Netfox boundary.
 
 ## Working tree
 
