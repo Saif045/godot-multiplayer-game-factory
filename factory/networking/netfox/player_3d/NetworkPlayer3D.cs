@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using GameFactory.Networking.Objects;
+using GameFactory.Networking.Objects.Components.Replication;
 
 namespace GameFactory.Networking.Netfox.Player3D;
 
@@ -20,6 +21,14 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
         new Color("ffd166"),
         new Color("ef476f")
     ];
+
+    /// <summary>
+    /// Authoritative, non-rollback projection of the player's GAS health.
+    /// NetworkGasComponent owns mutation and local GAS mirroring; this host
+    /// property exists solely for the normal replication component.
+    /// </summary>
+    [Replicated(ReplicationMode.OnChange)]
+    public float GasHealth { get; set; } = 100f;
 
     public override void _Ready()
     {
