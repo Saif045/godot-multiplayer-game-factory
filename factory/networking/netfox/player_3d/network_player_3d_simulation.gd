@@ -14,6 +14,8 @@ func _rollback_tick(delta: float, _tick: int, _is_fresh: bool) -> void:
 	var desired := Vector3(move_input.x, 0.0, move_input.y)
 
 	var effective_move_speed: float = player.GasMoveSpeed
+	if input.sprint_held and player.GasIsSprinting:
+		effective_move_speed *= 1.5
 	player.velocity.x = desired.x * effective_move_speed
 	player.velocity.z = desired.z * effective_move_speed
 	if grounded and input.jump_pressed:

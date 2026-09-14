@@ -27,6 +27,8 @@ public partial class NetworkGasComponent : Node
     private Label3D _healthLabel = null!;
     private GasSnapshot? _lastAppliedSnapshot;
     private float _lastAppliedMoveSpeed = float.NaN;
+    private bool? _lastSprintIntent;
+    private string? _lastEffectiveMovementSignature;
     private double _cooldownReplicationElapsed;
 
     public override void _Ready()
@@ -61,12 +63,17 @@ public partial class NetworkGasComponent : Node
     public override void _Process(double delta)
     {
         if (Multiplayer.IsServer())
+        {
+            UpdateAuthoritativeSprintIntent();
             RefreshAuthoritativeCooldownProjection(delta);
+        }
 
         if (Multiplayer.IsServer() && _gas.ConsumeLifecycleChange())
         {
             PublishAuthoritativeSnapshot("effect_lifecycle_changed");
         }
+
+        LogEffectiveNetfoxMovementProjection();
 
         if (!IsLocalOwner())
             return;
@@ -94,6 +101,36 @@ public partial class NetworkGasComponent : Node
 
         _cooldownReplicationElapsed = 0d;
         PublishAuthoritativeSnapshot("cooldown_sample");
+    }
+
+    private void UpdateAuthoritativeSprintIntent()
+    {
+        bool sprintHeld = _playerHost.GetNode<Node>("Input").Get("sprint_held").AsBool();
+        _gas.SetSprintIntent(sprintHeld);
+        if (_lastSprintIntent == sprintHeld)
+            return;
+
+        _lastSprintIntent = sprintHeld;
+        Log("sprint_input_state", new Dictionary<string, string?> { ["sprint_held"] = sprintHeld.ToString() });
+    }
+
+    private void LogEffectiveNetfoxMovementProjection()
+    {
+        bool sprintHeld = _playerHost.GetNode<Node>("Input").Get("sprint_held").AsBool();
+        bool sprintAllowed = _playerHost.GasIsSprinting;
+        float effectiveSpeed = _playerHost.GasMoveSpeed * (sprintHeld && sprintAllowed ? 1.5f : 1f);
+        string signature = $"{sprintHeld}:{sprintAllowed}:{_playerHost.GasIsExhausted}:{effectiveSpeed:F3}";
+        if (_lastEffectiveMovementSignature == signature)
+            return;
+
+        _lastEffectiveMovementSignature = signature;
+        Log("netfox_effective_move_speed", new Dictionary<string, string?>
+        {
+            ["sprint_held"] = sprintHeld.ToString(),
+            ["sprint_allowed"] = sprintAllowed.ToString(),
+            ["is_exhausted"] = _playerHost.GasIsExhausted.ToString(),
+            ["effective_move_speed"] = effectiveSpeed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+        });
     }
 
     [Rpc(
@@ -260,6 +297,9 @@ public partial class NetworkGasComponent : Node
         _playerHost.GasIsFortified = snapshot.IsFortified;
         _playerHost.GasFortifyCooldownRemaining = snapshot.FortifyCooldownRemaining;
         _playerHost.GasMoveSpeed = _gas.GetMoveSpeed();
+        _playerHost.GasStamina = snapshot.Stamina;
+        _playerHost.GasIsExhausted = snapshot.IsExhausted;
+        _playerHost.GasIsSprinting = snapshot.IsSprinting;
         UpdateHealthLabel(snapshot);
         Log("authoritative_snapshot", new Dictionary<string, string?>
         {
@@ -267,6 +307,9 @@ public partial class NetworkGasComponent : Node
             ["is_fortified"] = snapshot.IsFortified.ToString(),
             ["fortify_cooldown_remaining"] = snapshot.FortifyCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["move_speed"] = _playerHost.GasMoveSpeed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["stamina"] = snapshot.Stamina.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["is_exhausted"] = snapshot.IsExhausted.ToString(),
+            ["is_sprinting"] = snapshot.IsSprinting.ToString(),
             ["reason"] = reason
         });
     }
@@ -282,11 +325,17 @@ public partial class NetworkGasComponent : Node
         GasSnapshot snapshot = new(
             _playerHost.GasHealth,
             _playerHost.GasIsFortified,
-            _playerHost.GasFortifyCooldownRemaining);
+            _playerHost.GasFortifyCooldownRemaining,
+            _playerHost.GasStamina,
+            _playerHost.GasIsExhausted,
+            _playerHost.GasIsSprinting);
         if (_lastAppliedSnapshot is GasSnapshot previous &&
             Mathf.IsEqualApprox(previous.Health, snapshot.Health) &&
             previous.IsFortified == snapshot.IsFortified &&
             Mathf.IsEqualApprox(previous.FortifyCooldownRemaining, snapshot.FortifyCooldownRemaining) &&
+            Mathf.IsEqualApprox(previous.Stamina, snapshot.Stamina) &&
+            previous.IsExhausted == snapshot.IsExhausted &&
+            previous.IsSprinting == snapshot.IsSprinting &&
             Mathf.IsEqualApprox(_playerHost.GasMoveSpeed, _lastAppliedMoveSpeed))
             return;
 
@@ -300,6 +349,9 @@ public partial class NetworkGasComponent : Node
             ["is_fortified"] = snapshot.IsFortified.ToString(),
             ["fortify_cooldown_remaining"] = snapshot.FortifyCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["move_speed"] = _playerHost.GasMoveSpeed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["stamina"] = snapshot.Stamina.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["is_exhausted"] = snapshot.IsExhausted.ToString(),
+            ["is_sprinting"] = snapshot.IsSprinting.ToString(),
             ["source"] = source
         });
     }
@@ -330,6 +382,8 @@ public partial class NetworkGasComponent : Node
                 ? $"COOLDOWN ({snapshot.FortifyCooldownRemaining:F1}s)"
                 : string.Empty;
         _healthLabel.Text = $"HP {Mathf.RoundToInt(snapshot.Health)}" +
+            $"\nSTAMINA {Mathf.RoundToInt(snapshot.Stamina)}" +
+            (snapshot.IsExhausted ? " EXHAUSTED" : snapshot.IsSprinting ? " SPRINTING" : string.Empty) +
             (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}") +
             (_playerHost.GasMoveSpeed > 6f
                 ? $"\nSPEED BOOST: {_playerHost.GasMoveSpeed:F0} (x{_playerHost.GasMoveSpeed / 6f:F1})"

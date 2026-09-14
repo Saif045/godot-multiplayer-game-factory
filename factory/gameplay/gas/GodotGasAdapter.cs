@@ -16,9 +16,13 @@ public sealed class GodotGasAdapter
     private static readonly StringName ApplyFortifyMethod = "apply_fortify";
     private static readonly StringName ApplySpeedBoostMethod = "apply_speed_boost";
     private static readonly StringName GetMoveSpeedMethod = "get_move_speed";
+    private static readonly StringName GetStaminaMethod = "get_stamina";
+    private static readonly StringName IsExhaustedMethod = "is_exhausted";
+    private static readonly StringName IsSprintingMethod = "is_sprinting";
+    private static readonly StringName SetSprintIntentMethod = "set_sprint_intent";
     private static readonly StringName IsSelfDamageGrantedMethod = "is_self_damage_granted";
     private static readonly StringName DidObserveSelfDamageChangeMethod = "did_observe_self_damage_change";
-    private static readonly StringName ApplyHealthSnapshotMethod = "apply_health_snapshot";
+    private static readonly StringName ApplySnapshotMethod = "apply_snapshot";
     private static readonly StringName IsFortifiedMethod = "is_fortified";
     private static readonly StringName GetFortifyCooldownRemainingMethod = "get_fortify_cooldown_remaining";
     private static readonly StringName ConsumeLifecycleChangeMethod = "consume_lifecycle_change";
@@ -58,15 +62,22 @@ public sealed class GodotGasAdapter
     public bool ApplyFortify() => _component.Call(ApplyFortifyMethod).AsBool();
     public bool ApplySpeedBoost() => _component.Call(ApplySpeedBoostMethod).AsBool();
     public float GetMoveSpeed() => _component.Call(GetMoveSpeedMethod).AsSingle();
+    public float GetStamina() => _component.Call(GetStaminaMethod).AsSingle();
+    public bool IsExhausted() => _component.Call(IsExhaustedMethod).AsBool();
+    public bool IsSprinting() => _component.Call(IsSprintingMethod).AsBool();
+    public void SetSprintIntent(bool held) => _component.Call(SetSprintIntentMethod, held);
 
     public GasSnapshot CaptureSnapshot() => new(
         GetHealth(),
         _component.Call(IsFortifiedMethod).AsBool(),
-        _component.Call(GetFortifyCooldownRemainingMethod).AsSingle());
+        _component.Call(GetFortifyCooldownRemainingMethod).AsSingle(),
+        GetStamina(),
+        IsExhausted(),
+        IsSprinting());
 
     public void ApplySnapshot(GasSnapshot snapshot)
     {
-        _component.Call(ApplyHealthSnapshotMethod, snapshot.Health);
+        _component.Call(ApplySnapshotMethod, snapshot.Health, snapshot.Stamina);
     }
 
     public bool ConsumeLifecycleChange() =>

@@ -4,4 +4,7 @@ namespace GameFactory.Gameplay.Gas;
 public readonly record struct GasSnapshot(
     float Health,
     bool IsFortified = false,
-    float FortifyCooldownRemaining = 0f);
+    float FortifyCooldownRemaining = 0f,
+    float Stamina = 100f,
+    bool IsExhausted = false,
+    bool IsSprinting = false);

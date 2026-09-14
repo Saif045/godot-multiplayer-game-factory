@@ -37,6 +37,12 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     public float GasFortifyCooldownRemaining { get; set; }
     [Replicated(ReplicationMode.OnChange)]
     public float GasMoveSpeed { get; set; } = 6f;
+    [Replicated(ReplicationMode.OnChange)]
+    public float GasStamina { get; set; } = 100f;
+    [Replicated(ReplicationMode.OnChange)]
+    public bool GasIsExhausted { get; set; }
+    [Replicated(ReplicationMode.OnChange)]
+    public bool GasIsSprinting { get; set; }
 
     public override void _Ready()
     {

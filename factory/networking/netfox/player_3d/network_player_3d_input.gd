@@ -4,6 +4,7 @@ extends Node
 # RollbackSynchronizer; simulation never reads Godot Input directly.
 var movement: Vector2 = Vector2.ZERO
 var jump_pressed := false
+var sprint_held := false
 var _jump_queued := false
 
 func _ready() -> void:
@@ -22,6 +23,7 @@ func _gather_input() -> void:
 		return
 
 	movement = Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+	sprint_held = Input.is_action_pressed("sprint")
 	# Input is recorded per Netfox tick. Queue the physical press until that
 	# boundary, then expose a single-tick pulse for rollback/replay.
 	jump_pressed = _jump_queued

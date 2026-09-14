@@ -68,7 +68,7 @@ shape = SubResource("CapsuleShape3D_player")
 script = ExtResource("7_rollback")
 enable_prediction = true
 state_properties = [":position", ":velocity", "Simulation:grounded"]
-input_properties = ["Input:movement", "Input:jump_pressed"]
+input_properties = ["Input:movement", "Input:jump_pressed", "Input:sprint_held"]
 enable_input_broadcast = false
 
 [node name="TickInterpolator" type="Node" parent="."]
