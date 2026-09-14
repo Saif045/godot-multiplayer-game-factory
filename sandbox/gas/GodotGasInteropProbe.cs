@@ -31,12 +31,20 @@ public partial class GodotGasInteropProbe : Node
             GasSnapshot fortifyExpired = gas.CaptureSnapshot();
             await ToSignal(GetTree().CreateTimer(2.25), SceneTreeTimer.SignalName.Timeout);
             GasSnapshot cooldownExpired = gas.CaptureSnapshot();
+            bool speedBoostActivated = gas.ApplySpeedBoost();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            float boostedMoveSpeed = gas.GetMoveSpeed();
+            bool speedBoostBlockedWhileActive = !gas.ApplySpeedBoost();
+            await ToSignal(GetTree().CreateTimer(3.25), SceneTreeTimer.SignalName.Timeout);
+            float restoredMoveSpeed = gas.GetMoveSpeed();
             if (initialHealth != 100 || !abilityGranted || resultingHealth != 75 || !attributeChangedObserved ||
                 snapshot.Health != 75 || reconstructedHealth != 75 || !fortifyActivated ||
                 !fortifyActive.IsFortified || fortifyActive.FortifyCooldownRemaining <= 0f ||
                 !cooldownBlockedRepeat || fortifyExpired.IsFortified ||
                 fortifyExpired.FortifyCooldownRemaining <= 0f ||
-                cooldownExpired.FortifyCooldownRemaining > 0.05f)
+                cooldownExpired.FortifyCooldownRemaining > 0.05f ||
+                !speedBoostActivated || !Mathf.IsEqualApprox(boostedMoveSpeed, 18f) ||
+                !speedBoostBlockedWhileActive || !Mathf.IsEqualApprox(restoredMoveSpeed, 6f))
                 throw new InvalidOperationException("Canonical GodotGAS effect lifecycle did not complete.");
 
             GameLog.Info("gas.interop", "probe_passed", fields: new Dictionary<string, string?>
@@ -53,6 +61,10 @@ public partial class GodotGasInteropProbe : Node
                 , ["repeat_blocked_by_cooldown"] = cooldownBlockedRepeat.ToString()
                 , ["fortify_expired"] = (!fortifyExpired.IsFortified).ToString()
                 , ["cooldown_cleared"] = (cooldownExpired.FortifyCooldownRemaining <= 0.05f).ToString()
+                , ["speed_boost_activated"] = speedBoostActivated.ToString()
+                , ["boosted_move_speed"] = boostedMoveSpeed.ToString("F1")
+                , ["speed_boost_blocked_while_active"] = speedBoostBlockedWhileActive.ToString()
+                , ["restored_move_speed"] = restoredMoveSpeed.ToString("F1")
             });
             GetTree().Quit();
         }
