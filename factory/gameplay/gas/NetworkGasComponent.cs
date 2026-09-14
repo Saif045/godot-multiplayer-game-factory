@@ -326,7 +326,10 @@ public partial class NetworkGasComponent : Node
                 ? $"COOLDOWN ({snapshot.FortifyCooldownRemaining:F1}s)"
                 : string.Empty;
         _healthLabel.Text = $"HP {Mathf.RoundToInt(snapshot.Health)}" +
-            (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}");
+            (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}") +
+            (_playerHost.GasMoveSpeed > 6f
+                ? $"\nSPEED BOOST x{_playerHost.GasMoveSpeed / 6f:F1}"
+                : string.Empty);
     }
 
     private void Log(string eventName, IReadOnlyDictionary<string, string?> fields)
