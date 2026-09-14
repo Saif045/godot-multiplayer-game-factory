@@ -21,6 +21,9 @@ func _ready() -> void:
 func get_health() -> float:
 	return _asc.get_attribute("Health").current_value
 
+func apply_health_snapshot(health: float) -> void:
+	_asc.initialize_attribute_overrides({"Health": health})
+
 func apply_self_damage() -> float:
 	_self_damage.try_activate()
 	return get_health()

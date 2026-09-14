@@ -15,6 +15,7 @@ public sealed class GodotGasAdapter
     private static readonly StringName ApplySelfDamageMethod = "apply_self_damage";
     private static readonly StringName IsSelfDamageGrantedMethod = "is_self_damage_granted";
     private static readonly StringName DidObserveSelfDamageChangeMethod = "did_observe_self_damage_change";
+    private static readonly StringName ApplyHealthSnapshotMethod = "apply_health_snapshot";
 
     private readonly Node _component;
 
@@ -47,4 +48,9 @@ public sealed class GodotGasAdapter
 
     public bool DidObserveSelfDamageChange() =>
         _component.Call(DidObserveSelfDamageChangeMethod).AsBool();
+
+    public GasSnapshot CaptureSnapshot() => new(GetHealth());
+
+    public void ApplySnapshot(GasSnapshot snapshot) =>
+        _component.Call(ApplyHealthSnapshotMethod, snapshot.Health);
 }

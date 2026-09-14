@@ -19,7 +19,12 @@ public partial class GodotGasInteropProbe : Node
             bool abilityGranted = gas.IsSelfDamageGranted();
             int resultingHealth = gas.ApplySelfDamage();
             bool attributeChangedObserved = gas.DidObserveSelfDamageChange();
-            if (initialHealth != 100 || !abilityGranted || resultingHealth != 75 || !attributeChangedObserved)
+            GasSnapshot snapshot = gas.CaptureSnapshot();
+            GodotGasAdapter reconstructed = GodotGasAdapter.Create(this);
+            reconstructed.ApplySnapshot(snapshot);
+            int reconstructedHealth = reconstructed.GetHealth();
+            if (initialHealth != 100 || !abilityGranted || resultingHealth != 75 || !attributeChangedObserved ||
+                snapshot.Health != 75 || reconstructedHealth != 75)
                 throw new InvalidOperationException("Canonical GodotGAS health ability lifecycle did not complete.");
 
             GameLog.Info("gas.interop", "probe_passed", fields: new Dictionary<string, string?>
@@ -29,6 +34,8 @@ public partial class GodotGasInteropProbe : Node
                 ["ability_granted"] = abilityGranted.ToString(),
                 ["resulting_health"] = resultingHealth.ToString(),
                 ["attribute_changed_observed"] = attributeChangedObserved.ToString()
+                , ["snapshot_health"] = snapshot.Health.ToString()
+                , ["reconstructed_health"] = reconstructedHealth.ToString()
             });
             GetTree().Quit();
         }
