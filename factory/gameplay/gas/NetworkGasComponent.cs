@@ -26,6 +26,7 @@ public partial class NetworkGasComponent : Node
     private GodotGasAdapter _gas = null!;
     private Label3D _healthLabel = null!;
     private GasSnapshot? _lastAppliedSnapshot;
+    private float _lastAppliedMoveSpeed = float.NaN;
     private double _cooldownReplicationElapsed;
 
     public override void _Ready()
@@ -285,17 +286,20 @@ public partial class NetworkGasComponent : Node
         if (_lastAppliedSnapshot is GasSnapshot previous &&
             Mathf.IsEqualApprox(previous.Health, snapshot.Health) &&
             previous.IsFortified == snapshot.IsFortified &&
-            Mathf.IsEqualApprox(previous.FortifyCooldownRemaining, snapshot.FortifyCooldownRemaining))
+            Mathf.IsEqualApprox(previous.FortifyCooldownRemaining, snapshot.FortifyCooldownRemaining) &&
+            Mathf.IsEqualApprox(_playerHost.GasMoveSpeed, _lastAppliedMoveSpeed))
             return;
 
         _gas.ApplySnapshot(snapshot);
         _lastAppliedSnapshot = snapshot;
+        _lastAppliedMoveSpeed = _playerHost.GasMoveSpeed;
         UpdateHealthLabel(snapshot);
         Log("replicated_snapshot_applied", new Dictionary<string, string?>
         {
             ["health"] = snapshot.Health.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["is_fortified"] = snapshot.IsFortified.ToString(),
             ["fortify_cooldown_remaining"] = snapshot.FortifyCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["move_speed"] = _playerHost.GasMoveSpeed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["source"] = source
         });
     }
@@ -328,8 +332,15 @@ public partial class NetworkGasComponent : Node
         _healthLabel.Text = $"HP {Mathf.RoundToInt(snapshot.Health)}" +
             (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}") +
             (_playerHost.GasMoveSpeed > 6f
-                ? $"\nSPEED BOOST x{_playerHost.GasMoveSpeed / 6f:F1}"
+                ? $"\nSPEED BOOST: {_playerHost.GasMoveSpeed:F0} (x{_playerHost.GasMoveSpeed / 6f:F1})"
                 : string.Empty);
+
+        // Presentation only: GAS remains the authoritative source and Netfox
+        // consumes the replicated scalar. This makes the active state obvious.
+        Node3D visualRoot = _playerHost.GetNode<Node3D>("Presentation/VisualRoot");
+        visualRoot.Scale = _playerHost.GasMoveSpeed > 6f
+            ? Vector3.One * 1.35f
+            : Vector3.One;
     }
 
     private void Log(string eventName, IReadOnlyDictionary<string, string?> fields)

@@ -12,7 +12,8 @@ func _ready() -> void:
 	var modifier := GameplayEffectModifier.new()
 	modifier.attribute_name = "MoveSpeed"
 	modifier.operation = GameplayEffectModifier.Operation.ADD
-	modifier.magnitude = 6.0
+	# Base movement is 6. A +12 modifier produces an unmistakable 3x boost.
+	modifier.magnitude = 12.0
 	speed_effect.modifiers = [modifier]
 	super._ready()
 
