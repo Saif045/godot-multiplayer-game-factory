@@ -17,13 +17,15 @@ namespace GameFactory.Gameplay.Gas;
 public partial class NetworkGasComponent : Node
 {
     private const string SelfDamageAction = "self_damage";
+    private const string FortifyAction = "fortify";
 
     private NetworkPlayer3D _playerHost = null!;
     private NetworkObject _player = null!;
     private INetworkReplication _replication = null!;
     private GodotGasAdapter _gas = null!;
     private Label3D _healthLabel = null!;
-    private float _lastAppliedHealth = float.NaN;
+    private GasSnapshot? _lastAppliedSnapshot;
+    private double _cooldownReplicationElapsed;
 
     public override void _Ready()
     {
@@ -56,21 +58,38 @@ public partial class NetworkGasComponent : Node
 
     public override void _Process(double delta)
     {
-        if (!IsLocalOwner() || !Input.IsActionJustPressed(SelfDamageAction))
+        if (Multiplayer.IsServer())
+            RefreshAuthoritativeCooldownProjection(delta);
+
+        if (Multiplayer.IsServer() && _gas.ConsumeLifecycleChange())
+        {
+            PublishAuthoritativeSnapshot("effect_lifecycle_changed");
+        }
+
+        if (!IsLocalOwner())
             return;
 
-        Log("activation_requested", new Dictionary<string, string?>
-        {
-            ["ability"] = "self_damage"
-        });
+        if (Input.IsActionJustPressed(SelfDamageAction))
+            RequestSelfDamage();
 
-        if (Multiplayer.IsServer())
+        if (Input.IsActionJustPressed(FortifyAction))
+            RequestFortify();
+    }
+
+    private void RefreshAuthoritativeCooldownProjection(double delta)
+    {
+        if (_gas.CaptureSnapshot().FortifyCooldownRemaining <= 0f)
         {
-            HandleActivation(PeerId.Server);
+            _cooldownReplicationElapsed = 0d;
             return;
         }
 
-        RpcId(PeerId.Server.Value, MethodName.RequestSelfDamageRpc);
+        _cooldownReplicationElapsed += delta;
+        if (_cooldownReplicationElapsed < 0.25d)
+            return;
+
+        _cooldownReplicationElapsed = 0d;
+        PublishAuthoritativeSnapshot("cooldown_sample");
     }
 
     [Rpc(
@@ -93,6 +112,55 @@ public partial class NetworkGasComponent : Node
         }
 
         HandleActivation(new PeerId(sender));
+    }
+
+    [Rpc(
+        MultiplayerApi.RpcMode.AnyPeer,
+        CallLocal = false,
+        TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void RequestFortifyRpc()
+    {
+        if (!Multiplayer.IsServer())
+            return;
+
+        long sender = Multiplayer.GetRemoteSenderId();
+        if (sender <= 0)
+        {
+            Log("activation_rejected", new Dictionary<string, string?>
+            {
+                ["ability"] = "fortify",
+                ["reason"] = "invalid_rpc_sender"
+            });
+            return;
+        }
+
+        HandleFortifyActivation(new PeerId(sender));
+    }
+
+    private void RequestSelfDamage()
+    {
+        Log("activation_requested", new Dictionary<string, string?>
+        {
+            ["ability"] = "self_damage"
+        });
+
+        if (Multiplayer.IsServer())
+            HandleActivation(PeerId.Server);
+        else
+            RpcId(PeerId.Server.Value, MethodName.RequestSelfDamageRpc);
+    }
+
+    private void RequestFortify()
+    {
+        Log("activation_requested", new Dictionary<string, string?>
+        {
+            ["ability"] = "fortify"
+        });
+
+        if (Multiplayer.IsServer())
+            HandleFortifyActivation(PeerId.Server);
+        else
+            RpcId(PeerId.Server.Value, MethodName.RequestFortifyRpc);
     }
 
     private void HandleActivation(PeerId sender)
@@ -119,14 +187,54 @@ public partial class NetworkGasComponent : Node
         PublishAuthoritativeSnapshot("self_damage");
     }
 
+    private void HandleFortifyActivation(PeerId sender)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may activate Fortify.");
+
+        if (_player.OwnerPeerId != sender)
+        {
+            Log("activation_rejected", new Dictionary<string, string?>
+            {
+                ["ability"] = "fortify",
+                ["requesting_peer_id"] = sender.ToString(),
+                ["reason"] = "sender_is_not_player_owner"
+            });
+            return;
+        }
+
+        if (!_gas.ApplyFortify())
+        {
+            Log("activation_rejected", new Dictionary<string, string?>
+            {
+                ["ability"] = "fortify",
+                ["requesting_peer_id"] = sender.ToString(),
+                ["reason"] = "ability_not_activated"
+            });
+            return;
+        }
+
+        _gas.ConsumeLifecycleChange();
+        Log("activation_accepted", new Dictionary<string, string?>
+        {
+            ["ability"] = "fortify",
+            ["requesting_peer_id"] = sender.ToString()
+        });
+        PublishAuthoritativeSnapshot("fortify_activated");
+    }
+
     private void PublishAuthoritativeSnapshot(string reason)
     {
         GasSnapshot snapshot = _gas.CaptureSnapshot();
         _playerHost.GasHealth = snapshot.Health;
-        UpdateHealthLabel(snapshot.Health);
+        _playerHost.GasIsFortified = snapshot.IsFortified;
+        _playerHost.GasFortifyCooldownRemaining = snapshot.FortifyCooldownRemaining;
+        UpdateHealthLabel(snapshot);
         Log("authoritative_snapshot", new Dictionary<string, string?>
         {
             ["health"] = snapshot.Health.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["is_fortified"] = snapshot.IsFortified.ToString(),
+            ["fortify_cooldown_remaining"] = snapshot.FortifyCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["reason"] = reason
         });
     }
@@ -139,16 +247,24 @@ public partial class NetworkGasComponent : Node
 
     private void ApplyReplicatedSnapshot(string source)
     {
-        GasSnapshot snapshot = new(_playerHost.GasHealth);
-        if (Mathf.IsEqualApprox(_lastAppliedHealth, snapshot.Health))
+        GasSnapshot snapshot = new(
+            _playerHost.GasHealth,
+            _playerHost.GasIsFortified,
+            _playerHost.GasFortifyCooldownRemaining);
+        if (_lastAppliedSnapshot is GasSnapshot previous &&
+            Mathf.IsEqualApprox(previous.Health, snapshot.Health) &&
+            previous.IsFortified == snapshot.IsFortified &&
+            Mathf.IsEqualApprox(previous.FortifyCooldownRemaining, snapshot.FortifyCooldownRemaining))
             return;
 
         _gas.ApplySnapshot(snapshot);
-        _lastAppliedHealth = snapshot.Health;
-        UpdateHealthLabel(snapshot.Health);
+        _lastAppliedSnapshot = snapshot;
+        UpdateHealthLabel(snapshot);
         Log("replicated_snapshot_applied", new Dictionary<string, string?>
         {
             ["health"] = snapshot.Health.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["is_fortified"] = snapshot.IsFortified.ToString(),
+            ["fortify_cooldown_remaining"] = snapshot.FortifyCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["source"] = source
         });
     }
@@ -171,9 +287,15 @@ public partial class NetworkGasComponent : Node
         return label;
     }
 
-    private void UpdateHealthLabel(float health)
+    private void UpdateHealthLabel(GasSnapshot snapshot)
     {
-        _healthLabel.Text = $"HP {Mathf.RoundToInt(health)}";
+        string fortify = snapshot.IsFortified
+            ? $"FORTIFIED ({snapshot.FortifyCooldownRemaining:F1}s)"
+            : snapshot.FortifyCooldownRemaining > 0f
+                ? $"COOLDOWN ({snapshot.FortifyCooldownRemaining:F1}s)"
+                : string.Empty;
+        _healthLabel.Text = $"HP {Mathf.RoundToInt(snapshot.Health)}" +
+            (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}");
     }
 
     private void Log(string eventName, IReadOnlyDictionary<string, string?> fields)

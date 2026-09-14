@@ -13,9 +13,13 @@ public sealed class GodotGasAdapter
         "res://factory/gameplay/gas/godot_gas_component.tscn";
     private static readonly StringName GetHealthMethod = "get_health";
     private static readonly StringName ApplySelfDamageMethod = "apply_self_damage";
+    private static readonly StringName ApplyFortifyMethod = "apply_fortify";
     private static readonly StringName IsSelfDamageGrantedMethod = "is_self_damage_granted";
     private static readonly StringName DidObserveSelfDamageChangeMethod = "did_observe_self_damage_change";
     private static readonly StringName ApplyHealthSnapshotMethod = "apply_health_snapshot";
+    private static readonly StringName IsFortifiedMethod = "is_fortified";
+    private static readonly StringName GetFortifyCooldownRemainingMethod = "get_fortify_cooldown_remaining";
+    private static readonly StringName ConsumeLifecycleChangeMethod = "consume_lifecycle_change";
 
     private readonly Node _component;
 
@@ -49,8 +53,18 @@ public sealed class GodotGasAdapter
     public bool DidObserveSelfDamageChange() =>
         _component.Call(DidObserveSelfDamageChangeMethod).AsBool();
 
-    public GasSnapshot CaptureSnapshot() => new(GetHealth());
+    public bool ApplyFortify() => _component.Call(ApplyFortifyMethod).AsBool();
 
-    public void ApplySnapshot(GasSnapshot snapshot) =>
+    public GasSnapshot CaptureSnapshot() => new(
+        GetHealth(),
+        _component.Call(IsFortifiedMethod).AsBool(),
+        _component.Call(GetFortifyCooldownRemainingMethod).AsSingle());
+
+    public void ApplySnapshot(GasSnapshot snapshot)
+    {
         _component.Call(ApplyHealthSnapshotMethod, snapshot.Health);
+    }
+
+    public bool ConsumeLifecycleChange() =>
+        _component.Call(ConsumeLifecycleChangeMethod).AsBool();
 }

@@ -3,11 +3,14 @@ extends Node
 
 const HealthAttributeSetScript = preload("res://factory/gameplay/gas/health_attribute_set.gd")
 const SelfDamageAbilityScript = preload("res://factory/gameplay/gas/self_damage_ability.gd")
+const FortifyAbilityScript = preload("res://factory/gameplay/gas/fortify_ability.gd")
 
 var _asc: AbilitySystemComponent
 var _self_damage: GameplayAbility
+var _fortify: GameplayAbility
 var _last_old_health: float = -1.0
 var _last_new_health: float = -1.0
+var _lifecycle_changed := false
 
 func _ready() -> void:
 	_asc = AbilitySystemComponent.new()
@@ -15,8 +18,12 @@ func _ready() -> void:
 	add_child(_asc)
 	_asc.initialize_attribute_overrides({"Health": 100.0})
 	_asc.attribute_changed.connect(_on_attribute_changed)
+	_asc.active_effect_added.connect(_on_active_effect_lifecycle)
+	_asc.active_effect_removed.connect(_on_active_effect_lifecycle)
 	_self_damage = SelfDamageAbilityScript.new()
 	_asc.grant_ability(_self_damage)
+	_fortify = FortifyAbilityScript.new()
+	_asc.grant_ability(_fortify)
 
 func get_health() -> float:
 	return _asc.get_attribute("Health").current_value
@@ -28,6 +35,23 @@ func apply_self_damage() -> float:
 	_self_damage.try_activate()
 	return get_health()
 
+func apply_fortify() -> bool:
+	if not _asc.can_activate_ability(_fortify, true):
+		return false
+	_fortify.try_activate()
+	return true
+
+func is_fortified() -> bool:
+	return _asc.has_tag_exact(&"State.Fortified")
+
+func get_fortify_cooldown_remaining() -> float:
+	return _asc.get_tag_duration_remaining(&"Cooldown.Fortify")
+
+func consume_lifecycle_change() -> bool:
+	var changed := _lifecycle_changed
+	_lifecycle_changed = false
+	return changed
+
 func is_self_damage_granted() -> bool:
 	return _self_damage.owner_asc == _asc
 
@@ -38,3 +62,8 @@ func _on_attribute_changed(attribute_name: String, old_value: float, new_value: 
 	if attribute_name == "Health":
 		_last_old_health = old_value
 		_last_new_health = new_value
+
+func _on_active_effect_lifecycle(active_effect: ActiveGameplayEffect) -> void:
+	var effect := active_effect.get_effect_def()
+	if &"State.Fortified" in effect.granted_tags or &"Cooldown.Fortify" in effect.granted_tags:
+		_lifecycle_changed = true

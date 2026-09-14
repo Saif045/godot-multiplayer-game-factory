@@ -30,6 +30,12 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     [Replicated(ReplicationMode.OnChange)]
     public float GasHealth { get; set; } = 100f;
 
+    [Replicated(ReplicationMode.OnChange)]
+    public bool GasIsFortified { get; set; }
+
+    [Replicated(ReplicationMode.OnChange)]
+    public float GasFortifyCooldownRemaining { get; set; }
+
     public override void _Ready()
     {
         ApplyOwnerColor();
