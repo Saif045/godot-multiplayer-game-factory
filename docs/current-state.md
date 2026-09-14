@@ -25,8 +25,13 @@ replacement for architecture or protocol documentation.
   dropped the item, with remote follow observed on the other peer.
 - GodotGAS v1.0.6 is vendored under `addons/GodotGAS` and its editor plugin is
   enabled. GameFactory C# can create a real GodotGAS Ability System Component,
-  call it, and read state back through the scoped GAS adapter. Networked GAS is
-  not implemented or claimed yet.
+  call it, and read state back through the scoped GAS adapter.
+- Networked GodotGAS Health is acceptance-proven: the represented owner makes a
+  reliable, no-payload request; the server validates `OwnerPeerId`, activates
+  the real `SelfDamage` ability, captures `GasSnapshot(Health)`, and replicates
+  the ordinary authoritative projection. Non-server ASCs apply that snapshot
+  as a local mirror. The host does not replay its own effect and Netfox remains
+  outside the slice.
 
 ## Latest runtime evidence
 
@@ -40,6 +45,16 @@ replicated holder state, remote-follow observations, and no severe events.
 
 Evidence: `artifacts/ab_tests/carry_freeplay_retry_20260914_193933/result.json`,
 its captured client JSONL, and the corresponding host run JSONL.
+
+Networked GAS Health run `gas_network_activation_retry_20260914_211000` passed
+infrastructure, topology, manifest parity, and cleanup on immutable build
+`gf_0c265dd3_2ae74507f072` (`0c265dd`). The operator confirmed both players'
+HP changes on both views through 0. Structured logs prove server-only real
+GodotGAS activation after owner validation, authoritative
+`GasSnapshot(Health)` publication, non-server snapshot mirror application, no
+host double-apply, no rejected requests, and no severe events. Evidence:
+`artifacts/ab_tests/gas_network_activation_retry_20260914_211000/result.json`
+and its captured host/client JSONL.
 
 ## Transport history
 
@@ -56,6 +71,7 @@ evidence and investigate it only if it recurs.
 - `240d772` — carry acceptance checkpoint sequencing (superseded for normal
   free play by the infrastructure-only harness).
 - `574b16d` — infrastructure-only A/B harness and operator workflow.
+- `0c265dd` — accepted server-authoritative networked GodotGAS Health slice.
 
 ## Working tree
 
