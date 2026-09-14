@@ -72,7 +72,6 @@ client speed projections that remain at `18` instead of being rollback-reset
 in the same frame. No severe events occurred. Evidence:
 `artifacts/ab_tests/gas_speedboost_boundary_20260915_023000/result.json` and
 its captured host/client JSONL.
-and its captured host/client JSONL.
 
 ## Transport history
 
