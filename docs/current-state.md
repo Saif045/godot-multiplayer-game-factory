@@ -32,6 +32,14 @@ replacement for architecture or protocol documentation.
   the ordinary authoritative projection. Non-server ASCs apply that snapshot
   as a local mirror. The host does not replay its own effect and Netfox remains
   outside the slice.
+- The first GodotGAS × Netfox boundary is acceptance-proven through the
+  temporary three-second SpeedBoost: canonical server GodotGAS owns a
+  non-stackable `State.SpeedBoosted` effect and publishes the ordinary
+  `GasMoveSpeed` projection. Netfox reads that current projection to calculate
+  velocity, but never owns or restores it as rollback state; only movement
+  position, velocity, and grounded state remain in rollback history. Both
+  owners observed `6 → 18 → 6`, repeated activation was rejected while active,
+  and the remote presentation retained the boost until authoritative expiry.
 
 ## Latest runtime evidence
 
@@ -54,6 +62,16 @@ GodotGAS activation after owner validation, authoritative
 `GasSnapshot(Health)` publication, non-server snapshot mirror application, no
 host double-apply, no rejected requests, and no severe events. Evidence:
 `artifacts/ab_tests/gas_network_activation_retry_20260914_211000/result.json`
+
+GAS × Netfox SpeedBoost run `gas_speedboost_boundary_20260915_023000` passed
+infrastructure, immutable-build parity, topology, and cleanup on
+`5bcfbaf`. The operator confirmed the exact host/client and remote visual
+contract. Structured evidence shows server-only owner activation, repeated
+active-window rejections, authoritative `6 → 18 → 6` effect lifecycles, and
+client speed projections that remain at `18` instead of being rollback-reset
+in the same frame. No severe events occurred. Evidence:
+`artifacts/ab_tests/gas_speedboost_boundary_20260915_023000/result.json` and
+its captured host/client JSONL.
 and its captured host/client JSONL.
 
 ## Transport history
@@ -72,6 +90,7 @@ evidence and investigate it only if it recurs.
   free play by the infrastructure-only harness).
 - `574b16d` — infrastructure-only A/B harness and operator workflow.
 - `0c265dd` — accepted server-authoritative networked GodotGAS Health slice.
+- `5bcfbaf` — accepted non-stackable GodotGAS SpeedBoost / Netfox boundary.
 
 ## Working tree
 
