@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://addons/GodotGAS/components/ability_system_component.gd" id="1_asc"]
+[ext_resource type="Script" path="res://factory/gameplay/gas/godot_gas_health_bridge.gd" id="1_bridge"]
 
-[node name="AbilitySystemComponent" type="Node"]
-script = ExtResource("1_asc")
+[node name="GodotGasHealthBridge" type="Node"]
+script = ExtResource("1_bridge")

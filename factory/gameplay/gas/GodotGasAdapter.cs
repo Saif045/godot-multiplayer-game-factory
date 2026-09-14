@@ -11,8 +11,10 @@ public sealed class GodotGasAdapter
 {
     private const string AbilitySystemComponentScenePath =
         "res://factory/gameplay/gas/godot_gas_component.tscn";
-    private static readonly StringName AddTagMethod = "add_tag";
-    private static readonly StringName HasTagExactMethod = "has_tag_exact";
+    private static readonly StringName GetHealthMethod = "get_health";
+    private static readonly StringName ApplySelfDamageMethod = "apply_self_damage";
+    private static readonly StringName IsSelfDamageGrantedMethod = "is_self_damage_granted";
+    private static readonly StringName DidObserveSelfDamageChangeMethod = "did_observe_self_damage_change";
 
     private readonly Node _component;
 
@@ -35,13 +37,14 @@ public sealed class GodotGasAdapter
         return new GodotGasAdapter(component);
     }
 
-    /// <summary>
-    /// Minimal interop contract: invoke the real ASC and read its resulting
-    /// state back. This is intentionally not an ability or network operation.
-    /// </summary>
-    public bool AddAndConfirmTag(StringName tag)
-    {
-        _component.Call(AddTagMethod, tag);
-        return _component.Call(HasTagExactMethod, tag).AsBool();
-    }
+    public int GetHealth() => Mathf.RoundToInt(_component.Call(GetHealthMethod).AsSingle());
+
+    /// <summary>Executes the project-owned test effect through the real ASC.</summary>
+    public int ApplySelfDamage() =>
+        Mathf.RoundToInt(_component.Call(ApplySelfDamageMethod).AsSingle());
+
+    public bool IsSelfDamageGranted() => _component.Call(IsSelfDamageGrantedMethod).AsBool();
+
+    public bool DidObserveSelfDamageChange() =>
+        _component.Call(DidObserveSelfDamageChangeMethod).AsBool();
 }
