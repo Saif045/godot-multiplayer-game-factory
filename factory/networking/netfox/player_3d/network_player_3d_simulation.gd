@@ -1,6 +1,5 @@
 extends Node
 
-const WALK_SPEED := 6.0
 const JUMP_VELOCITY := 5.0
 const GRAVITY := 18.0
 
@@ -14,8 +13,9 @@ func _rollback_tick(delta: float, _tick: int, _is_fresh: bool) -> void:
 	var move_input: Vector2 = input.movement
 	var desired := Vector3(move_input.x, 0.0, move_input.y)
 
-	player.velocity.x = desired.x * WALK_SPEED
-	player.velocity.z = desired.z * WALK_SPEED
+	var effective_move_speed: float = player.GasMoveSpeed
+	player.velocity.x = desired.x * effective_move_speed
+	player.velocity.z = desired.z * effective_move_speed
 	if grounded and input.jump_pressed:
 		player.velocity.y = JUMP_VELOCITY
 	else:

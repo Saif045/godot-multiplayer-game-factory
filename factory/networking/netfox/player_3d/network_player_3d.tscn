@@ -67,7 +67,7 @@ shape = SubResource("CapsuleShape3D_player")
 [node name="RollbackSynchronizer" type="Node" parent="."]
 script = ExtResource("7_rollback")
 enable_prediction = true
-state_properties = [":position", ":velocity", "Simulation:grounded"]
+state_properties = [":position", ":velocity", ":GasMoveSpeed", "Simulation:grounded"]
 input_properties = ["Input:movement", "Input:jump_pressed"]
 enable_input_broadcast = false
 

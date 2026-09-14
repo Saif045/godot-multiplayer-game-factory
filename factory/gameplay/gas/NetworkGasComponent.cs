@@ -18,6 +18,7 @@ public partial class NetworkGasComponent : Node
 {
     private const string SelfDamageAction = "self_damage";
     private const string FortifyAction = "fortify";
+    private const string SpeedBoostAction = "speed_boost";
 
     private NetworkPlayer3D _playerHost = null!;
     private NetworkObject _player = null!;
@@ -74,6 +75,8 @@ public partial class NetworkGasComponent : Node
 
         if (Input.IsActionJustPressed(FortifyAction))
             RequestFortify();
+        if (Input.IsActionJustPressed(SpeedBoostAction))
+            RequestSpeedBoost();
     }
 
     private void RefreshAuthoritativeCooldownProjection(double delta)
@@ -163,6 +166,32 @@ public partial class NetworkGasComponent : Node
             RpcId(PeerId.Server.Value, MethodName.RequestFortifyRpc);
     }
 
+    private void RequestSpeedBoost()
+    {
+        Log("activation_requested", new Dictionary<string, string?> { ["ability"] = "speed_boost" });
+        if (Multiplayer.IsServer()) HandleSpeedBoost(PeerId.Server);
+        else RpcId(PeerId.Server.Value, MethodName.RequestSpeedBoostRpc);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void RequestSpeedBoostRpc()
+    {
+        if (!Multiplayer.IsServer()) return;
+        long sender = Multiplayer.GetRemoteSenderId();
+        if (sender > 0) HandleSpeedBoost(new PeerId(sender));
+    }
+
+    private void HandleSpeedBoost(PeerId sender)
+    {
+        if (_player.OwnerPeerId != sender || !_gas.ApplySpeedBoost())
+        {
+            Log("activation_rejected", new Dictionary<string, string?> { ["ability"] = "speed_boost", ["reason"] = "not_owner_or_not_activated" });
+            return;
+        }
+        Log("activation_accepted", new Dictionary<string, string?> { ["ability"] = "speed_boost", ["requesting_peer_id"] = sender.ToString() });
+        PublishAuthoritativeSnapshot("speed_boost_activated");
+    }
+
     private void HandleActivation(PeerId sender)
     {
         if (!Multiplayer.IsServer())
@@ -229,12 +258,14 @@ public partial class NetworkGasComponent : Node
         _playerHost.GasHealth = snapshot.Health;
         _playerHost.GasIsFortified = snapshot.IsFortified;
         _playerHost.GasFortifyCooldownRemaining = snapshot.FortifyCooldownRemaining;
+        _playerHost.GasMoveSpeed = _gas.GetMoveSpeed();
         UpdateHealthLabel(snapshot);
         Log("authoritative_snapshot", new Dictionary<string, string?>
         {
             ["health"] = snapshot.Health.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["is_fortified"] = snapshot.IsFortified.ToString(),
             ["fortify_cooldown_remaining"] = snapshot.FortifyCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["move_speed"] = _playerHost.GasMoveSpeed.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["reason"] = reason
         });
     }
