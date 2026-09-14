@@ -17,49 +17,43 @@ replacement for architecture or protocol documentation.
   requests a target by `NetworkObjectId`; the server validates and toggles a
   replicated switch visible to the other peer. Deterministic per-owner player
   colors remain presentation-only.
-
-## Implemented, pending runtime acceptance
-
-- Server-authoritative pickup/carry/drop composes the interaction request path
+- Server-authoritative pickup/carry/drop is acceptance-proven. It composes the interaction request path
   with one permanent server-owned carryable item. Held state is a replicated
   holder `NetworkObjectId`; each peer resolves its presentation `CarryAnchor`.
   The server computes world drop transforms and no carry state enters Netfox
-  rollback. Its first two-account acceptance run remains pending.
+  rollback. Both host and client have picked up, moved/jumped with, and
+  dropped the item, with remote follow observed on the other peer.
 
 ## Latest runtime evidence
 
-The fresh two-account acceptance run on `e8baba1` passed transport/lifecycle,
-distinct player presentation, host and client walking/jumping observed by the
-other peer, and both directions of server-authoritative switch interaction.
-The immutable host/guest build was `gf_e8baba1b_9ab955e4903e` with manifest
-`62ff40e4f22fd017993d2a241e88fa2942ed9bb780b32f26cdf4430b1d89743a`; cleanup
-was verified for both processes.
+Free-play run `carry_freeplay_retry_20260914_193933` passed infrastructure
+startup, two-player topology, and verified cleanup on immutable build
+`gf_240d7720_7984bcc0f537`. The operator visually confirmed bidirectional
+movement/jumping, switch changes from either participant, and host/client
+carry and drop. Structured logs agree: authoritative switch transitions,
+replicated remote switch visuals, host- and client-owned pickup/drop cycles,
+replicated holder state, remote-follow observations, and no severe events.
 
-The preceding `client_jump_visible_on_host` failure was a probe false negative:
-the host log already showed the remote client airborne but sampled it only
-after upward velocity had become negative. `e8baba1` moves that acceptance
-observation to a debounced frame-cadence grounded-to-airborne edge while
-retaining the 0.5-second diagnostic samples; it changes no player networking
-or gameplay state.
-
-Evidence: `artifacts/ab_tests/jump_observability_20260913_124200/result.json`.
+Evidence: `artifacts/ab_tests/carry_freeplay_retry_20260914_193933/result.json`,
+its captured client JSONL, and the corresponding host run JSONL.
 
 ## Transport history
 
-Three earlier frozen interaction-build attempts on `gf_9ad446b1_30e79f95ef50`
-reached lobby membership, peer creation, and MultiplayerAPI assignment, then
-remained in native `Connecting` for 120 seconds. They were cleanly terminated.
-The later successful diagnostic run means this is an intermittent native-peer
-issue, not a currently reproducible invariant. Investigate it evidence-first
-if it recurs; do not attribute it to Netfox or interaction.
+The free-play launch immediately preceding the accepted run reached lobby
+membership and peer assignment but remained native `Connecting` for 120
+seconds. It was cleanly terminated; the next unchanged retry reached two-player
+topology and passed. Treat this as an intermittent Steam/native transport
+symptom, not a carry, interaction, Netfox, or movement defect. Preserve the
+evidence and investigate it only if it recurs.
 
 ## Recent commits
 
-- `9ad446b` — valid UID for the interaction switch scene.
-- `295f0fe` — transport-only Steam peer/mapping diagnostics.
-- `d0ed7b2` — app bootstrap UID metadata and Maaack translations registration.
-- `e8baba1` — frame-cadence, debounced jump acceptance observation.
+- `81458f2` — server-authoritative carryable item.
+- `240d772` — carry acceptance checkpoint sequencing (superseded for normal
+  free play by the infrastructure-only harness).
+- `574b16d` — infrastructure-only A/B harness and operator workflow.
 
 ## Working tree
 
-Clean after `e8baba1` before this documentation update.
+One unrelated untracked GodotSteam temporary DLL may be present locally; do not
+stage it with documentation changes.
