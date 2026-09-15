@@ -5,6 +5,7 @@ const HealthAttributeSetScript = preload("res://factory/gameplay/gas/health_attr
 const SelfDamageAbilityScript = preload("res://factory/gameplay/gas/self_damage_ability.gd")
 const FortifyAbilityScript = preload("res://factory/gameplay/gas/fortify_ability.gd")
 const SpeedBoostAbilityScript = preload("res://factory/gameplay/gas/speed_boost_ability.gd")
+const DashAbilityScript = preload("res://factory/gameplay/gas/dash_ability.gd")
 
 const SprintingTag := &"State.Sprinting"
 const ExhaustedTag := &"State.Exhausted"
@@ -15,6 +16,7 @@ var _asc: AbilitySystemComponent
 var _self_damage: GameplayAbility
 var _fortify: GameplayAbility
 var _speed_boost: GameplayAbility
+var _dash: GameplayAbility
 var _last_old_health: float = -1.0
 var _last_new_health: float = -1.0
 var _lifecycle_changed := false
@@ -37,6 +39,8 @@ func _ready() -> void:
 	_asc.grant_ability(_fortify)
 	_speed_boost = SpeedBoostAbilityScript.new()
 	_asc.grant_ability(_speed_boost)
+	_dash = DashAbilityScript.new()
+	_asc.grant_ability(_dash)
 	_drain_effect = _make_periodic_effect(-5.0, SprintingTag)
 	_regeneration_effect = _make_periodic_effect(3.0, RegeneratingTag)
 	_exhaustion_effect = GameplayEffect.new()
@@ -69,6 +73,14 @@ func apply_speed_boost() -> bool:
 	if not _asc.can_activate_ability(_speed_boost, true): return false
 	_speed_boost.try_activate()
 	return true
+
+func apply_dash() -> bool:
+	if not _asc.can_activate_ability(_dash, true): return false
+	_dash.try_activate()
+	return true
+
+func get_dash_cooldown_remaining() -> float:
+	return _asc.get_tag_duration_remaining(&"Cooldown.Dash")
 
 func apply_snapshot(health: float, stamina: float) -> void:
 	_asc.initialize_attribute_overrides({"Health": health, "Stamina": stamina})
@@ -115,7 +127,7 @@ func _on_attribute_changed(attribute_name: String, old_value: float, new_value: 
 
 func _on_active_effect_lifecycle(active_effect: ActiveGameplayEffect) -> void:
 	var effect := active_effect.get_effect_def()
-	if &"State.Fortified" in effect.granted_tags or &"Cooldown.Fortify" in effect.granted_tags:
+	if &"State.Fortified" in effect.granted_tags or &"Cooldown.Fortify" in effect.granted_tags or &"Cooldown.Dash" in effect.granted_tags:
 		_lifecycle_changed = true
 	for modifier in effect.modifiers:
 		if modifier.attribute_name == "MoveSpeed" or modifier.attribute_name == "Stamina":

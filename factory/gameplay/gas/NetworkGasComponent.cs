@@ -19,6 +19,7 @@ public partial class NetworkGasComponent : Node
     private const string SelfDamageAction = "self_damage";
     private const string FortifyAction = "fortify";
     private const string SpeedBoostAction = "speed_boost";
+    private const string DashAction = "dash";
 
     private NetworkPlayer3D _playerHost = null!;
     private NetworkObject _player = null!;
@@ -28,6 +29,7 @@ public partial class NetworkGasComponent : Node
     private GasSnapshot? _lastAppliedSnapshot;
     private float _lastAppliedMoveSpeed = float.NaN;
     private bool? _lastSprintIntent;
+    private long? _lastObservedDashAuthorizationRevision;
     private string? _lastEffectiveMovementSignature;
     private double _cooldownReplicationElapsed;
 
@@ -85,11 +87,14 @@ public partial class NetworkGasComponent : Node
             RequestFortify();
         if (Input.IsActionJustPressed(SpeedBoostAction))
             RequestSpeedBoost();
+        if (Input.IsActionJustPressed(DashAction))
+            RequestDash();
     }
 
     private void RefreshAuthoritativeCooldownProjection(double delta)
     {
-        if (_gas.CaptureSnapshot().FortifyCooldownRemaining <= 0f)
+        GasSnapshot snapshot = _gas.CaptureSnapshot();
+        if (snapshot.FortifyCooldownRemaining <= 0f && snapshot.DashCooldownRemaining <= 0f)
         {
             _cooldownReplicationElapsed = 0d;
             return;
@@ -211,12 +216,47 @@ public partial class NetworkGasComponent : Node
         else RpcId(PeerId.Server.Value, MethodName.RequestSpeedBoostRpc);
     }
 
+    private void RequestDash()
+    {
+        // The Input child separately queues this exact edge into Netfox. This
+        // request is only the discrete server validation/cost boundary.
+        Log("dash_input", new Dictionary<string, string?>
+        {
+            ["input"] = "dash_pressed",
+            ["prediction"] = "queued_in_netfox_input"
+        });
+        Log("dash_predicted_start", new Dictionary<string, string?>
+        {
+            ["input"] = "dash_pressed",
+            ["simulation"] = "netfox_queued_edge"
+        });
+        if (Multiplayer.IsServer()) HandleDash(PeerId.Server);
+        else RpcId(PeerId.Server.Value, MethodName.RequestDashRpc);
+    }
+
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
     private void RequestSpeedBoostRpc()
     {
         if (!Multiplayer.IsServer()) return;
         long sender = Multiplayer.GetRemoteSenderId();
         if (sender > 0) HandleSpeedBoost(new PeerId(sender));
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void RequestDashRpc()
+    {
+        if (!Multiplayer.IsServer()) return;
+        long sender = Multiplayer.GetRemoteSenderId();
+        if (sender <= 0)
+        {
+            Log("activation_rejected", new Dictionary<string, string?>
+            {
+                ["ability"] = "dash",
+                ["reason"] = "invalid_rpc_sender"
+            });
+            return;
+        }
+        HandleDash(new PeerId(sender));
     }
 
     private void HandleSpeedBoost(PeerId sender)
@@ -228,6 +268,34 @@ public partial class NetworkGasComponent : Node
         }
         Log("activation_accepted", new Dictionary<string, string?> { ["ability"] = "speed_boost", ["requesting_peer_id"] = sender.ToString() });
         PublishAuthoritativeSnapshot("speed_boost_activated");
+    }
+
+    private void HandleDash(PeerId sender)
+    {
+        if (_player.OwnerPeerId != sender || !_gas.ApplyDash())
+        {
+            Log("activation_rejected", new Dictionary<string, string?>
+            {
+                ["ability"] = "dash",
+                ["requesting_peer_id"] = sender.ToString(),
+                ["reason"] = "not_owner_or_gas_gate",
+                ["stamina"] = _gas.GetStamina().ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                ["dash_cooldown_remaining"] = _gas.GetDashCooldownRemaining().ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            });
+            return;
+        }
+
+        _playerHost.GasDashAuthorizationRevision++;
+        _gas.ConsumeLifecycleChange();
+        Log("activation_accepted", new Dictionary<string, string?>
+        {
+            ["ability"] = "dash",
+            ["requesting_peer_id"] = sender.ToString(),
+            ["authorization_revision"] = _playerHost.GasDashAuthorizationRevision.ToString(),
+            ["stamina"] = _gas.GetStamina().ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["dash_cooldown_remaining"] = _gas.GetDashCooldownRemaining().ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+        });
+        PublishAuthoritativeSnapshot("dash_activated");
     }
 
     private void HandleActivation(PeerId sender)
@@ -300,6 +368,7 @@ public partial class NetworkGasComponent : Node
         _playerHost.GasStamina = snapshot.Stamina;
         _playerHost.GasIsExhausted = snapshot.IsExhausted;
         _playerHost.GasIsSprinting = snapshot.IsSprinting;
+        _playerHost.GasDashCooldownRemaining = snapshot.DashCooldownRemaining;
         UpdateHealthLabel(snapshot);
         Log("authoritative_snapshot", new Dictionary<string, string?>
         {
@@ -310,6 +379,8 @@ public partial class NetworkGasComponent : Node
             ["stamina"] = snapshot.Stamina.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["is_exhausted"] = snapshot.IsExhausted.ToString(),
             ["is_sprinting"] = snapshot.IsSprinting.ToString(),
+            ["dash_cooldown_remaining"] = snapshot.DashCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["dash_authorization_revision"] = _playerHost.GasDashAuthorizationRevision.ToString(),
             ["reason"] = reason
         });
     }
@@ -328,7 +399,8 @@ public partial class NetworkGasComponent : Node
             _playerHost.GasFortifyCooldownRemaining,
             _playerHost.GasStamina,
             _playerHost.GasIsExhausted,
-            _playerHost.GasIsSprinting);
+            _playerHost.GasIsSprinting,
+            _playerHost.GasDashCooldownRemaining);
         if (_lastAppliedSnapshot is GasSnapshot previous &&
             Mathf.IsEqualApprox(previous.Health, snapshot.Health) &&
             previous.IsFortified == snapshot.IsFortified &&
@@ -336,12 +408,23 @@ public partial class NetworkGasComponent : Node
             Mathf.IsEqualApprox(previous.Stamina, snapshot.Stamina) &&
             previous.IsExhausted == snapshot.IsExhausted &&
             previous.IsSprinting == snapshot.IsSprinting &&
-            Mathf.IsEqualApprox(_playerHost.GasMoveSpeed, _lastAppliedMoveSpeed))
+            Mathf.IsEqualApprox(previous.DashCooldownRemaining, snapshot.DashCooldownRemaining) &&
+            Mathf.IsEqualApprox(_playerHost.GasMoveSpeed, _lastAppliedMoveSpeed) &&
+            _lastObservedDashAuthorizationRevision == _playerHost.GasDashAuthorizationRevision)
             return;
 
         _gas.ApplySnapshot(snapshot);
         _lastAppliedSnapshot = snapshot;
         _lastAppliedMoveSpeed = _playerHost.GasMoveSpeed;
+        if (_lastObservedDashAuthorizationRevision != _playerHost.GasDashAuthorizationRevision)
+        {
+            _lastObservedDashAuthorizationRevision = _playerHost.GasDashAuthorizationRevision;
+            Log("dash_authorization_replicated", new Dictionary<string, string?>
+            {
+                ["authorization_revision"] = _playerHost.GasDashAuthorizationRevision.ToString(),
+                ["reconciliation"] = "netfox_replays_authorized_motion_from_rollback_state"
+            });
+        }
         UpdateHealthLabel(snapshot);
         Log("replicated_snapshot_applied", new Dictionary<string, string?>
         {
@@ -352,6 +435,8 @@ public partial class NetworkGasComponent : Node
             ["stamina"] = snapshot.Stamina.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
             ["is_exhausted"] = snapshot.IsExhausted.ToString(),
             ["is_sprinting"] = snapshot.IsSprinting.ToString(),
+            ["dash_cooldown_remaining"] = snapshot.DashCooldownRemaining.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+            ["dash_authorization_revision"] = _playerHost.GasDashAuthorizationRevision.ToString(),
             ["source"] = source
         });
     }
@@ -381,10 +466,14 @@ public partial class NetworkGasComponent : Node
             : snapshot.FortifyCooldownRemaining > 0f
                 ? $"COOLDOWN ({snapshot.FortifyCooldownRemaining:F1}s)"
                 : string.Empty;
+        string dash = snapshot.DashCooldownRemaining > 0f
+            ? $"DASH COOLDOWN ({snapshot.DashCooldownRemaining:F1}s)"
+            : "DASH READY (X)";
         _healthLabel.Text = $"HP {Mathf.RoundToInt(snapshot.Health)}" +
             $"\nSTAMINA {Mathf.RoundToInt(snapshot.Stamina)}" +
             (snapshot.IsExhausted ? " EXHAUSTED" : snapshot.IsSprinting ? " SPRINTING" : string.Empty) +
             (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}") +
+            $"\n{dash}" +
             (_playerHost.GasMoveSpeed > 6f
                 ? $"\nSPEED BOOST: {_playerHost.GasMoveSpeed:F0} (x{_playerHost.GasMoveSpeed / 6f:F1})"
                 : string.Empty);

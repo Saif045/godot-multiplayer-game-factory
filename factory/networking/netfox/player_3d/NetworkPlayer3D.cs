@@ -43,6 +43,16 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     public bool GasIsExhausted { get; set; }
     [Replicated(ReplicationMode.OnChange)]
     public bool GasIsSprinting { get; set; }
+    [Replicated(ReplicationMode.OnChange)]
+    public float GasDashCooldownRemaining { get; set; }
+
+    /// <summary>
+    /// Server-issued dash authorization event. This is ordinary replicated GAS
+    /// projection, not rollback history; Simulation converts it to its small,
+    /// replayable physical dash state.
+    /// </summary>
+    [Replicated(ReplicationMode.OnChange)]
+    public long GasDashAuthorizationRevision { get; set; }
 
     public override void _Ready()
     {

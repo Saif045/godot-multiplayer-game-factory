@@ -45,6 +45,14 @@ replacement for architecture or protocol documentation.
   Exhausted tags; normal replication projects Stamina and sprint permission.
   Netfox reads that projection for `6 → 9 → 6` movement while Stamina and
   exhaustion remain outside rollback history.
+- Predicted Dash is acceptance-proven: `dash_pressed` is a queued one-shot
+  Netfox input, while the server alone activates the canonical GodotGAS Dash
+  ability (25 Stamina, `Cooldown.Dash`, blocked by `State.Exhausted`). The
+  server publishes only a small authorization revision and cooldown projection;
+  Netfox owns the replayable dash duration/direction motion state. Local owner
+  prediction begins from the input edge and the authorization revision lets
+  normal rollback/reconciliation retain accepted motion or correct a rejected
+  prediction. GAS effect/runtime objects remain outside rollback history.
 
 ## Latest runtime evidence
 
@@ -86,6 +94,17 @@ no severe events occurred. Evidence:
 `artifacts/ab_tests/gas_stamina_sprint_20260915_024000/result.json` and its
 captured host/client JSONL.
 
+Predicted Dash run `gas_dash_20260915_235900` passed infrastructure, fresh
+immutable-build parity, topology, and verified cleanup. The operator visually
+passed Dash on both participants. Structured evidence shows the client-owner
+input and immediate predicted-start events, server-only canonical acceptance,
+each accepted activation's `25`-Stamina cost and `0.75s` cooldown projection,
+and replicated authorization revisions consumed by the normal Netfox motion
+path. Host-owned activations followed the same server-owned lifecycle. No
+severe events occurred. Evidence:
+`artifacts/ab_tests/gas_dash_20260915_235900/result.json` and its captured
+host/client logs.
+
 ## Transport history
 
 The free-play launch immediately preceding the accepted run reached lobby
@@ -104,6 +123,7 @@ evidence and investigate it only if it recurs.
 - `0c265dd` — accepted server-authoritative networked GodotGAS Health slice.
 - `5bcfbaf` — accepted non-stackable GodotGAS SpeedBoost / Netfox boundary.
 - `4f213f5` — accepted GAS Sprint + Stamina / Netfox boundary.
+- latest — accepted predicted GAS Dash / Netfox boundary.
 
 ## Working tree
 
