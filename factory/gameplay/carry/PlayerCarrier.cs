@@ -23,6 +23,7 @@ public partial class PlayerCarrier : Node
     private long _carriedItemId;
 
     public bool HasCarriedItem => _carriedItemId > 0;
+    internal bool CanReceiveRetrievedItem => !HasCarriedItem;
 
     public Node3D CarryAnchor => _carryAnchor;
 
@@ -70,6 +71,23 @@ public partial class PlayerCarrier : Node
 
         _carriedItemId = item.GetNetworkObject().Id.Value;
         return true;
+    }
+
+    internal void ClearStoredItem(CarryableItem item)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may clear a stored carried item.");
+        if (_carriedItemId == item.GetNetworkObject().Id.Value)
+            _carriedItemId = 0;
+    }
+
+    internal void SetRetrievedItem(CarryableItem item)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may assign a retrieved carried item.");
+        if (HasCarriedItem)
+            throw new InvalidOperationException("Cannot retrieve into an occupied carrier.");
+        _carriedItemId = item.GetNetworkObject().Id.Value;
     }
 
     [Rpc(

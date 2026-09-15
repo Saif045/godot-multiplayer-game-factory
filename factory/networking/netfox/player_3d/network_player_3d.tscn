@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://factory/gameplay/interaction/PlayerInteractor.cs" id="10_interactor"]
 [ext_resource type="Script" path="res://factory/gameplay/carry/PlayerCarrier.cs" id="11_carrier"]
 [ext_resource type="Script" path="res://factory/gameplay/gas/NetworkGasComponent.cs" id="12_gas"]
+[ext_resource type="Script" path="res://factory/gameplay/inventory/PlayerInventory.cs" id="13_inventory"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.45
@@ -57,6 +58,9 @@ script = ExtResource("10_interactor")
 
 [node name="PlayerCarrier" type="Node" parent="."]
 script = ExtResource("11_carrier")
+
+[node name="PlayerInventory" type="Node" parent="."]
+script = ExtResource("13_inventory")
 
 [node name="NetworkGasComponent" type="Node" parent="."]
 script = ExtResource("12_gas")

@@ -53,6 +53,13 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     /// </summary>
     [Replicated(ReplicationMode.OnChange)]
     public long GasDashAuthorizationRevision { get; set; }
+    /// <summary>
+    /// Ordinary server-owned inventory projection. Inventory behavior stays in
+    /// PlayerInventory, while the root player exposes the single scalar used
+    /// by the existing replication component.
+    /// </summary>
+    [Replicated(ReplicationMode.OnChange)]
+    public long InventoryStoredItemNetworkObjectId { get; set; }
 
     public override void _Ready()
     {

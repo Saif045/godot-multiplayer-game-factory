@@ -15,8 +15,15 @@ namespace GameFactory.Gameplay.Carry;
 /// </summary>
 public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitializable
 {
+    public const int WorldState = 0;
+    public const int CarriedState = 1;
+    public const int StoredState = 2;
+
     [Replicated(ReplicationMode.OnChange)]
     public long HolderNetworkObjectId { get; set; }
+
+    [Replicated(ReplicationMode.OnChange)]
+    public int StorageState { get; set; } = WorldState;
 
     [Replicated(ReplicationMode.OnChange)]
     public Transform3D WorldTransform { get; set; } = Transform3D.Identity;
@@ -64,7 +71,7 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
 
     public override void _Process(double delta)
     {
-        if (HolderNetworkObjectId <= 0)
+        if (StorageState != CarriedState)
             return;
 
         if (TryResolveCarrier(out PlayerCarrier carrier))
@@ -85,7 +92,7 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
 
     public bool CanInteract(InteractionContext context)
     {
-        return HolderNetworkObjectId == 0 &&
+        return StorageState == WorldState && HolderNetworkObjectId == 0 &&
                context.Player.Host.GetNodeOrNull<PlayerCarrier>("PlayerCarrier") is { HasCarriedItem: false };
     }
 
@@ -118,6 +125,7 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
         }
 
         HolderNetworkObjectId = holder.Id.Value;
+        StorageState = CarriedState;
         ApplyReplicatedState("authority_change");
         Log("picked_up", "authority_change", holder.Id.Value);
         return true;
@@ -128,12 +136,41 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
         if (!Multiplayer.IsServer())
             throw new InvalidOperationException("Only the server may drop a CarryableItem.");
 
-        if (HolderNetworkObjectId != holder.Id.Value)
+        if (StorageState != CarriedState || HolderNetworkObjectId != holder.Id.Value)
             return false;
 
         HolderNetworkObjectId = 0;
+        StorageState = WorldState;
         WorldTransform = dropTransform;
         ApplyReplicatedState("authority_change");
+        return true;
+    }
+
+    internal bool TryStore(NetworkObject holder)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may store a CarryableItem.");
+        if (StorageState != CarriedState || HolderNetworkObjectId != holder.Id.Value)
+            return false;
+
+        HolderNetworkObjectId = 0;
+        StorageState = StoredState;
+        ApplyReplicatedState("authority_change");
+        Log("item_stored", "authority_change", holder.Id.Value);
+        return true;
+    }
+
+    internal bool TryRetrieve(NetworkObject holder)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may retrieve a CarryableItem.");
+        if (StorageState != StoredState || HolderNetworkObjectId != 0)
+            return false;
+
+        HolderNetworkObjectId = holder.Id.Value;
+        StorageState = CarriedState;
+        ApplyReplicatedState("authority_change");
+        Log("item_retrieved", "authority_change", holder.Id.Value);
         return true;
     }
 
@@ -141,8 +178,9 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
 
     private void ApplyReplicatedState(string source)
     {
-        if (HolderNetworkObjectId <= 0)
+        if (StorageState == WorldState)
         {
+            Visible = true;
             GlobalTransform = WorldTransform;
             _collision.SetDeferred(CollisionShape3D.PropertyName.Disabled, false);
             AddToGroup("interactable");
@@ -152,6 +190,18 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
             return;
         }
 
+        if (StorageState == StoredState)
+        {
+            Visible = false;
+            _collision.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);
+            RemoveFromGroup("interactable");
+            _pendingHolderResolution = false;
+            _hasAnchorSample = false;
+            Log("state_applied", source);
+            return;
+        }
+
+        Visible = true;
         _collision.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);
         RemoveFromGroup("interactable");
         if (TryResolveCarrier(out PlayerCarrier carrier))

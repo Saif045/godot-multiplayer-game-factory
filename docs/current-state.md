@@ -23,6 +23,13 @@ replacement for architecture or protocol documentation.
   The server computes world drop transforms and no carry state enters Netfox
   rollback. Both host and client have picked up, moved/jumped with, and
   dropped the item, with remote follow observed on the other peer.
+- The first server-authoritative inventory slot is acceptance-proven. A single
+  permanent, server-owned cube keeps its `NetworkObjectId` while transitioning
+  explicitly between World, Carried, and Stored. The server validates one
+  player slot, replicates only its stored-item identity for presentation, and
+  never transfers item authority or places inventory state in GAS or Netfox
+  rollback. Both owners completed carry → store → retrieve, with the remote
+  peer observing the slot transitions.
 - GodotGAS v1.0.6 is vendored under `addons/GodotGAS` and its editor plugin is
   enabled. GameFactory C# can create a real GodotGAS Ability System Component,
   call it, and read state back through the scoped GAS adapter.
@@ -105,6 +112,15 @@ severe events occurred. Evidence:
 `artifacts/ab_tests/gas_dash_20260915_235900/result.json` and its captured
 host/client logs.
 
+Inventory run `inventory_slot_replication_20260915_004100` passed
+infrastructure, fresh immutable-build parity, topology, and verified cleanup.
+The operator visually passed the same host/client flow as the preceding run.
+Structured evidence proves that the server accepted store/retrieve for both
+owners, the cube retained `NetworkObjectId` `3`, and the client received the
+replicated slot state `0 → 3 → 0` for each owner. No severe events occurred.
+Evidence: `artifacts/ab_tests/inventory_slot_replication_20260915_004100/result.json`
+and its captured host/client JSONL.
+
 ## Transport history
 
 The free-play launch immediately preceding the accepted run reached lobby
@@ -124,6 +140,7 @@ evidence and investigate it only if it recurs.
 - `5bcfbaf` — accepted non-stackable GodotGAS SpeedBoost / Netfox boundary.
 - `4f213f5` — accepted GAS Sprint + Stamina / Netfox boundary.
 - latest — accepted predicted GAS Dash / Netfox boundary.
+- latest — accepted server-authoritative one-slot inventory state machine.
 
 ## Working tree
 
