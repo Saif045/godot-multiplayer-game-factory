@@ -41,6 +41,16 @@ explicitly routes to. Do not read every architecture document by default.
 
 ## Context budget
 
+- For normal implementation work, treat the task prompt and repository
+  documentation as authoritative; do not read planner/chat history unless the
+  task explicitly requests it or a genuine architectural ambiguity remains.
+- Default context is this guide, the nearest applicable scoped guide,
+  `docs/current-state.md`, task-named files, and implementation files found by
+  targeted search. Do not recursively read all docs, historical A/B evidence,
+  unrelated subsystem guides, or unrelated code.
+- For bug fixes, add only failing evidence; for validation, add only the
+  implementation and current run evidence. Wider reading is reserved for
+  research or design work that needs it.
 - Search before opening a large file. Read only the relevant section.
 - Extract a narrow event timeline from logs with `rg`, `Select-String`,
   `Get-Content -Tail`, or a bounded time range; do not ingest whole artifacts.
@@ -50,6 +60,9 @@ explicitly routes to. Do not read every architecture document by default.
   already documented in the scoped guide.
 - Do not investigate unrelated warnings or inspect outside a file scope unless
   an actual dependency requires it.
+
+At completion, report the change, important decisions or deviations,
+validation, and commit SHA concisely.
 
 ## Validation and runtime
 
