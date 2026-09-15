@@ -60,6 +60,12 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     /// </summary>
     [Replicated(ReplicationMode.OnChange)]
     public long InventoryStoredItemNetworkObjectId { get; set; }
+    /// <summary>
+    /// Ordinary server-owned equipment projection. The equipped item's GAS
+    /// effect remains runtime-only inside GodotGAS.
+    /// </summary>
+    [Replicated(ReplicationMode.OnChange)]
+    public long InventoryEquippedItemNetworkObjectId { get; set; }
 
     public override void _Ready()
     {

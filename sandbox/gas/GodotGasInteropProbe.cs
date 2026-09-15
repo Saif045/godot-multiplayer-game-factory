@@ -37,6 +37,16 @@ public partial class GodotGasInteropProbe : Node
             bool speedBoostBlockedWhileActive = !gas.ApplySpeedBoost();
             await ToSignal(GetTree().CreateTimer(3.25), SceneTreeTimer.SignalName.Timeout);
             float restoredMoveSpeed = gas.GetMoveSpeed();
+            Node equipmentSource = new() { Name = "EquipmentCubeSource" };
+            AddChild(equipmentSource);
+            bool equipmentCapabilityApplied = gas.ApplyEquipmentCubeCapability(equipmentSource);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            float equippedMoveSpeed = gas.GetMoveSpeed();
+            bool equipmentCapabilityActive = gas.IsEquipmentCubeCapabilityActive();
+            bool duplicateEquipmentCapabilityBlocked = !gas.ApplyEquipmentCubeCapability(equipmentSource);
+            bool equipmentCapabilityRemoved = gas.RemoveEquipmentCubeCapability(equipmentSource);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            float unequippedMoveSpeed = gas.GetMoveSpeed();
             gas.SetSprintIntent(true);
             await ToSignal(GetTree().CreateTimer(0.4), SceneTreeTimer.SignalName.Timeout);
             float sprintDrainObserved = gas.GetStamina();
@@ -66,6 +76,9 @@ public partial class GodotGasInteropProbe : Node
                 cooldownExpired.FortifyCooldownRemaining > 0.05f ||
                 !speedBoostActivated || !Mathf.IsEqualApprox(boostedMoveSpeed, 18f) ||
                 !speedBoostBlockedWhileActive || !Mathf.IsEqualApprox(restoredMoveSpeed, 6f) ||
+                !equipmentCapabilityApplied || !equipmentCapabilityActive ||
+                !Mathf.IsEqualApprox(equippedMoveSpeed, 12f) || !duplicateEquipmentCapabilityBlocked ||
+                !equipmentCapabilityRemoved || !Mathf.IsEqualApprox(unequippedMoveSpeed, 6f) ||
                 !sprintStateObserved || sprintDrainObserved >= 100f || !exhaustionObserved ||
                 exhaustedStamina > 0.05f || !exhaustionCleared || recoveredStamina < 25f ||
                 !dashActivated || staminaBeforeDash - staminaAfterDash < 24.5f ||
@@ -94,6 +107,12 @@ public partial class GodotGasInteropProbe : Node
                 , ["boosted_move_speed"] = boostedMoveSpeed.ToString("F1")
                 , ["speed_boost_blocked_while_active"] = speedBoostBlockedWhileActive.ToString()
                 , ["restored_move_speed"] = restoredMoveSpeed.ToString("F1")
+                , ["equipment_capability_applied"] = equipmentCapabilityApplied.ToString()
+                , ["equipment_capability_active"] = equipmentCapabilityActive.ToString()
+                , ["equipped_move_speed"] = equippedMoveSpeed.ToString("F1")
+                , ["duplicate_equipment_capability_blocked"] = duplicateEquipmentCapabilityBlocked.ToString()
+                , ["equipment_capability_removed"] = equipmentCapabilityRemoved.ToString()
+                , ["unequipped_move_speed"] = unequippedMoveSpeed.ToString("F1")
                 , ["sprint_drain_observed"] = sprintDrainObserved.ToString("F1")
                 , ["exhaustion_observed"] = exhaustionObserved.ToString()
                 , ["recovered_stamina"] = recoveredStamina.ToString("F1")

@@ -18,6 +18,7 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
     public const int WorldState = 0;
     public const int CarriedState = 1;
     public const int StoredState = 2;
+    public const int EquippedState = 3;
 
     [Replicated(ReplicationMode.OnChange)]
     public long HolderNetworkObjectId { get; set; }
@@ -174,6 +175,32 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
         return true;
     }
 
+    internal bool TryEquip()
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may equip a CarryableItem.");
+        if (StorageState != StoredState || HolderNetworkObjectId != 0)
+            return false;
+
+        StorageState = EquippedState;
+        ApplyReplicatedState("authority_change");
+        Log("item_equipped", "authority_change");
+        return true;
+    }
+
+    internal bool TryUnequip()
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may unequip a CarryableItem.");
+        if (StorageState != EquippedState || HolderNetworkObjectId != 0)
+            return false;
+
+        StorageState = StoredState;
+        ApplyReplicatedState("authority_change");
+        Log("item_unequipped", "authority_change");
+        return true;
+    }
+
     private void OnReplicated() => ApplyReplicatedState("replicated");
 
     private void ApplyReplicatedState(string source)
@@ -190,7 +217,7 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
             return;
         }
 
-        if (StorageState == StoredState)
+        if (StorageState is StoredState or EquippedState)
         {
             Visible = false;
             _collision.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);

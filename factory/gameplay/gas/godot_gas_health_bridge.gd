@@ -10,6 +10,7 @@ const DashAbilityScript = preload("res://factory/gameplay/gas/dash_ability.gd")
 const SprintingTag := &"State.Sprinting"
 const ExhaustedTag := &"State.Exhausted"
 const RegeneratingTag := &"State.StaminaRegenerating"
+const EquipmentCubeTag := &"State.EquipmentCube"
 const ExhaustionRecoveryThreshold := 25.0
 
 var _asc: AbilitySystemComponent
@@ -78,6 +79,30 @@ func apply_dash() -> bool:
 	if not _asc.can_activate_ability(_dash, true): return false
 	_dash.try_activate()
 	return true
+
+func apply_equipment_cube_capability(source_node: Node) -> bool:
+	if source_node == null or _asc.has_tag_exact(EquipmentCubeTag):
+		return false
+	var effect := GameplayEffect.new()
+	effect.policy = GameplayEffect.DurationPolicy.INFINITE
+	effect.granted_tags = [EquipmentCubeTag]
+	var modifier := GameplayEffectModifier.new()
+	modifier.attribute_name = "MoveSpeed"
+	modifier.operation = GameplayEffectModifier.Operation.ADD
+	modifier.magnitude = 6.0
+	effect.modifiers = [modifier]
+	var context := GameplayEffectContext.new(source_node)
+	var spec := GameplayEffectSpec.new(effect, context)
+	return _asc.apply_effect_spec(spec) != null
+
+func remove_equipment_cube_capability(source_node: Node) -> bool:
+	if source_node == null or not _asc.has_tag_exact(EquipmentCubeTag):
+		return false
+	_asc.remove_effects_from_source(source_node)
+	return not _asc.has_tag_exact(EquipmentCubeTag)
+
+func is_equipment_cube_capability_active() -> bool:
+	return _asc.has_tag_exact(EquipmentCubeTag)
 
 func get_dash_cooldown_remaining() -> float:
 	return _asc.get_tag_duration_remaining(&"Cooldown.Dash")

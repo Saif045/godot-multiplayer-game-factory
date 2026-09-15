@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://cqo4rjq4iuo2v"]
 
-[ext_resource type="Script" path="res://sandbox/gas/GodotGasInteropProbe.cs" id="1_probe"]
+[ext_resource type="Script" uid="uid://b48cfk6s5wg0n" path="res://sandbox/gas/GodotGasInteropProbe.cs" id="1_probe"]
 
-[node name="GodotGasInteropProbe" type="Node"]
+[node name="GodotGasInteropProbe" type="Node" unique_id=386302238]
 script = ExtResource("1_probe")

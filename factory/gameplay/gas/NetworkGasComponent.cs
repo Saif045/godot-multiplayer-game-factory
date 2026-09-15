@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using GameFactory.Diagnostics;
+using GameFactory.Gameplay.Carry;
 using GameFactory.Networking.Netfox.Player3D;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Objects.Components.Replication;
@@ -296,6 +297,30 @@ public partial class NetworkGasComponent : Node
             ["dash_cooldown_remaining"] = _gas.GetDashCooldownRemaining().ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
         });
         PublishAuthoritativeSnapshot("dash_activated");
+    }
+
+    internal bool TryApplyEquipmentCubeCapability(CarryableItem item)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may grant equipment GAS capabilities.");
+        if (!_gas.ApplyEquipmentCubeCapability(item))
+            return false;
+
+        _gas.ConsumeLifecycleChange();
+        PublishAuthoritativeSnapshot("equipment_cube_grant");
+        return true;
+    }
+
+    internal bool TryRemoveEquipmentCubeCapability(CarryableItem item)
+    {
+        if (!Multiplayer.IsServer())
+            throw new InvalidOperationException("Only the server may remove equipment GAS capabilities.");
+        if (!_gas.RemoveEquipmentCubeCapability(item))
+            return false;
+
+        _gas.ConsumeLifecycleChange();
+        PublishAuthoritativeSnapshot("equipment_cube_remove");
+        return true;
     }
 
     private void HandleActivation(PeerId sender)

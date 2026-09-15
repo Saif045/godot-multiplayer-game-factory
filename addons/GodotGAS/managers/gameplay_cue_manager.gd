@@ -30,8 +30,9 @@ func _ready() -> void:
 func _load_registry() -> void:
 	var cue_registry_path: = GodotGasProjectSettings.get_registry_cue_path()
 	if not ResourceLoader.exists(cue_registry_path):
-		if not Engine.is_editor_hint() or EditorInterface.is_plugin_enabled("GodotGAS"):
-			push_warning("GodotGAS: No cue registry found at " + cue_registry_path)
+		# EditorInterface is unavailable in exported games.  The cue manager is an
+		# autoload, so this warning must never depend on editor-only API.
+		push_warning("GodotGAS: No cue registry found at " + cue_registry_path)
 		return
 		
 	var registry = load(cue_registry_path) as GameplayCueRegistry

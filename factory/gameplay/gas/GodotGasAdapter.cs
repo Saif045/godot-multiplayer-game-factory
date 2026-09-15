@@ -16,6 +16,9 @@ public sealed class GodotGasAdapter
     private static readonly StringName ApplyFortifyMethod = "apply_fortify";
     private static readonly StringName ApplySpeedBoostMethod = "apply_speed_boost";
     private static readonly StringName ApplyDashMethod = "apply_dash";
+    private static readonly StringName ApplyEquipmentCubeCapabilityMethod = "apply_equipment_cube_capability";
+    private static readonly StringName RemoveEquipmentCubeCapabilityMethod = "remove_equipment_cube_capability";
+    private static readonly StringName IsEquipmentCubeCapabilityActiveMethod = "is_equipment_cube_capability_active";
     private static readonly StringName GetMoveSpeedMethod = "get_move_speed";
     private static readonly StringName GetStaminaMethod = "get_stamina";
     private static readonly StringName IsExhaustedMethod = "is_exhausted";
@@ -64,6 +67,12 @@ public sealed class GodotGasAdapter
     public bool ApplyFortify() => _component.Call(ApplyFortifyMethod).AsBool();
     public bool ApplySpeedBoost() => _component.Call(ApplySpeedBoostMethod).AsBool();
     public bool ApplyDash() => _component.Call(ApplyDashMethod).AsBool();
+    public bool ApplyEquipmentCubeCapability(Node source) =>
+        _component.Call(ApplyEquipmentCubeCapabilityMethod, source).AsBool();
+    public bool RemoveEquipmentCubeCapability(Node source) =>
+        _component.Call(RemoveEquipmentCubeCapabilityMethod, source).AsBool();
+    public bool IsEquipmentCubeCapabilityActive() =>
+        _component.Call(IsEquipmentCubeCapabilityActiveMethod).AsBool();
     public float GetMoveSpeed() => _component.Call(GetMoveSpeedMethod).AsSingle();
     public float GetStamina() => _component.Call(GetStaminaMethod).AsSingle();
     public bool IsExhausted() => _component.Call(IsExhaustedMethod).AsBool();
