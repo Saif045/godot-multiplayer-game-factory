@@ -1,0 +1,24 @@
+model: ollama_chat/qwen2.5-coder:7b-instruct-q6_K
+model-settings-file: .aider.model.settings.yml
+
+edit-format: diff
+
+map-tokens: 512
+map-refresh: auto
+map-multiplier-no-files: 1
+
+max-chat-history-tokens: 4096
+restore-chat-history: false
+
+read:
+  - AGENTS.md
+  - docs/agents/qwen-aider.md
+
+auto-commits: false
+dirty-commits: false
+gitignore: false
+
+auto-test: false
+test-cmd: 'cmd /c "dotnet test tests/GameFactory.Tests/GameFactory.Tests.csproj --disable-build-servers -m:1 -p:UseSharedCompilation=false && git diff --check"'
+
+yes-always: false

@@ -16,3 +16,8 @@ obj/
 
 # Godot generates UID metadata for C# files it scans. Test-only source is not a Godot script surface.
 /tests/GameFactory.Tests/**/*.cs.uid
+# Aider runtime state. Project configuration and .aiderignore are tracked.
+/.aider*
+!/.aider.conf.yml
+!/.aider.model.settings.yml
+!/.aiderignore

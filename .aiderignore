@@ -1,0 +1,31 @@
+# Generated build and runtime evidence
+.godot/
+build/
+artifacts/
+bin/
+obj/
+.tmp-*/
+tools/ab_test/.runtime/
+
+# Local editor and Aider state
+.vscode/
+.aider.chat.history.md
+.aider.input.history
+.aider.llm.history
+.aider.tags.cache.*
+
+# Generated Godot metadata and platform binaries do not belong in the repo map.
+*.uid
+*.import
+*.dll
+*.pdb
+*.so
+addons/GodotGAS/github_images/
+addons/GodotGAS/icons/
+addons/godotsteam/androidarm64/
+addons/godotsteam/linux32/
+addons/godotsteam/linux64/
+addons/godotsteam/linuxarm64/
+addons/godotsteam/osx/
+addons/godotsteam/win32/
+addons/godotsteam/win64/
