@@ -124,16 +124,47 @@ function Invoke-ExportSmoke {
         $executable = Join-Path $outputDirectory "GameFactory.console.exe"
         if (-not (Test-Path -LiteralPath $executable)) { $executable = Join-Path $outputDirectory "GameFactory.exe" }
         if (-not (Test-Path -LiteralPath $executable)) { throw "Export did not produce GameFactory.exe." }
-        $logPath = Join-Path $repoRoot ".tmp-export-smoke.log"
-        Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
-        $process = Start-Process -FilePath $executable -ArgumentList @("--headless", "--log-file", $logPath) -WorkingDirectory $outputDirectory -PassThru
+        $logPath = Join-Path $repoRoot ".tmp-export-smoke.engine.log"
+        $stdoutPath = Join-Path $repoRoot ".tmp-export-smoke.stdout.log"
+        $stderrPath = Join-Path $repoRoot ".tmp-export-smoke.stderr.log"
+        $runtimeProfileRoot = Join-Path $repoRoot ".tmp-godot-export-profile"
+        $runtimeAppData = Join-Path $runtimeProfileRoot "AppData\Roaming"
+        $runtimeLocalAppData = Join-Path $runtimeProfileRoot "AppData\Local"
+        Remove-Item -LiteralPath $logPath, $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+        # Do not force-kill a normal exported Godot process after an arbitrary
+        # delay. The existing GAS interop probe gives this smoke check a real,
+        # self-terminating managed-runtime contract instead.
+        New-Item -ItemType Directory -Force -Path $runtimeAppData, $runtimeLocalAppData | Out-Null
+        $previousAppData = $env:APPDATA
+        $previousLocalAppData = $env:LOCALAPPDATA
         try {
-            Start-Sleep -Seconds 4
-            $process.Refresh()
-            if ($process.HasExited) { throw "Exported runtime exited during the four-second boot window with code $($process.ExitCode)." }
+            $env:APPDATA = $runtimeAppData
+            $env:LOCALAPPDATA = $runtimeLocalAppData
+            $process = Start-Process -FilePath $executable -ArgumentList @("--headless", "--log-file", $logPath, "--", "--run=gas-interop") -WorkingDirectory $outputDirectory -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
         }
         finally {
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            $env:APPDATA = $previousAppData
+            $env:LOCALAPPDATA = $previousLocalAppData
+        }
+        try {
+            if (-not $process.WaitForExit(45000)) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                throw "Exported runtime did not complete the self-terminating GAS smoke probe within 45 seconds; process $($process.Id) was stopped."
+            }
+            $process.Refresh()
+            [int]$exitCode = $process.ExitCode
+            $runtimeOutput = @(
+                if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw }
+                if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw }
+                if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -Raw }
+            ) -join [Environment]::NewLine
+            if ($exitCode -ne 0) { throw "Exported runtime exited with $exitCode. $runtimeOutput" }
+            if ($runtimeOutput -notmatch '\[gas\.interop\] probe_passed') {
+                throw "Exported runtime exited without the required gas.interop probe_passed marker. $runtimeOutput"
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $logPath, $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
         }
     } | Out-Null
 }

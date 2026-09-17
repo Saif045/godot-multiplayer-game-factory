@@ -12,6 +12,9 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $OutputDir = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $RepoRoot "build\test_steam" } else { $OutputDirectory }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 $OutputExe = Join-Path $OutputDir "GameFactory.exe"
+$GodotProfileRoot = Join-Path $RepoRoot ".tmp-godot-export-profile"
+$GodotAppData = Join-Path $GodotProfileRoot "AppData\Roaming"
+$GodotLocalAppData = Join-Path $GodotProfileRoot "AppData\Local"
 
 if ($Clean -and (Test-Path -LiteralPath $OutputDir)) {
     $buildRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot "build")).TrimEnd('\') + '\'
@@ -41,11 +44,57 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet restore for win-x64 export failed with exit code $LASTEXITCODE."
 }
 
+# Godot's editor exporter writes settings and caches beneath APPDATA and
+# LOCALAPPDATA. Validation processes may not be permitted to mutate the
+# interactive profile, so use a reusable project-local profile instead. The
+# installed export templates are read-only inputs; seed only this version's
+# Windows x86_64 templates into the isolated profile.
+$versionOutput = & $Godot --version
+if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch 'v?(?<version>\d+\.\d+\.\d+\.stable\.mono)') {
+    throw "Could not determine the installed Godot Mono export-template version. Output: $versionOutput"
+}
+$templateVersion = $Matches.version
+$installedTemplates = Join-Path $env:APPDATA "Godot\export_templates\$templateVersion"
+$isolatedTemplates = Join-Path $GodotAppData "Godot\export_templates\$templateVersion"
+$templateNames = @(
+    "windows_debug_x86_64.exe",
+    "windows_debug_x86_64_console.exe",
+    "windows_release_x86_64.exe",
+    "windows_release_x86_64_console.exe"
+)
+if (-not (Test-Path -LiteralPath $installedTemplates)) {
+    throw "Godot $templateVersion export templates are not installed at $installedTemplates."
+}
+New-Item -ItemType Directory -Force -Path $isolatedTemplates, $GodotLocalAppData | Out-Null
+foreach ($templateName in $templateNames) {
+    $sourceTemplate = Join-Path $installedTemplates $templateName
+    $isolatedTemplate = Join-Path $isolatedTemplates $templateName
+    if (-not (Test-Path -LiteralPath $sourceTemplate)) {
+        throw "Required Godot export template is missing: $sourceTemplate"
+    }
+    if (-not (Test-Path -LiteralPath $isolatedTemplate)) {
+        Copy-Item -LiteralPath $sourceTemplate -Destination $isolatedTemplate
+    }
+}
+
 $stdoutPath = Join-Path $RepoRoot ".tmp-build-export.log"
 $stderrPath = Join-Path $RepoRoot ".tmp-build-export.error.log"
-Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-$arguments = @("--headless", "--path", "`"$RepoRoot`"", "--export-debug", "`"Windows Desktop`"", "`"$OutputExe`"")
-$process = Start-Process -FilePath $Godot -ArgumentList $arguments -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+$engineLogPath = Join-Path $RepoRoot ".tmp-build-export.engine.log"
+Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
+$arguments = @("--headless", "--log-file", "`"$engineLogPath`"", "--path", "`"$RepoRoot`"", "--export-debug", "`"Windows Desktop`"", "`"$OutputExe`"")
+# Windows PowerShell 5 does not expose Start-Process -Environment. Set these
+# only while creating the child, then immediately restore the caller process.
+$previousAppData = $env:APPDATA
+$previousLocalAppData = $env:LOCALAPPDATA
+try {
+    $env:APPDATA = $GodotAppData
+    $env:LOCALAPPDATA = $GodotLocalAppData
+    $process = Start-Process -FilePath $Godot -ArgumentList $arguments -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+}
+finally {
+    $env:APPDATA = $previousAppData
+    $env:LOCALAPPDATA = $previousLocalAppData
+}
 $deadline = (Get-Date).AddSeconds($ExportTimeoutSeconds)
 $packingCompletedAt = $null
 $terminatedAfterCompletedExport = $false
@@ -86,6 +135,9 @@ try {
         if (Test-Path -LiteralPath $stderrPath) {
             Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
         }
+        if (Test-Path -LiteralPath $engineLogPath) {
+            Get-Content -LiteralPath $engineLogPath -Raw -ErrorAction SilentlyContinue
+        }
     ) -join [Environment]::NewLine
     if ($exportLog -match 'dotnet publish exited with code: [1-9]' -or
         $exportLog -match 'ERROR: Export \.NET Project:' -or
@@ -102,7 +154,8 @@ try {
 finally {
     if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Tail 25 | Write-Host }
     if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Tail 50 | Write-Host }
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $engineLogPath) { Get-Content -LiteralPath $engineLogPath -Tail 50 | Write-Host }
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
 }
 
 if (-not (Test-Path $OutputExe)) {
