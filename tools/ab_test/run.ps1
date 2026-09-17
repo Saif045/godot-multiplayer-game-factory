@@ -1146,6 +1146,14 @@ try {
     $result.stage = "host_launch"
     $hostConsolePath = Join-Path $hostOutputDirectory "console.log"
     $hostErrorPath = Join-Path $hostOutputDirectory "console.error.log"
+    # The managed export materializes its embedded .NET payload beneath
+    # LOCALAPPDATA on first launch. The tool-owned host process cannot rely on
+    # the interactive profile being writable, so give this attempt an
+    # artifact-owned runtime profile just as ExportSmoke does.
+    $hostRuntimeProfileRoot = Join-Path $hostOutputDirectory "runtime_profile"
+    $hostRuntimeAppData = Join-Path $hostRuntimeProfileRoot "AppData\Roaming"
+    $hostRuntimeLocalAppData = Join-Path $hostRuntimeProfileRoot "AppData\Local"
+    New-Item -ItemType Directory -Force -Path $hostRuntimeAppData, $hostRuntimeLocalAppData | Out-Null
     New-Item -ItemType File -Path $hostConsolePath -Force | Out-Null
     $hostArguments = @(
         "--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath,
@@ -1154,7 +1162,17 @@ try {
     )
     Write-Harness "launching host"
     $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList $hostArguments -WorkingDirectory $outputDirectory -PassThru -RedirectStandardOutput $hostConsolePath -RedirectStandardError $hostErrorPath
+    $previousAppData = $env:APPDATA
+    $previousLocalAppData = $env:LOCALAPPDATA
+    try {
+        $env:APPDATA = $hostRuntimeAppData
+        $env:LOCALAPPDATA = $hostRuntimeLocalAppData
+        $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList $hostArguments -WorkingDirectory $outputDirectory -PassThru -RedirectStandardOutput $hostConsolePath -RedirectStandardError $hostErrorPath
+    }
+    finally {
+        $env:APPDATA = $previousAppData
+        $env:LOCALAPPDATA = $previousLocalAppData
+    }
     if ($ShowHostConsole) {
         $quotedLogPath = $hostGodotLogPath.Replace("'", "''")
         $hostLogTailProcess = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-NoExit", "-Command", "Get-Content -LiteralPath '$quotedLogPath' -Wait") -PassThru
