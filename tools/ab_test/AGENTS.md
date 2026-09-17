@@ -11,7 +11,7 @@ interactive scheduled task launches the game in its logged-in Steam/desktop
 session. SSH/SCP is control and transfer only, not an interactive graphics or
 Steam session. Do not rely on a shared-folder contract.
 
-The universal interface is `run.ps1 -Mode Launch|Verify|Retry|Stop`. It is
+The universal interface is `run.ps1 -Mode Health|Launch|Verify|Retry|Stop`. It is
 agent-independent: the same commands work from a human PowerShell terminal,
 Codex, Qwen/Aider, or another future operator. Do not add agent-specific
 behavior to this harness or this guide.
@@ -31,6 +31,10 @@ For manual A/B observation, use `-ShowHostConsole` to open a local terminal
 that tails the artifact-owned Godot log. The commands are:
 
 ```powershell
+# No-launch VM control preflight. Requires a verified remote PowerShell marker
+# and an enabled GameFactoryClient scheduled task; it never starts the game.
+.\tools\ab_test\run.ps1 -Mode Health
+
 # New session. Exits only after AB_READY; both games stay open.
 .\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -ShowHostConsole
 

@@ -2,7 +2,6 @@ param(
     [string]$Godot = "D:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe",
     [string]$OutputDirectory,
     [int]$ExportTimeoutSeconds = 180,
-    [int]$PostExportExitGraceSeconds = 10,
     [switch]$Clean
 )
 
@@ -96,35 +95,19 @@ finally {
     $env:LOCALAPPDATA = $previousLocalAppData
 }
 $deadline = (Get-Date).AddSeconds($ExportTimeoutSeconds)
-$packingCompletedAt = $null
-$terminatedAfterCompletedExport = $false
 try {
     do {
         $process.Refresh()
         if ($process.HasExited) { $process.WaitForExit(); $process.Refresh(); break }
-        if ($null -eq $packingCompletedAt -and (Test-Path -LiteralPath $stdoutPath)) {
-            $output = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
-            if ($output -match '(?s)\[\s*DONE\s*\].{0,100}savepack' -and (Test-Path -LiteralPath $OutputExe) -and (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($OutputExe, ".pck")))) {
-                $packingCompletedAt = Get-Date
-            }
-        }
-        if ($null -ne $packingCompletedAt -and (Get-Date) -ge $packingCompletedAt.AddSeconds($PostExportExitGraceSeconds)) {
-            Write-Warning "Godot finished packing but did not exit within $PostExportExitGraceSeconds seconds; terminating the stuck exporter process $($process.Id)."
-            Stop-Process -Id $process.Id -Force
-            $terminatedAfterCompletedExport = $true
-            break
-        }
         if ((Get-Date) -ge $deadline) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            throw "Godot export timed out after $ExportTimeoutSeconds seconds before a completed package was observed."
+            throw "Godot export timed out after $ExportTimeoutSeconds seconds before it exited normally."
         }
         Start-Sleep -Milliseconds 250
     } while ($true)
 
     $completedOutput = (Test-Path -LiteralPath $OutputExe) -and
-        (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($OutputExe, ".pck"))) -and
-        (Test-Path -LiteralPath $stdoutPath) -and
-        ((Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) -match '(?s)\[\s*DONE\s*\].{0,100}savepack')
+        (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($OutputExe, ".pck")))
     # Godot emits managed-export diagnostics on stderr. Inspect both streams:
     # accepting a packed executable after an ERROR here can leave a stale or
     # incomplete managed payload that the A/B harness cannot meaningfully test.
@@ -144,11 +127,11 @@ try {
         $exportLog -match 'ERROR: Project export for preset') {
         throw "Godot reported a managed export failure; refusing to accept the generated package."
     }
-    if (-not $terminatedAfterCompletedExport -and $null -ne $process.ExitCode -and $process.ExitCode -ne 0) {
+    if ($null -ne $process.ExitCode -and $process.ExitCode -ne 0) {
         throw "Godot export failed with exit code $($process.ExitCode)."
     }
     if (-not $completedOutput) {
-        throw "Godot exited without a completed Windows package. Exit code: $($process.ExitCode)."
+        throw "Godot exited without a complete Windows package."
     }
 }
 finally {

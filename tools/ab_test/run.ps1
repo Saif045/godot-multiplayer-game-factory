@@ -8,7 +8,7 @@ the VM game: launching it directly through SSH puts Steam in the wrong Windows s
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet("Launch", "Verify", "Retry", "Stop")]
+    [ValidateSet("Health", "Launch", "Verify", "Retry", "Stop")]
     [string]$Mode = "Launch",
     [string]$Godot = "D:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe",
     [string]$OutputDirectory,
@@ -40,7 +40,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1")
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\process_utils.ps1")
-$sshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2")
+$sshOptions = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2")
 $externalCommandTimeoutSeconds = 30
 $openSshDirectory = Join-Path $env:WINDIR "System32\OpenSSH"
 $sshExecutable = Join-Path $openSshDirectory "ssh.exe"
@@ -51,7 +51,7 @@ if (-not (Test-Path -LiteralPath $sshExecutable) -or -not (Test-Path -LiteralPat
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $vmEndpointPath = Join-Path $PSScriptRoot "vm-endpoint.local.psd1"
-if (Test-Path -LiteralPath $vmEndpointPath -and -not $PSBoundParameters.ContainsKey("VmAlias")) {
+if ((Test-Path -LiteralPath $vmEndpointPath) -and -not $PSBoundParameters.ContainsKey("VmAlias")) {
     $vmEndpoint = Import-PowerShellDataFile -LiteralPath $vmEndpointPath
     if ([string]::IsNullOrWhiteSpace([string]$vmEndpoint.Target)) {
         throw "VM endpoint configuration has no Target: $vmEndpointPath"
@@ -966,6 +966,47 @@ function Stop-PersistedAttempt([object]$RunState, [object]$AttemptState) {
     Write-JsonFile $resultPath $result
     Write-Harness "STOPPED run_id=$runId attempt=$attemptNumber cleanup_verified=$cleanupVerified"
     if (-not $cleanupVerified) { exit 1 }
+}
+
+function Test-VmEndpointHealth {
+    $nonce = [Guid]::NewGuid().ToString("N")
+    $remoteScript = @"
+`$ErrorActionPreference = 'Stop'
+`$task = Get-ScheduledTask -TaskName 'GameFactoryClient'
+`$info = Get-ScheduledTaskInfo -TaskName 'GameFactoryClient'
+[ordered]@{
+    marker = 'GAMEFACTORY_VM_HEALTH'
+    nonce = '$nonce'
+    user = [Environment]::UserName
+    task_name = `$task.TaskName
+    task_state = `$task.State.ToString()
+    task_enabled = [bool]`$task.Settings.Enabled
+    last_task_result = [int]`$info.LastTaskResult
+} | ConvertTo-Json -Compress
+"@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $externalCommandTimeoutSeconds "VM endpoint health check" -SuppressOutput
+    if ($invocation.ExitCode -ne 0) {
+        throw "VM endpoint health check failed: SSH/remote PowerShell exited with $($invocation.ExitCode). $($invocation.StandardError.Trim())"
+    }
+
+    $healthLine = @($invocation.StandardOutput -split "`r?`n" | Where-Object { $_ -match '"marker"\s*:\s*"GAMEFACTORY_VM_HEALTH"' } | Select-Object -Last 1)
+    if ($healthLine.Count -ne 1) {
+        $received = $invocation.StandardOutput.Trim()
+        throw "VM endpoint health check did not return its required remote marker. Received: $received"
+    }
+    try { $health = $healthLine[0] | ConvertFrom-Json }
+    catch { throw "VM endpoint health check returned malformed JSON: $($healthLine[0])" }
+    if ($health.marker -ne "GAMEFACTORY_VM_HEALTH" -or $health.nonce -ne $nonce -or $health.task_name -ne "GameFactoryClient") {
+        throw "VM endpoint health marker did not match the requested shell/task contract."
+    }
+    if (-not [bool]$health.task_enabled) { throw "VM GameFactoryClient scheduled task is disabled." }
+    Write-Host "VM_HEALTH_READY target=$VmAlias user=$($health.user) task=$($health.task_name) state=$($health.task_state) last_task_result=$($health.last_task_result)"
+}
+
+if ($Mode -eq "Health") {
+    Test-VmEndpointHealth
+    return
 }
 
 if ($Mode -in @("Verify", "Stop")) {

@@ -19,6 +19,10 @@ specific agent or an open caller session. Start a 3D player manual-test session
 with host logs visible:
 
 ```powershell
+.\tools\ab_test\run.ps1 -Mode Health
+# Confirms the configured VM can return a nonce-bearing remote PowerShell marker
+# and has an enabled GameFactoryClient scheduled task. This does not launch a game.
+
 .\tools\ab_test\run.ps1 -Mode Launch `
     -Scenario netfox_player_3d `
     -RunId carryable_item_YYYYMMDD_HHMMSS `
