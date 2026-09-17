@@ -71,3 +71,8 @@ The launch paths are:
 The parity marker is external metadata under `C:\GameFactoryBuilds\parity`,
 not a modification of an immutable release. Verification runs through SSH; the
 interactive scheduled task is reserved for the graphical Steam/Godot client.
+
+The guest endpoint is local machine configuration, not repository state. Copy
+`vm-endpoint.example.psd1` to gitignored `vm-endpoint.local.psd1` and edit its
+`Target` when the Hyper-V guest address changes. An explicit `-VmAlias`
+overrides that local setting for one command.

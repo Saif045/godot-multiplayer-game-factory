@@ -29,7 +29,11 @@ tick threshold crossing, and correlate it with Netfox time/rollback ticks and
 Godot peer status before changing timing, authority, history limits, or Steam
 behavior.
 
-`tools/ab_test/run_suite.ps1` is the repeated-reliability mode. It exports once (unless `-SkipExport` is explicitly requested), records one immutable manifest, and runs independent clean attempts beneath `artifacts/ab_suites/<suite-id>/attempts/`. The first attempt proves VM parity. Later attempts reuse that proof only after verifying the same host manifest hash, while retaining normal per-attempt preflight, runtime assertions, artifact capture, teardown, and cleanup verification. `summary.json` records the build identity, pass/fail totals, failed-stage distribution, connection-time samples, and every attempt artifact path. A suite never retries a failed attempt in place.
+`tools/ab_test/run_suite.ps1` remains a legacy repeated-reliability utility. The
+current operator interface is the resumable
+`run.ps1 -Mode Launch|Verify|Retry|Stop` workflow in
+[`testing.md`](testing.md) and
+[`runtime-test-operator.md`](runtime-test-operator.md).
 
 ## Normal work versus hardening
 

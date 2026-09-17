@@ -6,6 +6,7 @@ steam_appid.txt
 build
 /artifacts/
 /tools/ab_test/.runtime/
+/tools/ab_test/vm-endpoint.local.psd1
 /.tmp-*/
 /addons/godotsteam/win64/~*.TMP
 /addons/GodotGAS/**/*.import

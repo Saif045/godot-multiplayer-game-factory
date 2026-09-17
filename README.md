@@ -60,6 +60,7 @@ The project prefers composition over mandatory gameplay inheritance, small settl
 - [Module map](docs/module-map.md)
 - [Coding standards](docs/coding-standards.md)
 - [Testing strategy](docs/testing-strategy.md)
+- [Validation commands and evidence layers](docs/testing.md)
 - [Architecture decision records](docs/decisions/README.md)
 - [Networking foundation](docs/networking-foundation.md)
 - [Steam integration](docs/steam-integration.md)

@@ -50,6 +50,18 @@ if (-not (Test-Path -LiteralPath $sshExecutable) -or -not (Test-Path -LiteralPat
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$vmEndpointPath = Join-Path $PSScriptRoot "vm-endpoint.local.psd1"
+if (Test-Path -LiteralPath $vmEndpointPath -and -not $PSBoundParameters.ContainsKey("VmAlias")) {
+    $vmEndpoint = Import-PowerShellDataFile -LiteralPath $vmEndpointPath
+    if ([string]::IsNullOrWhiteSpace([string]$vmEndpoint.Target)) {
+        throw "VM endpoint configuration has no Target: $vmEndpointPath"
+    }
+    $VmAlias = [string]$vmEndpoint.Target
+    if ($null -ne $vmEndpoint.Port) { $sshOptions += @("-p", [string]$vmEndpoint.Port) }
+    if (-not [string]::IsNullOrWhiteSpace([string]$vmEndpoint.IdentityFile)) {
+        $sshOptions += @("-i", [string]$vmEndpoint.IdentityFile)
+    }
+}
 $artifactRoot = if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) { Join-Path $repoRoot "artifacts\ab_tests" } else { $ArtifactRoot }
 $artifactRoot = [System.IO.Path]::GetFullPath($artifactRoot)
 

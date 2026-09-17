@@ -59,11 +59,16 @@ automatic testing is intentionally disabled so it does not run the full suite
 after every attempted edit. Use narrower commands during iteration when the
 task permits them.
 
-For manual A/B work, use the universal harness commands from the scoped
-protocol: `Launch` and return after `AB_READY`; later use `Verify -RunId` to
-read its compact evidence first, compare it with the operator's visual report,
-then use `Stop -RunId`. If an attempt is environmentally invalid, stop it and
-use `Retry -RunId` after repair. The harness does not judge gameplay
+Use the universal validation interface before completion. Normally invoke
+`/run powershell -ExecutionPolicy Bypass -File .\tools\validate.ps1 -Mode Auto`;
+add a focused command such as
+`/run powershell -ExecutionPolicy Bypass -File .\tools\validate.ps1 -Mode Probe -Probe Gas`
+when the task calls for it. See [`../testing.md`](../testing.md) for the common
+semantics; do not duplicate its policy here.
+
+For manual A/B work, use `tools/ab_test/run.ps1 -Mode Launch|Verify|Retry|Stop`:
+return after `AB_READY`, later inspect `Verify -RunId` evidence with the
+operator's visual report, then `Stop`. The harness does not judge gameplay
 acceptance.
 
 ## Do not
