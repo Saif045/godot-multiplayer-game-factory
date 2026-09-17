@@ -51,6 +51,15 @@ DEFINE
 Skipping a phase requires an explicit recorded reason. Launching processes and
 then stopping work is never a valid result.
 
+The host/VM A/B harness is deliberately split across resumable commands:
+`Launch` reaches recorded infrastructure readiness and returns with the session
+live; `Verify` prepares evidence only; `Stop` performs teardown and cleanup;
+and `Retry` starts a new isolated attempt from the captured build. This is one
+runtime-test lifecycle, not an exception to it: the run is terminal only after
+the operator/agent has interpreted the evidence and `Stop` has verified
+cleanup. See [`runtime-test-operator.md`](runtime-test-operator.md) for the
+command contract.
+
 ## 1. Define the test before launch
 
 Before starting runtime processes, establish the test contract:

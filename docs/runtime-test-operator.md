@@ -14,11 +14,12 @@ and other integration or acceptance attempts. It complements the lifecycle in
 
 ## Running the Hyper-V A/B harness
 
-From the repository root in PowerShell, run the 3D player manual-test session
+The A/B harness is a universal PowerShell interface. It does not depend on a
+specific agent or an open caller session. Start a 3D player manual-test session
 with host logs visible:
 
 ```powershell
-.\tools\ab_test\run.ps1 `
+.\tools\ab_test\run.ps1 -Mode Launch `
     -Scenario netfox_player_3d `
     -RunId carryable_item_YYYYMMDD_HHMMSS `
     -ShowHostConsole
@@ -33,14 +34,23 @@ writes the infrastructure result to:
 artifacts/ab_tests/<RunId>/result.json
 ```
 
+`Launch` exits after `AB_READY` while the host and VM games remain alive. It
+only establishes the immutable build, VM parity, Steam/Godot connection, and
+two-player topology; it never waits for an operator marker or evaluates
+gameplay. Its persistent state is:
+
+```text
+artifacts/ab_tests/<RunId>/run_state.json
+artifacts/ab_tests/<RunId>/attempt_001/state.json
+```
+
 The VM release cache automatically reuses a verified matching runtime artifact.
 Documentation and A/B-harness-only commits do not invalidate an existing export;
 runtime-input changes do. Do not add `-SkipExport` or force flags simply to make
 a run faster.
 
-For `netfox_player_3d`, the harness is infrastructure-only. It verifies startup
-through the two-player topology, then does not assert, sequence, or judge
-gameplay events. Use the game freely while it remains open:
+For `netfox_player_3d`, the harness is infrastructure-only. After `AB_READY`,
+use the game freely while it remains open:
 
 1. Confirm both players can see each other; move and jump on both machines.
 2. Toggle the switch from each machine.
@@ -50,11 +60,36 @@ gameplay events. Use the game freely while it remains open:
    structured timeline for authority, replication, holder state, follow, drop,
    errors, and cleanup.
 
-When play is complete, the agent creates the completion marker printed by the
-harness (by default `operator_finished.complete` in that run's artifact folder).
-The harness then collects logs and cleans both participants. Feature acceptance
-comes from visual confirmation plus the agent's post-run log review, not from
-the harness result alone.
+When play is complete, collect generic evidence without changing the live
+session:
+
+```powershell
+.\tools\ab_test\run.ps1 -Mode Verify -RunId <RunId>
+```
+
+`Verify` defaults to the latest attempt; use `-Attempt <number>` to inspect an
+older one. It never rebuilds, relaunches, stops a process, or declares gameplay
+PASS/FAIL. It writes `attempt_<n>/evidence.json`, a compact event/timeline/error
+index with paths to all raw logs. The operator and agent compare that evidence
+with the visual report.
+
+Stop only when the session is finished or intentionally abandoned:
+
+```powershell
+.\tools\ab_test\run.ps1 -Mode Stop -RunId <RunId>
+```
+
+`Stop` preserves logs/evidence, terminates host and VM processes, verifies
+cleanup, and marks the attempt stopped. It is intended to be idempotent. For a
+bad environmental attempt, stop it, repair the VM/Steam environment manually,
+then create a fresh isolated attempt with the same captured build:
+
+```powershell
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
+```
+
+Retries never mix logs: attempts live under
+`artifacts/ab_tests/<RunId>/attempt_001`, `attempt_002`, and so on.
 
 The harness preserves evidence and infrastructure health only; feature
 acceptance is always the operator's visual report plus post-run log review.
@@ -74,17 +109,18 @@ Changing a frozen item ends the validity of that attempt. Finish it, capture
 evidence, clean up, and report its terminal result before any separate task
 changes the system.
 
-## Terminal states
+## Attempt lifecycle and acceptance
 
-Every harness session ends as exactly one of:
+The harness records an operational lifecycle, never gameplay PASS/FAIL:
 
-- **PASS:** the infrastructure session started, was ended by the operator, and
-  cleanup/log preservation completed. This is not feature acceptance.
-- **FAIL:** infrastructure failed after launch, such as a terminal runtime
-  error or failed cleanup.
-- **BLOCKED:** the intended scenario could not begin because an external
-  prerequisite was unavailable, such as a VM, SSH, Steam, required build, or
-  build parity.
+- **running:** `Launch` or `Retry` reached `AB_READY`; games remain live.
+- **stopped:** `Stop` preserved evidence and verified process cleanup.
+- **failed / blocked:** setup could not complete; the recorded stage and reason
+  identify the infrastructure boundary.
+
+Feature acceptance is a separate human/agent conclusion based on the visual
+report and `Verify` evidence. A run that reached `AB_READY` is not an accepted
+gameplay result merely because it opened.
 
 ## Mandatory stop behavior
 
@@ -159,7 +195,7 @@ For an infrastructure session, report these minimum fields:
 ```text
 Test:
 Run or attempt ID:
-Result: PASS | FAIL | BLOCKED
+Lifecycle: running | stopped | failed | blocked
 Infrastructure boundary:
 Operator visual report:
 Post-run log review:

@@ -11,19 +11,56 @@ interactive scheduled task launches the game in its logged-in Steam/desktop
 session. SSH/SCP is control and transfer only, not an interactive graphics or
 Steam session. Do not rely on a shared-folder contract.
 
-Before each attempt record build ID/manifest, host/guest parity, accounts and
-session state, assertions/timeouts, artifact path, and test-owned process IDs.
-During a frozen attempt do not modify source/config, retry, restart Steam, or
-reconfigure the VM. At the first terminal condition preserve logs, clean both
-participants, verify cleanup, and report the deepest completed checkpoint.
+The universal interface is `run.ps1 -Mode Launch|Verify|Retry|Stop`. It is
+agent-independent: the same commands work from a human PowerShell terminal,
+Codex, Qwen/Aider, or another future operator. Do not add agent-specific
+behavior to this harness or this guide.
 
-`PASS` requires every stated assertion and cleanup. A window is only startup
-evidence. Classify failures bottom-up: export/dependencies, Steam lobby, native
-peer, Godot connection, GameFactory lifecycle, Netfox, then gameplay. A harness
-assertion can be observability-only; inspect its supporting structured events.
+Before each attempt record build ID/manifest, host/guest parity, accounts and
+session state, artifact path, and test-owned process IDs. During a frozen
+attempt do not modify source/config, retry, restart Steam, or reconfigure the
+VM. A run can contain multiple isolated attempts; each attempt gets its own
+directory and logs.
+
+Gameplay acceptance requires the stated feature assertions, human visual
+observation, evidence interpretation, and cleanup. A window is only startup
+evidence. Classify infrastructure failures bottom-up: export/dependencies,
+Steam lobby, native peer, Godot connection, GameFactory lifecycle, then Netfox.
 
 For manual A/B observation, use `-ShowHostConsole` to open a local terminal
-that tails the artifact-owned host console log. The harness has three paths:
+that tails the artifact-owned Godot log. The commands are:
+
+```powershell
+# New session. Exits only after AB_READY; both games stay open.
+.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -ShowHostConsole
+
+# Evidence only. Defaults to the latest attempt and never launches, rebuilds,
+# or stops either game.
+.\tools\ab_test\run.ps1 -Mode Verify -RunId <RunId> [-Attempt <number>]
+
+# Stop a live session and verify cleanup. Safe to repeat when practical.
+.\tools\ab_test\run.ps1 -Mode Stop -RunId <RunId>
+
+# After Stop and any manual environment repair, create a fresh attempt using
+# the run's captured immutable build identity.
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
+```
+
+`Launch` and `Retry` own export/reuse, parity, topology readiness, and state
+persistence only. `Verify` emits compact generic evidence (`evidence.json`)
+and raw-log paths; it never decides gameplay acceptance. `Stop` is the only
+operation that tears processes down. Human visual observation plus a later
+human/agent interpretation of generic evidence decides gameplay acceptance.
+
+Artifact layout is stable across shells:
+
+```text
+artifacts/ab_tests/<RunId>/run_state.json
+artifacts/ab_tests/<RunId>/attempt_001/{state.json,host,client,session,evidence.json}
+artifacts/ab_tests/<RunId>/attempt_002/{...}
+```
+
+The launch paths are:
 
 - unchanged clean checkout with matching export + verified VM marker: automatic
   fast reuse (clean, cheap identity/parity check, then launch);

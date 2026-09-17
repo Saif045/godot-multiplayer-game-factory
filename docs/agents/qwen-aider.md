@@ -59,10 +59,12 @@ automatic testing is intentionally disabled so it does not run the full suite
 after every attempted edit. Use narrower commands during iteration when the
 task permits them.
 
-For manual A/B work, follow the scoped protocols. Launch the frozen host/VM
-attempt and return control while it remains running. After the user finishes,
-inspect that run's structured logs, clean up, and compare evidence with the
-user's visual report. The harness does not judge gameplay acceptance.
+For manual A/B work, use the universal harness commands from the scoped
+protocol: `Launch` and return after `AB_READY`; later use `Verify -RunId` to
+read its compact evidence first, compare it with the operator's visual report,
+then use `Stop -RunId`. If an attempt is environmentally invalid, stop it and
+use `Retry -RunId` after repair. The harness does not judge gameplay
+acceptance.
 
 ## Do not
 

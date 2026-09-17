@@ -8,6 +8,8 @@ the VM game: launching it directly through SSH puts Steam in the wrong Windows s
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet("Launch", "Verify", "Retry", "Stop")]
+    [string]$Mode = "Launch",
     [string]$Godot = "D:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64_console.exe",
     [string]$OutputDirectory,
     [string]$VmAlias = "gamefactory-vm",
@@ -27,11 +29,11 @@ param(
     [switch]$ForceFullVmParity,
     [string]$ExpectedManifestSha256,
     [string]$RunId,
+    [ValidateRange(1, 9999)]
+    [int]$Attempt,
     [string]$ArtifactRoot,
     [switch]$VerifyBuildOnly,
-    [switch]$KeepProcesses,
-    [switch]$ShowHostConsole,
-    [string]$OperatorCompletionFile
+    [switch]$ShowHostConsole
 )
 
 Set-StrictMode -Version Latest
@@ -48,10 +50,30 @@ if (-not (Test-Path -LiteralPath $sshExecutable) -or -not (Test-Path -LiteralPat
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$artifactRoot = if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) { Join-Path $repoRoot "artifacts\ab_tests" } else { $ArtifactRoot }
+$artifactRoot = [System.IO.Path]::GetFullPath($artifactRoot)
+
+# Retry is intentionally bound to the build identity captured by the original
+# launch.  It may reuse that release, but it must never silently export a newer
+# working tree into an existing RunId.
+if ($Mode -eq "Retry") {
+    if ([string]::IsNullOrWhiteSpace($RunId)) { throw "Retry requires -RunId." }
+    $retryStatePath = Join-Path (Join-Path $artifactRoot $RunId) "run_state.json"
+    if (-not (Test-Path -LiteralPath $retryStatePath)) { throw "Run state was not found: $retryStatePath" }
+    $retryState = Get-Content -LiteralPath $retryStatePath -Raw | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$retryState.host_export_directory) -or [string]::IsNullOrWhiteSpace([string]$retryState.manifest_sha256)) {
+        throw "Run '$RunId' has no reusable immutable build identity."
+    }
+    $OutputDirectory = [string]$retryState.host_export_directory
+    $Scenario = [string]$retryState.scenario
+    $ExpectedManifestSha256 = [string]$retryState.manifest_sha256
+    $SkipExport = $true
+}
+
 $outputDirectory = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $repoRoot "build\test_steam" } else { $OutputDirectory }
 $outputDirectory = [System.IO.Path]::GetFullPath($outputDirectory)
-$hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe"
-if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.exe" }
+$hostExecutable = Join-Path $outputDirectory "GameFactory.exe"
+if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe" }
 
 $runId = if ([string]::IsNullOrWhiteSpace($RunId)) {
     "ab_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([Guid]::NewGuid().ToString("N").Substring(0, 4))
@@ -59,9 +81,9 @@ $runId = if ([string]::IsNullOrWhiteSpace($RunId)) {
 else {
     $RunId
 }
-$artifactRoot = if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) { Join-Path $repoRoot "artifacts\ab_tests" } else { $ArtifactRoot }
-$artifactRoot = [System.IO.Path]::GetFullPath($artifactRoot)
-$artifactDirectory = Join-Path $artifactRoot $runId
+$runDirectory = Join-Path $artifactRoot $runId
+$attemptNumber = if ($Attempt -gt 0) { $Attempt } else { 1 }
+$artifactDirectory = Join-Path $runDirectory ("attempt_{0:D3}" -f $attemptNumber)
 $runtimeDirectory = Join-Path $PSScriptRoot ".runtime"
 $localConfigPath = Join-Path $runtimeDirectory "client_config.json"
 $localStatusPath = Join-Path $runtimeDirectory "client_status.json"
@@ -74,15 +96,13 @@ $vmGodotLogPath = "C:/GameFactoryAgent/gamefactory_$runId.godot.log"
 $clientLiveLogPath = Join-Path $clientOutputDirectory "game.jsonl"
 $lastVmLogSyncUtc = [DateTimeOffset]::MinValue
 $vmLiveLogPath = $null
+$vmExecutable = $null
 $resultPath = Join-Path $artifactDirectory "result.json"
-$operatorCompletionPath = if ([string]::IsNullOrWhiteSpace($OperatorCompletionFile)) {
-    Join-Path $artifactDirectory "operator_finished.complete"
-}
-else {
-    [System.IO.Path]::GetFullPath($OperatorCompletionFile)
-}
+$attemptStatePath = Join-Path $artifactDirectory "state.json"
+$runStatePath = Join-Path $runDirectory "run_state.json"
 $hostProcess = $null
 $hostLogTailProcess = $null
+$existingRunState = $null
 $vmCleanupSucceeded = $false
 $netfoxShutdownExpected = $false
 $buildHelperTimeoutSeconds = 210
@@ -111,7 +131,7 @@ $result = [ordered]@{
 $runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } elseif ($Scenario -eq "netfox_player_3d") { "netfox-player-3d" } else { "steam-gameplay" }
 $scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.movement" } "netfox_player_3d" { "netfox.player3d" } default { throw "Unsupported scenario '$Scenario'." } }
 
-New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory, $runtimeDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
 
 function Write-Harness([string]$Message) {
     Write-Host "[harness][$runId] $Message"
@@ -138,15 +158,6 @@ function Complete-Stage([string]$Stage) {
     Write-Harness "stage complete: $Stage"
 }
 
-function Wait-ForOperatorCompletion {
-    Write-Harness "both players are ready; harness is recording logs and will not evaluate gameplay events"
-    Write-Harness "agent completes the run by creating: $operatorCompletionPath"
-    while ($true) {
-        Assert-NoTerminalStartupFailure
-        if (Test-Path -LiteralPath $operatorCompletionPath) { return }
-        Start-Sleep -Milliseconds 500
-    }
-}
 
 function Invoke-ExternalCommand([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds, [string]$Description, [switch]$SuppressOutput) {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -450,8 +461,6 @@ exit 0
 }
 
 function Stop-TestProcesses {
-    if ($KeepProcesses) { return }
-
     if ($null -ne $script:hostProcess -and -not $script:hostProcess.HasExited) {
         Write-Harness "stopping host process $($script:hostProcess.Id)"
         Stop-Process -Id $script:hostProcess.Id -Force -ErrorAction SilentlyContinue
@@ -471,7 +480,7 @@ function Sync-VmRunLog {
     # Client events are written inside its immutable staged release, not the
     # host output tree. Poll that log during the attempt so client checkpoints
     # are observable before teardown.
-    if ($null -eq $script:vmExecutable -or ([DateTimeOffset]::UtcNow - $script:lastVmLogSyncUtc).TotalMilliseconds -lt 1000) { return }
+    if ([string]::IsNullOrWhiteSpace([string]$script:vmExecutable) -or ([DateTimeOffset]::UtcNow - $script:lastVmLogSyncUtc).TotalMilliseconds -lt 1000) { return }
     $script:lastVmLogSyncUtc = [DateTimeOffset]::UtcNow
     try {
         if ($null -eq $script:vmLiveLogPath) {
@@ -769,6 +778,7 @@ function Copy-RunArtifacts {
     }
 
     try {
+        if ([string]::IsNullOrWhiteSpace([string]$script:vmExecutable)) { return }
         $clientGodotLog = Join-Path $clientOutputDirectory "godot.log"
         $copy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @("${VmAlias}:$vmGodotLogPath", $clientGodotLog)) 10 "VM Godot-log copy" -SuppressOutput
         if ($copy.ExitCode -ne 0) {
@@ -795,6 +805,190 @@ function Copy-RunArtifacts {
         else { "No native diagnostic terms matched." | Set-Content -LiteralPath $diagnosticPath -Encoding utf8 }
     }
 }
+
+function Read-JsonFile([string]$Path, [string]$Description) {
+    if (-not (Test-Path -LiteralPath $Path)) { throw "$Description was not found: $Path" }
+    try { return (Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json) }
+    catch { throw "$Description is not valid JSON: $Path ($($_.Exception.Message))" }
+}
+
+function Write-JsonFile([string]$Path, [object]$Value) {
+    $temporaryPath = "$Path.tmp"
+    $Value | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temporaryPath -Encoding utf8
+    Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
+}
+
+function Get-RunAttempt([object]$RunState, [int]$RequestedAttempt) {
+    $attempts = @($RunState.attempts)
+    if ($attempts.Count -eq 0) { throw "Run '$runId' does not contain any attempts." }
+    $number = if ($RequestedAttempt -gt 0) { $RequestedAttempt } else { [int]$RunState.latest_attempt }
+    $match = @($attempts | Where-Object { [int]$_.attempt -eq $number }) | Select-Object -First 1
+    if ($null -eq $match) { throw "Attempt $number was not found in run '$runId'." }
+    return $match
+}
+
+function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
+    $script:Scenario = [string]$RunState.scenario
+    $script:outputDirectory = [System.IO.Path]::GetFullPath([string]$RunState.host_export_directory)
+    $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe"
+    if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe" }
+    $script:attemptNumber = [int]$AttemptState.attempt
+    $script:artifactDirectory = [System.IO.Path]::GetFullPath([string]$AttemptState.artifact_directory)
+    $script:hostOutputDirectory = Join-Path $script:artifactDirectory "host"
+    $script:clientOutputDirectory = Join-Path $script:artifactDirectory "client"
+    $script:sessionOutputDirectory = Join-Path $script:artifactDirectory "session"
+    $script:hostGodotLogPath = Join-Path $script:hostOutputDirectory "godot.log"
+    $script:clientLiveLogPath = Join-Path $script:clientOutputDirectory "game.jsonl"
+    $script:resultPath = Join-Path $script:artifactDirectory "result.json"
+    $script:attemptStatePath = Join-Path $script:artifactDirectory "state.json"
+    $script:vmGodotLogPath = [string]$AttemptState.vm_godot_log_path
+    $script:vmExecutable = [string]$AttemptState.vm_executable
+    $script:vmLiveLogPath = [string]$AttemptState.vm_live_log_path
+}
+
+function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [object]$ExistingRunState) {
+    $attemptState = [ordered]@{
+        schema_version = 1
+        run_id = $runId
+        attempt = $attemptNumber
+        scenario = $Scenario
+        lifecycle = $Lifecycle
+        cleanup_verified = $CleanupVerified
+        artifact_directory = $artifactDirectory
+        host_process_id = if ($null -eq $hostProcess) { $null } else { $hostProcess.Id }
+        host_log_tail_process_id = if ($null -eq $hostLogTailProcess) { $null } else { $hostLogTailProcess.Id }
+        host_godot_log_path = $hostGodotLogPath
+        client_log_path = $clientLiveLogPath
+        vm_godot_log_path = $vmGodotLogPath
+        vm_executable = $script:vmExecutable
+        vm_live_log_path = $script:vmLiveLogPath
+        lobby_id = $result.lobby_id
+        topology = $result.deepest_completed_stage
+        started_utc = $result.started_utc
+        updated_utc = [DateTimeOffset]::UtcNow.ToString("O")
+    }
+    Write-JsonFile $attemptStatePath $attemptState
+
+    $runState = if ($null -ne $ExistingRunState) { $ExistingRunState } else {
+        [ordered]@{
+            schema_version = 1
+            run_id = $runId
+            scenario = $Scenario
+            host_export_directory = $outputDirectory
+            manifest_sha256 = $result.build_mapping["manifest_sha256"]
+            build_id = $result.build_id
+            git_commit = $result.git_commit
+            created_utc = $result.started_utc
+            attempts = @()
+        }
+    }
+    $runState.latest_attempt = $attemptNumber
+    $runState.updated_utc = [DateTimeOffset]::UtcNow.ToString("O")
+    $withoutCurrent = @($runState.attempts | Where-Object { [int]$_.attempt -ne $attemptNumber })
+    $runState.attempts = @($withoutCurrent + [pscustomobject]$attemptState)
+    Write-JsonFile $runStatePath $runState
+}
+
+function Write-GenericEvidence([object]$RunState, [object]$AttemptState) {
+    Set-ExistingAttemptContext $RunState $AttemptState
+    Sync-VmRunLog
+    try { Copy-RunArtifacts } catch { Write-Warning "[harness][$runId] artifact collection failed: $($_.Exception.Message)" }
+    $entries = @(Get-LogEntries)
+    $eventCounts = @($entries | Group-Object { "{0}.{1}" -f $_.Category, $_.Event } | Sort-Object Count -Descending | ForEach-Object {
+        [ordered]@{ event = $_.Name; count = $_.Count }
+    })
+    $timeline = @($entries | Sort-Object { Get-LogUtc $_ } | Select-Object -Last 120 | ForEach-Object {
+        [ordered]@{ utc = $_.Utc; category = $_.Category; event = $_.Event; level = $_.Level; source = $_.__path }
+    })
+    $textFiles = @(Get-ChildItem -LiteralPath $artifactDirectory -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @(".log", ".txt", ".jsonl") })
+    $severeMatches = @($textFiles | Select-String -Pattern "(?i)fatal|crash|segmentation|unhandled exception|script error|application error" -ErrorAction SilentlyContinue)
+    $evidence = [ordered]@{
+        schema_version = 1
+        run_id = $runId
+        attempt = $attemptNumber
+        generated_utc = [DateTimeOffset]::UtcNow.ToString("O")
+        lifecycle_at_collection = [string]$AttemptState.lifecycle
+        structured_entry_count = $entries.Count
+        event_counts = $eventCounts
+        severe_text_match_count = $severeMatches.Count
+        severe_text_samples = @($severeMatches | Select-Object -First 30 | ForEach-Object { [ordered]@{ path = $_.Path; line = $_.LineNumber; text = $_.Line } })
+        timeline = $timeline
+        raw_evidence = @($textFiles | ForEach-Object { $_.FullName })
+    }
+    $evidencePath = Join-Path $artifactDirectory "evidence.json"
+    Write-JsonFile $evidencePath $evidence
+    Write-Harness "VERIFY_READY run_id=$runId attempt=$attemptNumber entries=$($entries.Count) evidence=$evidencePath"
+}
+
+function Stop-PersistedAttempt([object]$RunState, [object]$AttemptState) {
+    Set-ExistingAttemptContext $RunState $AttemptState
+    $persistedHostPid = [int]$AttemptState.host_process_id
+    if ($persistedHostPid -gt 0) {
+        $process = Get-Process -Id $persistedHostPid -ErrorAction SilentlyContinue
+        if ($null -ne $process) {
+            Write-Harness "stopping persisted host process $persistedHostPid"
+            Stop-Process -Id $persistedHostPid -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $persistedHostPid -Timeout 10 -ErrorAction SilentlyContinue
+        }
+    }
+    $persistedTailPid = [int]$AttemptState.host_log_tail_process_id
+    if ($persistedTailPid -gt 0) { Stop-Process -Id $persistedTailPid -Force -ErrorAction SilentlyContinue }
+    Stop-VmClientBestEffort
+    $localStopped = @(Get-Process -Name GameFactory -ErrorAction SilentlyContinue).Count -eq 0
+    $cleanupVerified = $localStopped -and $vmCleanupSucceeded
+    $script:result = [ordered]@{
+        result = if ($cleanupVerified) { "stopped" } else { "cleanup_incomplete" }
+        test_run_id = $runId
+        scenario = $Scenario
+        mode = "infrastructure_only"
+        cleanup_verified = $cleanupVerified
+        lobby_id = $AttemptState.lobby_id
+        deepest_completed_stage = $AttemptState.topology
+        started_utc = $AttemptState.started_utc
+        completed_utc = [DateTimeOffset]::UtcNow.ToString("O")
+    }
+    $script:hostProcess = $null
+    $script:hostLogTailProcess = $null
+    Save-RunAndAttemptState "stopped" $cleanupVerified $RunState
+    Write-JsonFile $resultPath $result
+    Write-Harness "STOPPED run_id=$runId attempt=$attemptNumber cleanup_verified=$cleanupVerified"
+    if (-not $cleanupVerified) { exit 1 }
+}
+
+if ($Mode -in @("Verify", "Stop")) {
+    if ([string]::IsNullOrWhiteSpace($RunId)) { throw "$Mode requires -RunId." }
+    $existingRunState = Read-JsonFile $runStatePath "Run state"
+    $existingAttempt = Get-RunAttempt $existingRunState $Attempt
+    if ($Mode -eq "Verify") {
+        Write-GenericEvidence $existingRunState $existingAttempt
+        return
+    }
+    Stop-PersistedAttempt $existingRunState $existingAttempt
+    return
+}
+
+if ($Mode -eq "Retry") {
+    $existingRunState = Read-JsonFile $runStatePath "Run state"
+    $previousAttempt = Get-RunAttempt $existingRunState 0
+    if ([string]$previousAttempt.lifecycle -eq "running") {
+        throw "Run '$runId' is still running. Use -Mode Stop -RunId $runId before Retry."
+    }
+    $attemptNumber = ([int](@($existingRunState.attempts | Measure-Object -Property attempt -Maximum).Maximum)) + 1
+    $artifactDirectory = Join-Path $runDirectory ("attempt_{0:D3}" -f $attemptNumber)
+    $hostOutputDirectory = Join-Path $artifactDirectory "host"
+    $clientOutputDirectory = Join-Path $artifactDirectory "client"
+    $sessionOutputDirectory = Join-Path $artifactDirectory "session"
+    $hostGodotLogPath = Join-Path $hostOutputDirectory "godot.log"
+    $clientLiveLogPath = Join-Path $clientOutputDirectory "game.jsonl"
+    $resultPath = Join-Path $artifactDirectory "result.json"
+    $attemptStatePath = Join-Path $artifactDirectory "state.json"
+}
+elseif (Test-Path -LiteralPath $runDirectory) {
+    throw "Run '$runId' already exists. Use -Mode Retry after Stop, or choose a new -RunId."
+}
+
+New-Item -ItemType Directory -Force -Path $artifactDirectory, $hostOutputDirectory, $clientOutputDirectory, $sessionOutputDirectory | Out-Null
 
 try {
     Write-Harness "test starting; artifacts=$artifactDirectory"
@@ -909,7 +1103,7 @@ try {
     $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
     $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList $hostArguments -WorkingDirectory $outputDirectory -PassThru -RedirectStandardOutput $hostConsolePath -RedirectStandardError $hostErrorPath
     if ($ShowHostConsole) {
-        $quotedLogPath = $hostConsolePath.Replace("'", "''")
+        $quotedLogPath = $hostGodotLogPath.Replace("'", "''")
         $hostLogTailProcess = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-NoExit", "-Command", "Get-Content -LiteralPath '$quotedLogPath' -Wait") -PassThru
         Write-Harness "host console log viewer started (process $($hostLogTailProcess.Id))"
     }
@@ -969,90 +1163,33 @@ try {
     $result.timings_ms["harness_client_stage_to_godot_connected"] = $clientConnectionTimer.ElapsedMilliseconds
     $result.timings_ms["client_process_to_godot_connected"] = [long]$godotConnected.ElapsedMilliseconds
     Complete-Stage "F_godot_signals"
-    if ($Scenario -eq "netfox_player_3d") {
-        [void](Wait-ForLogEvent "netfox.player3d" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
-        $playersReady = Wait-ForLogEvent "netfox.player3d" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
-        if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
-        Wait-ForOperatorCompletion
-    }
-    elseif ($Scenario -eq "steam_basic") {
+    # Launch establishes only transport and participant topology.  It never
+    # waits for, interprets, or accepts gameplay input; that happens after this
+    # command has returned through the human/operator and Verify workflow.
+    if ($Scenario -eq "steam_basic") {
         [void](Wait-ForLogEvent "ab_test.scenario" "client_world_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_world")
         Complete-Stage "G_gamefactory_lifecycle"
-        [void](Wait-ForLogEvent "ab_test.scenario" "client_passed" "client" $ScenarioTimeoutSeconds "replication" "client_door_confirmation")
-        [void](Wait-ForLogEvent "ab_test.scenario" "host_passed" "host" $ScenarioTimeoutSeconds "replication" "host_door_confirmation")
-        Complete-Stage "H_replication"
     }
     elseif ($Scenario -eq "netfox_time_sync") {
-        $hostTimeSync = Wait-ForLogEvent "netfox.time" "initial_sync_complete" "host" $ScenarioTimeoutSeconds "netfox" "host_time_sync"
-        Complete-Stage "G_netfox_host_time_sync"
-        $clientTimeSync = Wait-ForLogEvent "netfox.time" "initial_sync_complete" "client" $ScenarioTimeoutSeconds "netfox" "time_sync"
-        $result.timings_ms["client_process_to_netfox_sync"] = [long]$clientTimeSync.ElapsedMilliseconds
-        Complete-Stage "H_netfox_client_time_sync"
-        [void](Wait-ForLogEvent "netfox.time" "client_sync_complete" "host" $ScenarioTimeoutSeconds "netfox" "host_client_time_sync")
-        Complete-Stage "I_netfox_host_client_sync"
-        [void](Wait-ForLogFieldValue "netfox.time" "tick_progress" "host" "tick_monotonic" "true" $ScenarioTimeoutSeconds "netfox" "tick_loop")
-        [void](Wait-ForLogFieldValue "netfox.time" "tick_progress" "client" "tick_monotonic" "true" $ScenarioTimeoutSeconds "netfox" "tick_loop")
-        $clientTickSample = Wait-ForLogFieldValue "netfox.time" "tick_progress" "client" "rtt_known" "true" $ScenarioTimeoutSeconds "netfox" "rtt"
-        $result.timings_ms["client_remote_rtt_ms"] = [double]$clientTickSample.Fields.remote_rtt_ms
-        $result.timings_ms["netfox_tickrate"] = [long]$clientTickSample.Fields.tickrate
-        Complete-Stage "J_netfox_ticks"
-        [void](Wait-ForLogEvent "netfox.time" "client_sample_received" "host" $ScenarioTimeoutSeconds "netfox" "client_sample_delivery")
-        $netfoxShutdownExpected = $true
-        [void](Wait-ForLogEvent "netfox.time" "stopped" "host" $ScenarioTimeoutSeconds "netfox" "time_stop")
-        [void](Wait-ForLogEvent "netfox.time" "stopped" "client" $ScenarioTimeoutSeconds "netfox" "time_stop")
-        Complete-Stage "K_netfox_lifecycle_stop"
+        [void](Wait-ForLogEvent "netfox.time" "initial_sync_complete" "host" $ScenarioTimeoutSeconds "netfox" "host_time_sync")
+        [void](Wait-ForLogEvent "netfox.time" "initial_sync_complete" "client" $ScenarioTimeoutSeconds "netfox" "client_time_sync")
+        Complete-Stage "G_netfox_time_topology"
     }
-    elseif ($Scenario -eq "netfox_gameplay") {
-        # This is a two-account interactive sandbox, not the retired scripted
-        # divergence/reconciliation scenario. The checkpoints deliberately
-        # prove the real ownership boundary before asking the operator to move:
-        # host-side spawning, replicated configuration, client topology, then
-        # both directions of manually generated input and remote observation.
-        [void](Wait-ForLogEvent "netfox.movement" "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
-        Complete-Stage "G_host_player_spawn"
-        $playersReady = Wait-ForLogEvent "netfox.movement" "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
+    elseif ($Scenario -in @("netfox_gameplay", "netfox_player_3d")) {
+        [void](Wait-ForLogEvent $scenarioCategory "player_spawned" "host" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "host_player_spawn")
+        $playersReady = Wait-ForLogEvent $scenarioCategory "players_ready" "client" $ScenarioTimeoutSeconds "gamefactory_lifecycle" "client_topology"
         if ($playersReady.Fields.player_count -ne "2") { Set-Failure "gamefactory_lifecycle" "client_topology" "Client reported a player count other than two." }
-        Complete-Stage "H_client_two_player_topology"
-
-        # ElapsedMilliseconds is process-local, so never use it to order host
-        # and VM events. Establish each manual checkpoint with UTC after the
-        # two-player topology is ready; otherwise an earlier host input can
-        # satisfy this stage before the client was present.
-        $hostCheckpointUtc = [DateTimeOffset]::UtcNow
-        $hostBaseline = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "host" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_position_baseline"
-        $hostRemotePresentationBaseline = Wait-ForLogFieldValueAfterUtc "netfox.reconciliation" "presentation_sample" "client" "player_id" "1" $hostCheckpointUtc $ScenarioTimeoutSeconds "replication" "host_remote_presentation_baseline"
-        Write-Harness "manual gameplay ready: move the HOST marker with WASD for 15 seconds"
-        $hostInput = Wait-ForLogFieldValueAfterUtc "netfox.movement" "local_input_active" "host" "active" "True" $hostCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "host_manual_input"
-        $hostMovement = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "host" (Get-LogUtc $hostInput) $ScenarioTimeoutSeconds "gameplay" "host_position_changed"
-        if ((Get-VectorDistance ([string]$hostMovement.Fields.position) ([string]$hostBaseline.Fields.position)) -le 0.01) {
-            Set-Failure "gameplay" "host_position_changed" "Host input became active but its local simulated position did not change."
-        }
-        [void](Wait-ForRemotePresentationChangeAfterUtc "client" "1" ([string]$hostRemotePresentationBaseline.Fields.presentation_error_pixels) (Get-LogUtc $hostInput) $ScenarioTimeoutSeconds "replication" "host_movement_observed_by_client")
-        Complete-Stage "I_host_input_and_client_remote_observation"
-
-        $clientCheckpointUtc = [DateTimeOffset]::UtcNow
-        $clientBaseline = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "client" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_position_baseline"
-        $clientRemotePresentationBaseline = Wait-ForLogFieldValueAfterUtc "netfox.reconciliation" "presentation_sample" "host" "player_id" "2" $clientCheckpointUtc $ScenarioTimeoutSeconds "replication" "client_remote_presentation_baseline"
-        Write-Harness "manual gameplay ready: move the CLIENT marker with WASD for 15 seconds"
-        $clientInput = Wait-ForLogFieldValueAfterUtc "netfox.movement" "local_input_active" "client" "active" "True" $clientCheckpointUtc $ScenarioTimeoutSeconds "gameplay" "client_manual_input"
-        $clientMovement = Wait-ForLogEventAfterUtc "netfox.movement" "local_player_moved" "client" (Get-LogUtc $clientInput) $ScenarioTimeoutSeconds "gameplay" "client_position_changed"
-        if ((Get-VectorDistance ([string]$clientMovement.Fields.position) ([string]$clientBaseline.Fields.position)) -le 0.01) {
-            Set-Failure "gameplay" "client_position_changed" "Client input became active but its local simulated position did not change."
-        }
-        [void](Wait-ForRemotePresentationChangeAfterUtc "host" "2" ([string]$clientRemotePresentationBaseline.Fields.presentation_error_pixels) (Get-LogUtc $clientInput) $ScenarioTimeoutSeconds "replication" "client_movement_observed_by_host")
-        Complete-Stage "J_client_input_and_host_remote_observation"
-
-        [void](Wait-ForLogEvent "netfox.history_age" "sample" "host" $ScenarioTimeoutSeconds "netfox" "host_history_diagnostics")
-        [void](Wait-ForLogEvent "netfox.history_age" "sample" "client" $ScenarioTimeoutSeconds "netfox" "client_history_diagnostics")
-        Complete-Stage "K_history_diagnostics"
+        Complete-Stage "G_two_player_topology"
     }
     else { Set-Failure "harness" "scenario" "Unsupported scenario '$Scenario'." }
 
-    $result.result = "passed"
+    $result.result = "running"
     $result.layer = $null
-    $result.stage = "infrastructure_complete"
+    $result.stage = "ready"
     $result.reason = $null
-    Write-Harness "infrastructure session complete scenario=$Scenario lobby=$lobbyId"
+    Save-RunAndAttemptState "running" $false $existingRunState
+    $result | ConvertTo-Json -Depth 8 | Set-Content -Path $resultPath -Encoding utf8
+    Write-Harness "AB_READY run_id=$runId attempt=$attemptNumber manifest=$manifestHash host=running vm=running topology=$($result.deepest_completed_stage) artifact=$artifactDirectory"
 }
 catch {
     if ($null -eq $result.reason) {
@@ -1062,11 +1199,19 @@ catch {
     Write-Error "[harness][$runId] $terminalResult layer=$($result.layer) stage=$($result.stage): $($result.reason)"
 }
 finally {
-    Stop-TestProcesses
-    try { Copy-RunArtifacts } catch { Write-Warning "[harness][$runId] artifact collection failed: $($_.Exception.Message)" }
-    $result.completed_utc = [DateTimeOffset]::UtcNow.ToString("O")
-    $result | ConvertTo-Json -Depth 5 | Set-Content -Path $resultPath -Encoding utf8
-    Write-Harness "result=$resultPath"
+    if ($result.result -eq "running") {
+        # A successful Launch/Retry deliberately returns while both games live.
+        # Verify captures evidence and Stop owns deterministic teardown.
+        Write-Harness "launch state=$attemptStatePath"
+    }
+    else {
+        Stop-TestProcesses
+        try { Copy-RunArtifacts } catch { Write-Warning "[harness][$runId] artifact collection failed: $($_.Exception.Message)" }
+        $result.completed_utc = [DateTimeOffset]::UtcNow.ToString("O")
+        $result | ConvertTo-Json -Depth 8 | Set-Content -Path $resultPath -Encoding utf8
+        try { Save-RunAndAttemptState "failed" $result.cleanup_verified $existingRunState } catch { Write-Warning "[harness][$runId] state persistence failed: $($_.Exception.Message)" }
+        Write-Harness "result=$resultPath"
+    }
 }
 
-if ($result.result -ne "passed") { exit 1 }
+if ($result.result -notin @("running", "passed")) { exit 1 }
