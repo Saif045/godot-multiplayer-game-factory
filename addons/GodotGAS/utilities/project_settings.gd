@@ -207,6 +207,11 @@ static func _init_project_settings_editor_tag_property_editor() -> void:
 static func get_svg_icon(path: String) -> Texture2D:
 	if not Engine.is_editor_hint():
 		return load(path)
+	# EditorInterface is not registered in exported games. Fetch it dynamically
+	# so this shared utility can still be parsed by a runtime scene.
+	var editor_interface := Engine.get_singleton("EditorInterface")
+	if editor_interface == null:
+		return load(path)
 		
 	var file = FileAccess.open(path, FileAccess.READ)
 	if not file: 
@@ -215,7 +220,7 @@ static func get_svg_icon(path: String) -> Texture2D:
 	var svg_text = file.get_as_text()
 	file.close()
 	
-	var theme = EditorInterface.get_editor_theme()
+	var theme = editor_interface.get_editor_theme()
 	var font_color = "#" + theme.get_color("font_color", "Editor").to_html(false)
 	
 	svg_text = svg_text.replace("#e0e0e0", font_color)
@@ -224,7 +229,7 @@ static func get_svg_icon(path: String) -> Texture2D:
 	svg_text = svg_text.replace("#FFFFFF", font_color)
 	
 	var img = Image.new()
-	var editor_scale = EditorInterface.get_editor_scale()
+	var editor_scale = editor_interface.get_editor_scale()
 	var err = img.load_svg_from_string(svg_text, editor_scale)
 	
 	if err == OK:

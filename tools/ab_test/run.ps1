@@ -84,8 +84,8 @@ if ($Mode -eq "Retry") {
 
 $outputDirectory = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $repoRoot "build\test_steam" } else { $OutputDirectory }
 $outputDirectory = [System.IO.Path]::GetFullPath($outputDirectory)
-$hostExecutable = Join-Path $outputDirectory "GameFactory.exe"
-if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe" }
+$hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe"
+if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.exe" }
 
 $runId = if ([string]::IsNullOrWhiteSpace($RunId)) {
     "ab_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([Guid]::NewGuid().ToString("N").Substring(0, 4))
@@ -312,7 +312,7 @@ function Invoke-VmRunner([string]$ExpectedStage, [int]$TimeoutSeconds) {
 
 function Get-VmReleaseExecutable([string]$ManifestHash) {
     if ($ManifestHash -notmatch '^[a-f0-9]{64}$') { throw "Manifest hash must be a lowercase SHA-256 value." }
-    return (($VmBuildRoot.TrimEnd('/', '\') + "/releases/$ManifestHash/GameFactory.exe"))
+    return (($VmBuildRoot.TrimEnd('/', '\') + "/releases/$ManifestHash/GameFactory.console.exe"))
 }
 
 function Test-CurrentExportReusable {
@@ -842,8 +842,8 @@ function Get-RunAttempt([object]$RunState, [int]$RequestedAttempt) {
 function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:Scenario = [string]$RunState.scenario
     $script:outputDirectory = [System.IO.Path]::GetFullPath([string]$RunState.host_export_directory)
-    $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe"
-    if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe" }
+    $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe"
+    if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe" }
     $script:attemptNumber = [int]$AttemptState.attempt
     $script:artifactDirectory = [System.IO.Path]::GetFullPath([string]$AttemptState.artifact_directory)
     $script:hostOutputDirectory = Join-Path $script:artifactDirectory "host"
