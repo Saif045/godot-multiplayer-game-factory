@@ -89,22 +89,33 @@ public static class GameLog
     {
         fallbackWarning = null;
         string? configuredRunId = ReadConfiguredRunId();
-        string fallbackRoot = ProjectSettings.GlobalizePath("user://logs");
+        string userRoot = ProjectSettings.GlobalizePath("user://logs");
         string executablePath = OS.GetExecutablePath();
         string? executableDirectory = Path.GetDirectoryName(executablePath);
-        if (string.IsNullOrWhiteSpace(executableDirectory))
-            return new LogRun(fallbackRoot, configuredRunId);
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), "GameFactory", "logs");
+        var candidates = new List<(string Name, string Root)>();
+        if (!string.IsNullOrWhiteSpace(executableDirectory))
+            candidates.Add(("beside the executable", Path.Combine(executableDirectory, "logs")));
+        candidates.Add(("user://logs", userRoot));
+        candidates.Add(("the temporary directory", temporaryRoot));
 
-        string preferredRoot = Path.Combine(executableDirectory, "logs");
-        try
+        var failures = new List<string>();
+        foreach ((string name, string root) in candidates)
         {
-            return new LogRun(preferredRoot, configuredRunId);
+            try
+            {
+                LogRun run = new(root, configuredRunId);
+                if (failures.Count > 0)
+                    fallbackWarning = $"Could not create diagnostics logs {string.Join(" or ", failures)}; using {name}.";
+                return run;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                failures.Add($"{name} ({exception.Message})");
+            }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            fallbackWarning = $"Could not create a diagnostics log beside the executable; using user://logs instead. {exception.Message}";
-            return new LogRun(fallbackRoot, configuredRunId);
-        }
+
+        throw new IOException($"Could not create GameFactory diagnostics logs in any configured location: {string.Join("; ", failures)}.");
     }
 
     private static string? ReadConfiguredRunId()

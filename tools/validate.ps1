@@ -15,7 +15,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$godotUserDataDirectory = Join-Path $repoRoot ".tmp-validate-user-data"
 $results = [Collections.Generic.List[object]]::new()
 
 function Add-Result([string]$Status, [string]$Name, [string]$Command, [string]$Detail) {
@@ -59,41 +58,49 @@ function Invoke-UnitRegression {
 
 function Assert-Godot {
     if (-not (Test-Path -LiteralPath $Godot)) { throw "Godot console executable was not found: $Godot" }
-    New-Item -ItemType Directory -Force -Path $godotUserDataDirectory | Out-Null
 }
 
 function Invoke-BoundedGodot([string]$Description, [string[]]$Arguments, [int]$TimeoutSeconds) {
     $stdoutPath = Join-Path $repoRoot ".tmp-validate-$Description.stdout.log"
     $stderrPath = Join-Path $repoRoot ".tmp-validate-$Description.stderr.log"
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-    $process = Start-Process -FilePath $Godot -ArgumentList $Arguments -WorkingDirectory $repoRoot -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $engineLogPath = Join-Path $repoRoot ".tmp-validate-$Description.engine.log"
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
+    # Godot 4.7 has no --user-data-dir flag.  Direct the engine's own log into
+    # this disposable workspace location instead, before any app arguments.
+    $godotArguments = @("--log-file", $engineLogPath) + $Arguments
+    $process = Start-Process -FilePath $Godot -ArgumentList $godotArguments -WorkingDirectory $repoRoot -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
     try {
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
             throw "$Description timed out after $TimeoutSeconds seconds; process $($process.Id) was stopped."
         }
+        # Refresh after the bounded wait: Start-Process may otherwise expose a
+        # stale/null ExitCode even though the child has terminated successfully.
+        $process.Refresh()
+        [int]$exitCode = $process.ExitCode
         $output = @(
             if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Tail 30 }
             if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Tail 30 }
+            if (Test-Path -LiteralPath $engineLogPath) { Get-Content -LiteralPath $engineLogPath -Tail 30 }
         ) -join [Environment]::NewLine
-        if ($process.ExitCode -ne 0) { throw "$Description exited with $($process.ExitCode). $output" }
+        if ($exitCode -ne 0) { throw "$Description exited with $exitCode. $output" }
     }
     finally {
-        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
     }
 }
 
 function Invoke-Headless {
     Invoke-Check "godot-headless" "Godot --headless --path <repo> --editor --quit" {
         Assert-Godot
-        Invoke-BoundedGodot "headless" @("--headless", "--user-data-dir", $godotUserDataDirectory, "--path", $repoRoot, "--editor", "--quit") 60
+        Invoke-BoundedGodot "headless" @("--headless", "--path", $repoRoot, "--editor", "--quit") 60
     } | Out-Null
 }
 
 function Invoke-GasProbe {
     Invoke-Check "probe-gas" "Godot --headless --path <repo> --run=gas-interop" {
         Assert-Godot
-        Invoke-BoundedGodot "gas-probe" @("--headless", "--user-data-dir", $godotUserDataDirectory, "--path", $repoRoot, "--", "--run=gas-interop") 75
+        Invoke-BoundedGodot "gas-probe" @("--headless", "--path", $repoRoot, "--", "--run=gas-interop") 75
     } | Out-Null
 }
 
@@ -119,7 +126,7 @@ function Invoke-ExportSmoke {
         if (-not (Test-Path -LiteralPath $executable)) { throw "Export did not produce GameFactory.exe." }
         $logPath = Join-Path $repoRoot ".tmp-export-smoke.log"
         Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
-        $process = Start-Process -FilePath $executable -ArgumentList @("--headless", "--user-data-dir", $godotUserDataDirectory, "--log-file", $logPath) -WorkingDirectory $outputDirectory -PassThru
+        $process = Start-Process -FilePath $executable -ArgumentList @("--headless", "--log-file", $logPath) -WorkingDirectory $outputDirectory -PassThru
         try {
             Start-Sleep -Seconds 4
             $process.Refresh()
