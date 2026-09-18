@@ -1079,7 +1079,7 @@ function Stop-PersistedAttempt([object]$RunState, [object]$AttemptState) {
         cleanup_verified = $cleanupVerified
         lobby_id = $AttemptState.lobby_id
         deepest_completed_stage = $AttemptState.topology
-        infrastructure = $AttemptState.infrastructure
+        infrastructure = if ($null -ne $AttemptState.PSObject.Properties['infrastructure']) { $AttemptState.infrastructure } else { $null }
         started_utc = $AttemptState.started_utc
         completed_utc = [DateTimeOffset]::UtcNow.ToString("O")
     }
