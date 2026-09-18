@@ -54,6 +54,17 @@ try {
     if ([string]$config.mode -ne "launch") { throw "Unknown runner mode '$($config.mode)'." }
     if (-not (Test-Path -LiteralPath $executable)) { throw "Client executable does not exist: $executable" }
 
+    # A retry has its own remote log namespace. Godot does not create an
+    # arbitrary --log-file parent directory, so establish it before launch.
+    $logFileArgument = @($config.arguments | Where-Object { $_ -eq "--log-file" })
+    if ($logFileArgument.Count -gt 0) {
+        $logIndex = [Array]::IndexOf([string[]]$config.arguments, "--log-file")
+        if ($logIndex -ge 0 -and $logIndex + 1 -lt $config.arguments.Count) {
+            $logDirectory = Split-Path -Parent ([string]$config.arguments[$logIndex + 1])
+            if (-not [string]::IsNullOrWhiteSpace($logDirectory)) { New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null }
+        }
+    }
+
     $process = Start-Process -FilePath $executable -ArgumentList @($config.arguments) -WorkingDirectory $exportDirectory -PassThru
     $status["stage"] = "client_launched"
     $status["process_id"] = $process.Id

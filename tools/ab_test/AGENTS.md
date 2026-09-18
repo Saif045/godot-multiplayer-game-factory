@@ -71,10 +71,17 @@ fresh-session experiment is explicitly requested. A `steam_peer` failure must
 remain preserved; use `Stop`, then `Retry -FreshTransport` for a separate
 attempt using the same immutable build.
 
-Steam's exact online state has no robust local interface in this harness. The
-readiness boundary is therefore an interactive-session Steam process plus one
-or more `steamwebhelper` processes, not an assertion that Steam is online.
-Recovery metadata is persisted under `infrastructure` in each attempt state.
+Steam's exact online state has no robust local interface in this harness. For
+`-FreshTransport`, process/session readiness is followed by a bounded host
+GameFactory `--run=steam` probe; it must emit `steam.session/ready` before a
+gameplay attempt may start. The VM remains process/session checked because an
+interactive probe would require another visible client process. Recovery
+metadata is persisted under `infrastructure` in each attempt state.
+
+Every launch attempt uses an `evidence_attempt_id` (`RunId + attempt_###`) and
+an attempt-specific VM Godot-log path. Structured events must carry that ID
+and have a timestamp at or after attempt start; otherwise they are stale and
+cannot satisfy topology or readiness checks.
 
 `Launch` and `Retry` own export/reuse, parity, topology readiness, and state
 persistence only. `Verify` emits compact generic evidence (`evidence.json`)

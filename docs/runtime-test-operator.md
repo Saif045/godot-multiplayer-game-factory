@@ -42,9 +42,11 @@ and enabled `GameFactoryClient` task again. It never changes VM networking or
 autologon. `-FreshTransport` is pre-attempt only: it stops stale game
 processes, restarts host Steam and VM Steam in its existing interactive user
 session, checks the Steam + `steamwebhelper` session boundary, and rechecks VM
-Health. Exact Steam online state cannot be verified robustly through the
-available local interfaces, so process/session readiness is not an online
-claim.
+Health. It then runs a bounded host GameFactory `--run=steam` IPC probe and
+requires `steam.session/ready`; process/session readiness alone is not enough.
+Exact Steam online state still cannot be verified robustly through available
+local interfaces. The VM is limited to interactive-session process readiness
+because a second interactive probe would create a visible client process.
 
 For Steam/native investigation, do not add `-FreshTransport` unless the test
 explicitly calls for a fresh-session comparison. Never restart Steam inside a
@@ -123,6 +125,11 @@ Recovery actions are metadata only and are saved in the attempt/run state as
 `vm_health_initial`, `vm_restart_attempted`, `vm_health_after_restart`,
 `fresh_transport_requested`, both Steam restart results, and
 `steam_readiness_result`. They do not constitute gameplay acceptance.
+
+Each attempt has its own `evidence_attempt_id` and VM Godot-log namespace.
+Topology checks accept only structured events with that ID and a UTC timestamp
+at or after that attempt began. A stale or unprovenanced log is preserved for
+diagnosis but cannot satisfy current-attempt readiness.
 
 Retries never mix logs: attempts live under
 `artifacts/ab_tests/<RunId>/attempt_001`, `attempt_002`, and so on.

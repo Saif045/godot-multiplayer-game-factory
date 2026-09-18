@@ -109,7 +109,9 @@ $hostOutputDirectory = Join-Path $artifactDirectory "host"
 $clientOutputDirectory = Join-Path $artifactDirectory "client"
 $sessionOutputDirectory = Join-Path $artifactDirectory "session"
 $hostGodotLogPath = Join-Path $hostOutputDirectory "godot.log"
-$vmGodotLogPath = "C:/GameFactoryAgent/gamefactory_$runId.godot.log"
+$attemptLabel = "attempt_{0:D3}" -f $attemptNumber
+$attemptEvidenceId = "{0}_{1}" -f $runId, $attemptLabel
+$vmGodotLogPath = "C:/GameFactoryAgent/logs/$runId/$attemptLabel/godot.log"
 $clientLiveLogPath = Join-Path $clientOutputDirectory "game.jsonl"
 $lastVmLogSyncUtc = [DateTimeOffset]::MinValue
 $vmLiveLogPath = $null
@@ -146,6 +148,9 @@ $result = [ordered]@{
         host_steam_restart_result = $null
         vm_steam_restart_result = $null
         steam_readiness_result = $null
+        steam_process_ready = $false
+        steam_ipc_probe_attempted = $false
+        steam_ipc_probe_result = $null
     }
     build_mapping = [ordered]@{
         host_directory = $outputDirectory
@@ -379,12 +384,59 @@ function Invoke-FreshTransportPreparation {
         $script:result.infrastructure.vm_steam_restart_result = $vm
         $health = Test-VmEndpointHealth
         $script:result.infrastructure.steam_readiness_result = [ordered]@{ result = "passed"; host = $script:result.infrastructure.host_steam_restart_result.readiness; vm = $vm; vm_health_task_state = $health.task_state; online_status = "not_deterministically_available"; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        $script:result.infrastructure.steam_process_ready = $true
     }
     catch {
         $script:result.infrastructure.vm_steam_restart_result = if ($null -eq $script:result.infrastructure.vm_steam_restart_result) { [ordered]@{ result = "failed"; reason = $_.Exception.Message; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") } } else { $script:result.infrastructure.vm_steam_restart_result }
         $script:result.infrastructure.steam_readiness_result = [ordered]@{ result = "failed"; reason = $_.Exception.Message; online_status = "not_deterministically_available"; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
         Set-Blocked "steam" "fresh_transport_vm" "FreshTransport could not establish VM Steam/session readiness: $($_.Exception.Message)"
     }
+}
+
+function Invoke-HostSteamIpcProbe {
+    $script:result.infrastructure.steam_ipc_probe_attempted = $true
+    $probeDirectory = Join-Path $hostOutputDirectory "steam_ipc_probe"
+    $probeLogPath = Join-Path $probeDirectory "godot.log"
+    $probeProfileRoot = Join-Path $probeDirectory "runtime_profile"
+    $probeAppData = Join-Path $probeProfileRoot "AppData\\Roaming"
+    $probeLocalAppData = Join-Path $probeProfileRoot "AppData\\Local"
+    New-Item -ItemType Directory -Force -Path $probeDirectory, $probeAppData, $probeLocalAppData | Out-Null
+    Remove-Item -LiteralPath $probeLogPath -Force -ErrorAction SilentlyContinue
+    $hostSteam = Get-HostSteamReadiness
+    if ($hostSteam.steam_process_count -lt 1 -or $hostSteam.steamwebhelper_count -lt 1) {
+        $script:result.infrastructure.steam_ipc_probe_result = [ordered]@{ result = "failed"; scope = "host"; reason = "Host Steam process/session readiness was lost before IPC probe."; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        Set-Blocked "steam" "fresh_transport_ipc" "Host Steam process/session readiness was lost before IPC probe."
+    }
+    $previousAppData = $env:APPDATA
+    $previousLocalAppData = $env:LOCALAPPDATA
+    $probeProcess = $null
+    try {
+        $env:APPDATA = $probeAppData
+        $env:LOCALAPPDATA = $probeLocalAppData
+        $probeProcess = Start-Process -FilePath $hostExecutable -ArgumentList @("--headless", "--log-file", $probeLogPath, "--run=steam", "--test-run-id=$attemptEvidenceId-ipc") -WorkingDirectory $outputDirectory -PassThru
+    }
+    finally { $env:APPDATA = $previousAppData; $env:LOCALAPPDATA = $previousLocalAppData }
+    try {
+        $deadline = (Get-Date).AddSeconds(30)
+        do {
+            if (Test-Path -LiteralPath $probeLogPath) {
+                $text = Get-Content -LiteralPath $probeLogPath -Raw -ErrorAction SilentlyContinue
+                if ($text -match '\[steam\.session\] ready') {
+                    $script:result.infrastructure.steam_ipc_probe_result = [ordered]@{ result = "ready"; scope = "host"; log_path = $probeLogPath; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+                    return
+                }
+                if ($text -match '\[steam\.session\] initialization_failed|Initializing -> Failed') {
+                    $reason = (($text -split "`r?`n" | Where-Object { $_ -match 'initialization_failed|Initializing -> Failed' } | Select-Object -Last 1) -join '')
+                    $script:result.infrastructure.steam_ipc_probe_result = [ordered]@{ result = "failed"; scope = "host"; log_path = $probeLogPath; reason = $reason; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+                    Set-Blocked "steam" "fresh_transport_ipc" "Host GameFactory/GodotSteam IPC probe failed: $reason"
+                }
+            }
+            Start-Sleep -Milliseconds 250
+        } while ((Get-Date) -lt $deadline)
+        $script:result.infrastructure.steam_ipc_probe_result = [ordered]@{ result = "timeout"; scope = "host"; log_path = $probeLogPath; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        Set-Blocked "steam" "fresh_transport_ipc" "Host GameFactory/GodotSteam IPC probe timed out after 30 seconds."
+    }
+    finally { if ($null -ne $probeProcess -and -not $probeProcess.HasExited) { Stop-Process -Id $probeProcess.Id -Force -ErrorAction SilentlyContinue } }
 }
 
 function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manifest, [string]$ManifestHash, [string]$VmExecutable) {
@@ -618,7 +670,7 @@ function Sync-VmRunLog {
     try {
         if ($null -eq $script:vmLiveLogPath) {
             $remoteRunsDirectory = (Join-Path (Split-Path -Parent $script:vmExecutable) "logs\runs") -replace '/', '\\'
-            $remoteScript = "`$log = Get-ChildItem -LiteralPath '$remoteRunsDirectory' -Directory -Filter '*_$runId' -ErrorAction SilentlyContinue | ForEach-Object { Join-Path `$_.FullName 'game.jsonl' } | Where-Object { Test-Path -LiteralPath `$_ } | Select-Object -First 1; if (`$null -ne `$log) { [Console]::Out.Write(`$log.Replace('\', '/')) }"
+            $remoteScript = "`$log = Get-ChildItem -LiteralPath '$remoteRunsDirectory' -Directory -Filter '*_$attemptEvidenceId' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | ForEach-Object { Join-Path `$_.FullName 'game.jsonl' } | Where-Object { Test-Path -LiteralPath `$_ } | Select-Object -First 1; if (`$null -ne `$log) { [Console]::Out.Write(`$log.Replace('\', '/')) }"
             $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
             $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) 10 "VM live-log discovery" -SuppressOutput
             if ($invocation.ExitCode -ne 0) { return }
@@ -640,7 +692,7 @@ function Sync-VmRunLog {
 function Get-RunLogFiles {
     Sync-VmRunLog
     $runsDirectory = Join-Path $outputDirectory "logs\runs"
-    $files = @(Get-ChildItem -Path $runsDirectory -Directory -Filter "*_$runId" -ErrorAction SilentlyContinue |
+    $files = @(Get-ChildItem -Path $runsDirectory -Directory -Filter "*_$attemptEvidenceId" -ErrorAction SilentlyContinue |
         ForEach-Object { Join-Path $_.FullName "game.jsonl" } |
         Where-Object { Test-Path $_ })
     if (Test-Path -LiteralPath $clientLiveLogPath) { $files += $clientLiveLogPath }
@@ -661,7 +713,11 @@ function Get-LogEntries {
         }
     }
 
-    return $entries
+    $attemptStart = [DateTimeOffset]::Parse([string]$result.started_utc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+    return @($entries | Where-Object {
+        if ([string]$_.RunId -ne $attemptEvidenceId) { return $false }
+        try { return (Get-LogUtc $_) -ge $attemptStart } catch { return $false }
+    })
 }
 
 function Find-LogEvent([string]$Category, [string]$Event, [string]$Role) {
@@ -966,6 +1022,8 @@ function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe"
     if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe" }
     $script:attemptNumber = [int]$AttemptState.attempt
+    $script:attemptLabel = "attempt_{0:D3}" -f $script:attemptNumber
+    $script:attemptEvidenceId = if ($null -ne $AttemptState.PSObject.Properties['evidence_attempt_id']) { [string]$AttemptState.evidence_attempt_id } else { $script:runId }
     $script:artifactDirectory = [System.IO.Path]::GetFullPath([string]$AttemptState.artifact_directory)
     $script:hostOutputDirectory = Join-Path $script:artifactDirectory "host"
     $script:clientOutputDirectory = Join-Path $script:artifactDirectory "client"
@@ -984,6 +1042,7 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
         schema_version = 1
         run_id = $runId
         attempt = $attemptNumber
+        evidence_attempt_id = $attemptEvidenceId
         scenario = $Scenario
         lifecycle = $Lifecycle
         cleanup_verified = $CleanupVerified
@@ -1234,11 +1293,6 @@ try {
         Invoke-VmHealthRecoveryIfRequested
         Complete-Stage "vm_health"
     }
-    if ($FreshTransport) {
-        $result.stage = "fresh_transport"
-        Invoke-FreshTransportPreparation
-        Complete-Stage "fresh_transport"
-    }
     $cleanupToHost = [System.Diagnostics.Stopwatch]::StartNew()
 
     $result.stage = "build"
@@ -1322,6 +1376,13 @@ try {
     # executable in script scope after parity has established it.
     $script:vmExecutable = $vmExecutable
 
+    if ($FreshTransport) {
+        $result.stage = "fresh_transport"
+        Invoke-FreshTransportPreparation
+        Invoke-HostSteamIpcProbe
+        Complete-Stage "fresh_transport"
+    }
+
     if ($VerifyBuildOnly) {
         $result.result = "passed"
         $result.layer = $null
@@ -1347,7 +1408,7 @@ try {
     $hostArguments = @(
         "--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath,
         "--run=$runTarget", "--steam-host",
-        "--test-scenario=$Scenario", "--test-run-id=$runId"
+        "--test-scenario=$Scenario", "--test-run-id=$attemptEvidenceId"
     )
     Write-Harness "launching host"
     $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1389,7 +1450,7 @@ try {
     # The GPU-P guest now has the host AMD OpenGL ICD, so keep the participant
     # windowed. This is both the real player path and makes each A/B attempt
     # directly observable in the Hyper-V console.
-    $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario", "--test-run-id=$runId")
+    $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario", "--test-run-id=$attemptEvidenceId")
     Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable
 
     $result.stage = "client_launch"
