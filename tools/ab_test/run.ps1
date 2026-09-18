@@ -294,7 +294,9 @@ function Get-HostSteamReadiness {
     [ordered]@{
         steam_process_count = $steam.Count
         interactive_session_ids = $sessionIds
+        steam_process_ids = @($steam | Select-Object -ExpandProperty Id | Sort-Object)
         steamwebhelper_count = $helpers.Count
+        steamwebhelper_process_ids = @($helpers | Select-Object -ExpandProperty Id | Sort-Object)
         steam_path = if ($steam.Count -gt 0) { [string]$steam[0].Path } else { $null }
         online_status = "not_deterministically_available"
     }
@@ -310,6 +312,56 @@ function Wait-ForHostSteamReadiness([int]$TimeoutSeconds = 60) {
     throw "Host Steam did not reach the interactive client + steamwebhelper readiness boundary within $TimeoutSeconds seconds."
 }
 
+function Get-TextSinceOffset([string]$Path, [long]$Offset) {
+    if (-not (Test-Path -LiteralPath $Path)) { return "" }
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+        if ($stream.Length -lt $Offset) { $Offset = 0 }
+        [void]$stream.Seek($Offset, [System.IO.SeekOrigin]::Begin)
+        $reader = [System.IO.StreamReader]::new($stream)
+        try { return $reader.ReadToEnd() }
+        finally { $reader.Dispose() }
+    }
+    finally { $stream.Dispose() }
+}
+
+function Wait-ForHostSteamStableReadiness([string]$SteamPath, [long]$ConnectionLogOffset, [int]$TimeoutSeconds = 90, [int]$StableSeconds = 10) {
+    $connectionLogPath = Join-Path (Join-Path (Split-Path -Parent $SteamPath) "logs") "connection_log.txt"
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $loggedOnObserved = $false
+    $stableSnapshot = $null
+    $stableSince = $null
+    do {
+        $readiness = Get-HostSteamReadiness
+        $newLogText = Get-TextSinceOffset $connectionLogPath $ConnectionLogOffset
+        if ($newLogText -match '\[Logged On,.*RecvMsgClientLogOnResponse\(\).*processing complete') { $loggedOnObserved = $true }
+        $processSet = "steam=$($readiness.steam_process_ids -join ',');helpers=$($readiness.steamwebhelper_process_ids -join ',');sessions=$($readiness.interactive_session_ids -join ',')"
+        $present = $readiness.steam_process_count -ge 1 -and $readiness.steamwebhelper_count -ge 1
+        if ($present -and $loggedOnObserved) {
+            if ($processSet -ne $stableSnapshot) {
+                $stableSnapshot = $processSet
+                $stableSince = Get-Date
+            }
+            elseif (((Get-Date) - $stableSince).TotalSeconds -ge $StableSeconds) {
+                return [ordered]@{
+                    readiness = $readiness
+                    connection_log_path = $connectionLogPath
+                    logged_on_log_signal = $true
+                    stable_process_set = $processSet
+                    stable_seconds = $StableSeconds
+                    observed_utc = [DateTimeOffset]::UtcNow.ToString("O")
+                }
+            }
+        }
+        else {
+            $stableSnapshot = $null
+            $stableSince = $null
+        }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+    throw "Host Steam did not reach the post-restart Logged On + stable interactive process-set readiness boundary within $TimeoutSeconds seconds."
+}
+
 function Restart-HostSteam {
     $before = Get-HostSteamReadiness
     $steamPath = [string]$before.steam_path
@@ -317,14 +369,16 @@ function Restart-HostSteam {
         $steamPath = "D:\\steam\\steam.exe"
     }
     if (-not (Test-Path -LiteralPath $steamPath)) { throw "Could not locate a host Steam executable for FreshTransport." }
+    $connectionLogPath = Join-Path (Join-Path (Split-Path -Parent $steamPath) "logs") "connection_log.txt"
+    $connectionLogOffset = if (Test-Path -LiteralPath $connectionLogPath) { ([System.IO.FileInfo]$connectionLogPath).Length } else { 0 }
 
     Get-Process -Name steamwebhelper, steam -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     $exitDeadline = (Get-Date).AddSeconds(20)
     do { Start-Sleep -Milliseconds 500 } while (@(Get-Process -Name steam -ErrorAction SilentlyContinue).Count -gt 0 -and (Get-Date) -lt $exitDeadline)
     if (@(Get-Process -Name steam -ErrorAction SilentlyContinue).Count -gt 0) { throw "Host Steam processes did not exit before restart." }
     Start-Process -FilePath $steamPath | Out-Null
-    $ready = Wait-ForHostSteamReadiness
-    return [ordered]@{ result = "passed"; steam_path = $steamPath; readiness = $ready; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+    $ready = Wait-ForHostSteamStableReadiness -SteamPath $steamPath -ConnectionLogOffset $connectionLogOffset
+    return [ordered]@{ result = "passed"; steam_path = $steamPath; readiness = $ready.readiness; logged_on_log_signal = $ready.logged_on_log_signal; stable_process_set = $ready.stable_process_set; stable_seconds = $ready.stable_seconds; connection_log_path = $ready.connection_log_path; observed_utc = $ready.observed_utc }
 }
 
 function Restart-VmSteam {

@@ -74,8 +74,9 @@ Use `-RecoverVm` for one controlled VM recovery if Health fails, and use
 `-FreshTransport` only when a clean Steam-session starting point is requested.
 These switches run before a new attempt, record infrastructure metadata, and
 do not make a Steam/native failure disappear inside an existing attempt.
-With `-FreshTransport`, a bounded host GameFactory Steam-IPC probe must pass;
-Steam processes alone are not treated as usable. A/B logs are attempt-isolated
+With `-FreshTransport`, the host must first show Steam's post-restart `Logged
+On` log signal and a stable interactive Steam/helper process set; then one
+bounded GameFactory Steam-IPC probe must pass. A/B logs are attempt-isolated
 and stale records cannot satisfy topology checks.
 
 `Verify` only prepares evidence. Gameplay acceptance is:

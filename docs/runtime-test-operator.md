@@ -41,12 +41,14 @@ the harness then waits for SSH and verifies the existing interactive desktop
 and enabled `GameFactoryClient` task again. It never changes VM networking or
 autologon. `-FreshTransport` is pre-attempt only: it stops stale game
 processes, restarts host Steam and VM Steam in its existing interactive user
-session, checks the Steam + `steamwebhelper` session boundary, and rechecks VM
-Health. It then runs a bounded host GameFactory `--run=steam` IPC probe and
-requires `steam.session/ready`; process/session readiness alone is not enough.
-Exact Steam online state still cannot be verified robustly through available
-local interfaces. The VM is limited to interactive-session process readiness
-because a second interactive probe would create a visible client process.
+session, waits for Steam's post-restart `Logged On` connection-log signal plus
+a stable host `steam.exe` + `steamwebhelper.exe` interactive process set, and
+rechecks VM Health. It then runs one bounded host GameFactory `--run=steam`
+IPC probe and requires `steam.session/ready`; process/session readiness alone
+is not enough. Exact Steam online state still cannot be verified robustly
+through available local interfaces. The VM is limited to interactive-session
+process readiness because a second interactive probe would create a visible
+client process.
 
 For Steam/native investigation, do not add `-FreshTransport` unless the test
 explicitly calls for a fresh-session comparison. Never restart Steam inside a

@@ -72,11 +72,14 @@ remain preserved; use `Stop`, then `Retry -FreshTransport` for a separate
 attempt using the same immutable build.
 
 Steam's exact online state has no robust local interface in this harness. For
-`-FreshTransport`, process/session readiness is followed by a bounded host
-GameFactory `--run=steam` probe; it must emit `steam.session/ready` before a
-gameplay attempt may start. The VM remains process/session checked because an
-interactive probe would require another visible client process. Recovery
-metadata is persisted under `infrastructure` in each attempt state.
+`-FreshTransport`, the host first requires Steam's post-restart `Logged On`
+connection-log signal and a stable interactive `steam.exe` +
+`steamwebhelper.exe` process set for a bounded interval. It then runs one
+bounded host GameFactory `--run=steam` probe, which must emit
+`steam.session/ready` before a gameplay attempt may start. The VM remains
+process/session checked because an interactive probe would require another
+visible client process. Recovery metadata is persisted under `infrastructure`
+in each attempt state.
 
 Every launch attempt uses an `evidence_attempt_id` (`RunId + attempt_###`) and
 an attempt-specific VM Godot-log path. Structured events must carry that ID
