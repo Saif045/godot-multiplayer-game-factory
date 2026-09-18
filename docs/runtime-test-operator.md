@@ -29,6 +29,33 @@ with host logs visible:
     -ShowHostConsole
 ```
 
+For normal gameplay work, request bounded VM recovery and, when a clean Steam
+starting point is useful, fresh transport preparation:
+
+```powershell
+.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -RecoverVm -FreshTransport -ShowHostConsole
+```
+
+`-RecoverVm` first runs Health. Only an unhealthy VM gets one restart attempt;
+the harness then waits for SSH and verifies the existing interactive desktop
+and enabled `GameFactoryClient` task again. It never changes VM networking or
+autologon. `-FreshTransport` is pre-attempt only: it stops stale game
+processes, restarts host Steam and VM Steam in its existing interactive user
+session, checks the Steam + `steamwebhelper` session boundary, and rechecks VM
+Health. Exact Steam online state cannot be verified robustly through the
+available local interfaces, so process/session readiness is not an online
+claim.
+
+For Steam/native investigation, do not add `-FreshTransport` unless the test
+explicitly calls for a fresh-session comparison. Never restart Steam inside a
+live attempt. Preserve a native-handshake failure, stop it, then create a
+separate immutable-build retry if needed:
+
+```powershell
+.\tools\ab_test\run.ps1 -Mode Stop -RunId <RunId>
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -RecoverVm -FreshTransport -ShowHostConsole
+```
+
 Replace the run ID with a unique timestamp-like label. The harness exports the
 current immutable build when needed, verifies host/guest manifest parity, then
 launches the host and the VM client. It captures both structured logs and
@@ -91,6 +118,11 @@ then create a fresh isolated attempt with the same captured build:
 ```powershell
 .\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
 ```
+
+Recovery actions are metadata only and are saved in the attempt/run state as
+`vm_health_initial`, `vm_restart_attempted`, `vm_health_after_restart`,
+`fresh_transport_requested`, both Steam restart results, and
+`steam_readiness_result`. They do not constitute gameplay acceptance.
 
 Retries never mix logs: attempts live under
 `artifacts/ab_tests/<RunId>/attempt_001`, `attempt_002`, and so on.

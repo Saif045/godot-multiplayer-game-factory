@@ -23,6 +23,11 @@ param(
     [int]$ScenarioTimeoutSeconds = 120,
     [ValidateRange(30, 1800)]
     [int]$BuildStageTimeoutSeconds = 300,
+    [switch]$RecoverVm,
+    [switch]$FreshTransport,
+    [string]$VmName = "Game-Testing-VM",
+    [ValidateRange(30, 600)]
+    [int]$VmRecoveryTimeoutSeconds = 180,
     [switch]$SkipExport,
     [switch]$ForceExport,
     [switch]$SkipBuildParity,
@@ -133,6 +138,15 @@ $result = [ordered]@{
     completed_stages = @()
     timings_ms = [ordered]@{}
     cleanup_verified = $false
+    infrastructure = [ordered]@{
+        vm_health_initial = $null
+        vm_restart_attempted = $false
+        vm_health_after_restart = $null
+        fresh_transport_requested = [bool]$FreshTransport
+        host_steam_restart_result = $null
+        vm_steam_restart_result = $null
+        steam_readiness_result = $null
+    }
     build_mapping = [ordered]@{
         host_directory = $outputDirectory
         vm_build_root = $VmBuildRoot
@@ -264,6 +278,113 @@ function Assert-NoStaleProcesses {
     $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) $externalCommandTimeoutSeconds "VM process-state preflight"
     if ($invocation.ExitCode -eq 9) { Set-Failure "harness" "preflight_cleanup" "A VM GameFactory process remained after cleanup." }
     if ($invocation.ExitCode -ne 0) { Set-Blocked "vm_control" "preflight_reachability" "Could not verify VM process state; SSH exited with code $($invocation.ExitCode)." }
+}
+
+function Get-HostSteamReadiness {
+    $steam = @(Get-Process -Name steam -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -ne 0 })
+    $sessionIds = @($steam | Select-Object -ExpandProperty SessionId -Unique)
+    $helpers = @(if ($sessionIds.Count -gt 0) {
+        @(Get-Process -Name steamwebhelper -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -in $sessionIds })
+    } else { @() })
+    [ordered]@{
+        steam_process_count = $steam.Count
+        interactive_session_ids = $sessionIds
+        steamwebhelper_count = $helpers.Count
+        steam_path = if ($steam.Count -gt 0) { [string]$steam[0].Path } else { $null }
+        online_status = "not_deterministically_available"
+    }
+}
+
+function Wait-ForHostSteamReadiness([int]$TimeoutSeconds = 60) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $readiness = Get-HostSteamReadiness
+        if ($readiness.steam_process_count -ge 1 -and $readiness.steamwebhelper_count -ge 1) { return $readiness }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+    throw "Host Steam did not reach the interactive client + steamwebhelper readiness boundary within $TimeoutSeconds seconds."
+}
+
+function Restart-HostSteam {
+    $before = Get-HostSteamReadiness
+    $steamPath = [string]$before.steam_path
+    if ([string]::IsNullOrWhiteSpace($steamPath) -or -not (Test-Path -LiteralPath $steamPath)) {
+        $steamPath = "D:\\steam\\steam.exe"
+    }
+    if (-not (Test-Path -LiteralPath $steamPath)) { throw "Could not locate a host Steam executable for FreshTransport." }
+
+    Get-Process -Name steamwebhelper, steam -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    $exitDeadline = (Get-Date).AddSeconds(20)
+    do { Start-Sleep -Milliseconds 500 } while (@(Get-Process -Name steam -ErrorAction SilentlyContinue).Count -gt 0 -and (Get-Date) -lt $exitDeadline)
+    if (@(Get-Process -Name steam -ErrorAction SilentlyContinue).Count -gt 0) { throw "Host Steam processes did not exit before restart." }
+    Start-Process -FilePath $steamPath | Out-Null
+    $ready = Wait-ForHostSteamReadiness
+    return [ordered]@{ result = "passed"; steam_path = $steamPath; readiness = $ready; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+}
+
+function Restart-VmSteam {
+    $nonce = [Guid]::NewGuid().ToString("N")
+    $remoteScript = @"
+`$ErrorActionPreference = 'Stop'
+`$interactiveUser = (Get-CimInstance Win32_ComputerSystem).UserName
+`$explorer = @(Get-Process -Name explorer -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -ne 0 } | Select-Object -First 1)
+if ([string]::IsNullOrWhiteSpace([string]`$interactiveUser) -or `$explorer.Count -ne 1) { throw 'No interactive desktop session is available for VM Steam restart.' }
+`$sessionId = [int]`$explorer[0].SessionId
+`$steam = @(Get-Process -Name steam -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -eq `$sessionId } | Select-Object -First 1)
+`$steamPath = if (`$steam.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace([string]`$steam[0].Path)) { [string]`$steam[0].Path } else { 'C:\Program Files (x86)\Steam\steam.exe' }
+if (-not (Test-Path -LiteralPath `$steamPath)) { throw "Steam executable was not found: `$steamPath" }
+Get-Process -Name steamwebhelper, steam -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -eq `$sessionId } | Stop-Process -Force -ErrorAction SilentlyContinue
+`$deadline = (Get-Date).AddSeconds(20)
+while (@(Get-Process -Name steam -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -eq `$sessionId }).Count -gt 0 -and (Get-Date) -lt `$deadline) { Start-Sleep -Milliseconds 500 }
+if (@(Get-Process -Name steam -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -eq `$sessionId }).Count -gt 0) { throw 'VM Steam processes did not exit before restart.' }
+`$taskName = 'GameFactorySteamFresh_$nonce'
+`$action = New-ScheduledTaskAction -Execute `$steamPath
+`$principal = New-ScheduledTaskPrincipal -UserId `$interactiveUser -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName `$taskName -Action `$action -Principal `$principal -Force | Out-Null
+try { Start-ScheduledTask -TaskName `$taskName; Start-Sleep -Seconds 2 } finally { Unregister-ScheduledTask -TaskName `$taskName -Confirm:`$false -ErrorAction SilentlyContinue }
+`$readyDeadline = (Get-Date).AddSeconds(60)
+do {
+    `$runningSteam = @(Get-Process -Name steam -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -eq `$sessionId })
+    `$helpers = @(Get-Process -Name steamwebhelper -ErrorAction SilentlyContinue | Where-Object { `$_.SessionId -eq `$sessionId })
+    if (`$runningSteam.Count -ge 1 -and `$helpers.Count -ge 1) {
+        [ordered]@{ marker='GAMEFACTORY_VM_STEAM_RESTART'; nonce='$nonce'; result='passed'; interactive_user=`$interactiveUser; session_id=`$sessionId; steam_path=`$steamPath; steam_process_count=`$runningSteam.Count; steamwebhelper_count=`$helpers.Count; online_status='not_deterministically_available' } | ConvertTo-Json -Compress
+        exit 0
+    }
+    Start-Sleep -Seconds 1
+} while ((Get-Date) -lt `$readyDeadline)
+throw 'VM Steam did not reach the interactive client + steamwebhelper readiness boundary within 60 seconds.'
+"@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
+    $invocation = Invoke-ExternalCommand $sshExecutable ($sshOptions + @($VmAlias, "powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded)) 100 "VM interactive Steam restart" -SuppressOutput
+    if ($invocation.ExitCode -ne 0) { throw "VM Steam restart failed: $($invocation.StandardError.Trim())" }
+    $line = @($invocation.StandardOutput -split "`r?`n" | Where-Object { $_ -match 'GAMEFACTORY_VM_STEAM_RESTART' } | Select-Object -Last 1)
+    if ($line.Count -ne 1) { throw "VM Steam restart did not return its readiness marker." }
+    $status = $line[0] | ConvertFrom-Json
+    if ($status.marker -ne 'GAMEFACTORY_VM_STEAM_RESTART' -or $status.nonce -ne $nonce -or $status.result -ne 'passed') { throw "VM Steam restart marker did not match the requested interactive-session contract." }
+    return $status
+}
+
+function Invoke-FreshTransportPreparation {
+    $script:result.infrastructure.fresh_transport_requested = $true
+    try {
+        $hostRestart = Restart-HostSteam
+        $script:result.infrastructure.host_steam_restart_result = $hostRestart
+    }
+    catch {
+        $script:result.infrastructure.host_steam_restart_result = [ordered]@{ result = "failed"; reason = $_.Exception.Message; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        Set-Blocked "steam" "fresh_transport_host" "FreshTransport could not restart host Steam: $($_.Exception.Message)"
+    }
+    try {
+        $vm = Restart-VmSteam
+        $script:result.infrastructure.vm_steam_restart_result = $vm
+        $health = Test-VmEndpointHealth
+        $script:result.infrastructure.steam_readiness_result = [ordered]@{ result = "passed"; host = $script:result.infrastructure.host_steam_restart_result.readiness; vm = $vm; vm_health_task_state = $health.task_state; online_status = "not_deterministically_available"; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+    }
+    catch {
+        $script:result.infrastructure.vm_steam_restart_result = if ($null -eq $script:result.infrastructure.vm_steam_restart_result) { [ordered]@{ result = "failed"; reason = $_.Exception.Message; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") } } else { $script:result.infrastructure.vm_steam_restart_result }
+        $script:result.infrastructure.steam_readiness_result = [ordered]@{ result = "failed"; reason = $_.Exception.Message; online_status = "not_deterministically_available"; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        Set-Blocked "steam" "fresh_transport_vm" "FreshTransport could not establish VM Steam/session readiness: $($_.Exception.Message)"
+    }
 }
 
 function Write-ClientConfig([string]$Mode, [string[]]$Arguments, [object]$Manifest, [string]$ManifestHash, [string]$VmExecutable) {
@@ -876,6 +997,7 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
         vm_live_log_path = $script:vmLiveLogPath
         lobby_id = $result.lobby_id
         topology = $result.deepest_completed_stage
+        infrastructure = $result.infrastructure
         started_utc = $result.started_utc
         updated_utc = [DateTimeOffset]::UtcNow.ToString("O")
     }
@@ -957,6 +1079,7 @@ function Stop-PersistedAttempt([object]$RunState, [object]$AttemptState) {
         cleanup_verified = $cleanupVerified
         lobby_id = $AttemptState.lobby_id
         deepest_completed_stage = $AttemptState.topology
+        infrastructure = $AttemptState.infrastructure
         started_utc = $AttemptState.started_utc
         completed_utc = [DateTimeOffset]::UtcNow.ToString("O")
     }
@@ -974,6 +1097,11 @@ function Test-VmEndpointHealth {
 `$ErrorActionPreference = 'Stop'
 `$task = Get-ScheduledTask -TaskName 'GameFactoryClient'
 `$info = Get-ScheduledTaskInfo -TaskName 'GameFactoryClient'
+`$interactiveUser = (Get-CimInstance Win32_ComputerSystem).UserName
+`$interactiveSteam = @(
+    Get-Process -Name steam -ErrorAction SilentlyContinue |
+        Where-Object { `$_.SessionId -ne 0 } |
+        Select-Object -First 1)
 [ordered]@{
     marker = 'GAMEFACTORY_VM_HEALTH'
     nonce = '$nonce'
@@ -982,6 +1110,10 @@ function Test-VmEndpointHealth {
     task_state = `$task.State.ToString()
     task_enabled = [bool]`$task.Settings.Enabled
     last_task_result = [int]`$info.LastTaskResult
+    task_principal = [string]`$task.Principal.UserId
+    interactive_user = [string]`$interactiveUser
+    interactive_session_present = -not [string]::IsNullOrWhiteSpace([string]`$interactiveUser)
+    interactive_steam_process_present = `$interactiveSteam.Count -eq 1
 } | ConvertTo-Json -Compress
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($remoteScript))
@@ -1001,11 +1133,57 @@ function Test-VmEndpointHealth {
         throw "VM endpoint health marker did not match the requested shell/task contract."
     }
     if (-not [bool]$health.task_enabled) { throw "VM GameFactoryClient scheduled task is disabled." }
-    Write-Host "VM_HEALTH_READY target=$VmAlias user=$($health.user) task=$($health.task_name) state=$($health.task_state) last_task_result=$($health.last_task_result)"
+    if (-not [bool]$health.interactive_session_present) { throw "VM has no interactive user session; the GameFactory client task cannot safely launch Steam." }
+    return $health
+}
+
+function Write-VmHealthReady([object]$Health) {
+    Write-Host "VM_HEALTH_READY target=$VmAlias user=$($Health.user) interactive_user=$($Health.interactive_user) task=$($Health.task_name) state=$($Health.task_state) last_task_result=$($Health.last_task_result)"
+}
+
+function Invoke-VmHealthRecoveryIfRequested {
+    try {
+        $initial = Test-VmEndpointHealth
+        $script:result.infrastructure.vm_health_initial = [ordered]@{ result = "passed"; interactive_user = $initial.interactive_user; task_state = $initial.task_state; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        Write-VmHealthReady $initial
+        return
+    }
+    catch {
+        $script:result.infrastructure.vm_health_initial = [ordered]@{ result = "failed"; reason = $_.Exception.Message; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+        if (-not $RecoverVm) { Set-Blocked "vm_control" "health" "VM Health failed before launch: $($_.Exception.Message)" }
+    }
+
+    $script:result.infrastructure.vm_restart_attempted = $true
+    try {
+        if (-not (Get-Command Restart-VM -ErrorAction SilentlyContinue)) { throw "Hyper-V Restart-VM is unavailable on this host." }
+        if ([string]::IsNullOrWhiteSpace($VmName)) { throw "RecoverVm requires -VmName when no default VM name is configured." }
+        Write-Harness "VM Health failed; restarting VM '$VmName' once"
+        Restart-VM -Name $VmName -Force -ErrorAction Stop
+    }
+    catch {
+        Set-Blocked "vm_control" "recovery_restart" "VM Health failed and the one allowed VM restart could not be started: $($_.Exception.Message)"
+    }
+
+    $deadline = (Get-Date).AddSeconds($VmRecoveryTimeoutSeconds)
+    $lastReason = $null
+    do {
+        Start-Sleep -Seconds 5
+        try {
+            $afterRestart = Test-VmEndpointHealth
+            $script:result.infrastructure.vm_health_after_restart = [ordered]@{ result = "passed"; interactive_user = $afterRestart.interactive_user; task_state = $afterRestart.task_state; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+            Write-VmHealthReady $afterRestart
+            return
+        }
+        catch { $lastReason = $_.Exception.Message }
+    } while ((Get-Date) -lt $deadline)
+
+    $script:result.infrastructure.vm_health_after_restart = [ordered]@{ result = "failed"; reason = $lastReason; observed_utc = [DateTimeOffset]::UtcNow.ToString("O") }
+    Set-Blocked "vm_control" "recovery_readiness" "VM did not satisfy Health within $VmRecoveryTimeoutSeconds seconds after its one allowed restart. Last reason: $lastReason"
 }
 
 if ($Mode -eq "Health") {
-    Test-VmEndpointHealth
+    $health = Test-VmEndpointHealth
+    Write-VmHealthReady $health
     return
 }
 
@@ -1050,6 +1228,17 @@ try {
     Stop-VmClientBestEffort
     Assert-NoStaleProcesses
     Complete-Stage "preflight_cleanup"
+
+    if ($RecoverVm) {
+        $result.stage = "vm_health"
+        Invoke-VmHealthRecoveryIfRequested
+        Complete-Stage "vm_health"
+    }
+    if ($FreshTransport) {
+        $result.stage = "fresh_transport"
+        Invoke-FreshTransportPreparation
+        Complete-Stage "fresh_transport"
+    }
     $cleanupToHost = [System.Diagnostics.Stopwatch]::StartNew()
 
     $result.stage = "build"

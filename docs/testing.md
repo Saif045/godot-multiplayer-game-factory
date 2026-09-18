@@ -25,7 +25,7 @@ Every invoked check reports `PASS`, `FAIL`, or `SKIP`, its command, and a short 
 | GAS probe | `Godot ... --headless --path <repo> -- --run=gas-interop` | The self-terminating GodotGAS adapter/effect lifecycle contract. | About 20 seconds; local Godot, no Steam/VM. |
 | Export smoke | `tools/build_test_client.ps1`, then a bounded exported headless boot | Managed Windows export is complete and the exported runtime remains alive through a short boot window. | Slower; Godot export templates/.NET publish. Not visual UX proof. |
 | Native/vendor smoke | `sandbox/steam/steam_native_rehost_probe.tscn` | A logged-in Steam peer can host, close, and host again. | Manual Steam dependency smoke; not generic automation because it requires a real Steam account. |
-| A/B infrastructure | `tools/ab_test/run.ps1 -Mode Health|Launch|Verify|Retry|Stop` | VM control preflight, immutable build parity, host/VM launch, Steam/Godot topology, evidence and teardown. | Real accounts, graphics, VM, SSH/SCP, and an operator. |
+| A/B infrastructure | `tools/ab_test/run.ps1 -Mode Health|Launch|Verify|Retry|Stop` | VM control preflight, immutable build parity, host/VM launch, Steam/Godot topology, evidence and teardown. `Launch`/`Retry` also accept explicit `-RecoverVm` and `-FreshTransport` pre-attempt recovery. | Real accounts, graphics, VM, SSH/SCP, and an operator. |
 | A/B gameplay acceptance | Human observation + `Verify` evidence + reasoning | Actual visible feature behavior and whether the logs make sense. | Operator-driven; the harness never returns gameplay PASS/FAIL. |
 
 The unit suite being green is regression evidence, not proof that Godot scenes, Steam transport, an exported build, or gameplay behavior work.
@@ -69,6 +69,11 @@ The wrapper never starts A/B automatically. Use the dedicated universal interfac
 # after environmental repair, if needed
 .\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
 ```
+
+Use `-RecoverVm` for one controlled VM recovery if Health fails, and use
+`-FreshTransport` only when a clean Steam-session starting point is requested.
+These switches run before a new attempt, record infrastructure metadata, and
+do not make a Steam/native failure disappear inside an existing attempt.
 
 `Verify` only prepares evidence. Gameplay acceptance is:
 

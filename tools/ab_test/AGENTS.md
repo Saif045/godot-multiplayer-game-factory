@@ -50,6 +50,32 @@ that tails the artifact-owned Godot log. The commands are:
 .\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
 ```
 
+`-RecoverVm` is an explicit preflight recovery option. It runs Health first;
+only if that check fails, it makes one Hyper-V restart attempt, waits for SSH
+and the existing interactive desktop/task contract, then reruns Health. It
+does not modify VM networking or autologon. `-FreshTransport` is an explicit
+pre-attempt option for `Launch` and `Retry`: after stale game cleanup it
+restarts Steam on the host and in the VM's existing interactive session, waits
+for Steam plus `steamwebhelper` in that session, verifies the VM task again,
+then begins a new attempt. It never restarts Steam during an attempt.
+
+For normal gameplay development, `-RecoverVm` is recommended and
+`-FreshTransport` is useful when a clean Steam starting point is wanted:
+
+```powershell
+.\tools\ab_test\run.ps1 -Mode Launch -RecoverVm -FreshTransport
+```
+
+For Steam/native transport investigation, use plain `Launch`/`Retry` unless a
+fresh-session experiment is explicitly requested. A `steam_peer` failure must
+remain preserved; use `Stop`, then `Retry -FreshTransport` for a separate
+attempt using the same immutable build.
+
+Steam's exact online state has no robust local interface in this harness. The
+readiness boundary is therefore an interactive-session Steam process plus one
+or more `steamwebhelper` processes, not an assertion that Steam is online.
+Recovery metadata is persisted under `infrastructure` in each attempt state.
+
 `Launch` and `Retry` own export/reuse, parity, topology readiness, and state
 persistence only. `Verify` emits compact generic evidence (`evidence.json`)
 and raw-log paths; it never decides gameplay acceptance. `Stop` is the only
