@@ -1,6 +1,0 @@
-- name: ollama_chat/qwen2.5-coder:7b-instruct-q6_K
-  edit_format: diff
-  use_repo_map: true
-  extra_params:
-    num_ctx: 32768
-    temperature: 0.1
