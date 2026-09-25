@@ -47,9 +47,10 @@ func _rollback_tick(delta: float, _tick: int, _is_fresh: bool) -> void:
 	# CharacterBody3D assumes Godot physics-frame timing. Netfox may run its
 	# rollback tick at a different cadence, so compensate exactly around the
 	# engine motion call and restore the persistent velocity afterwards.
-	player.velocity *= NetworkTime.physics_factor
+	var physics_factor: float = float(player.get_node("/root/NetworkTime").get("physics_factor"))
+	player.velocity *= physics_factor
 	player.move_and_slide()
-	player.velocity /= NetworkTime.physics_factor
+	player.velocity /= physics_factor
 	grounded = player.is_on_floor()
 
 func _start_dash(desired: Vector3) -> void:
