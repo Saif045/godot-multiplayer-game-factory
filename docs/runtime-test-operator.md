@@ -15,25 +15,25 @@ and other integration or acceptance attempts. It complements the lifecycle in
 ## Running the Hyper-V A/B harness
 
 The A/B harness is a universal PowerShell interface. It does not depend on a
-specific agent or an open caller session. Start a 3D player manual-test session
-with host logs visible:
+specific agent or an open caller session. Install the one-time interactive
+`GameFactoryHost` task before the first run; the harness then starts the
+visible host game and its PowerShell log tail automatically:
 
 ```powershell
 .\tools\ab_test\run.ps1 -Mode Health
 # Confirms the configured VM can return a nonce-bearing remote PowerShell marker
-# and has an enabled GameFactoryClient scheduled task. This does not launch a game.
+# and has an enabled GameFactoryClient task. This does not launch a game.
 
 .\tools\ab_test\run.ps1 -Mode Launch `
     -Scenario netfox_player_3d `
-    -RunId carryable_item_YYYYMMDD_HHMMSS `
-    -ShowHostConsole
+    -RunId carryable_item_YYYYMMDD_HHMMSS
 ```
 
 For normal gameplay work, request bounded VM recovery and, when a clean Steam
 starting point is useful, fresh transport preparation:
 
 ```powershell
-.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -RecoverVm -FreshTransport -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -RecoverVm -FreshTransport
 ```
 
 `-RecoverVm` first runs Health. Only an unhealthy VM gets one restart attempt;
@@ -57,7 +57,7 @@ separate immutable-build retry if needed:
 
 ```powershell
 .\tools\ab_test\run.ps1 -Mode Stop -RunId <RunId>
-.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -RecoverVm -FreshTransport -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -RecoverVm -FreshTransport
 ```
 
 Replace the run ID with a unique timestamp-like label. The harness exports the
@@ -120,7 +120,7 @@ bad environmental attempt, stop it, repair the VM/Steam environment manually,
 then create a fresh isolated attempt with the same captured build:
 
 ```powershell
-.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId>
 ```
 
 Recovery actions are metadata only and are saved in the attempt/run state as
