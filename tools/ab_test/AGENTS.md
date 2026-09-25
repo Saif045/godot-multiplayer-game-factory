@@ -31,7 +31,6 @@ The host uses the one-time `GameFactoryHost` limited interactive scheduled
 task. Install it once with `tools\ab_test\host\install_host_task.ps1`; each
 Launch or Retry then starts both the visible host game and its visible
 PowerShell Godot-log tail automatically. The commands are:
-<<<<<<< HEAD
 
 The task intentionally targets this permanent main checkout. Run full
 interactive A/B acceptance from that checkout, not from a disposable Git
@@ -39,8 +38,6 @@ worktree. Feature work and unit validation may use worktrees; integrate it to
 the main checkout before running the host/VM acceptance harness. Re-running
 `install_host_task.ps1` is safe: it reconciles the task action to the runner
 at the current checkout path.
-=======
->>>>>>> 3b0650b655474aebcded273717493ab7b685933b
 
 ```powershell
 # No-launch VM control preflight. Requires a verified remote PowerShell marker

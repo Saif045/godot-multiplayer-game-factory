@@ -9,6 +9,9 @@ build
 /tools/ab_test/vm-endpoint.local.psd1
 /.tmp-*/
 /addons/godotsteam/win64/~*.TMP
+/addons/godotsteam/win64/~*.dll
+/Modelfile.hermes3-68k
+/ollama-agent-tests.ps1
 /addons/GodotGAS/**/*.import
 
 # .NET build output
