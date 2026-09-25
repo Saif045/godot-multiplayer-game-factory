@@ -11,6 +11,7 @@ $agentDirectory = "C:\GameFactoryAgent"
 $configPath = Join-Path $agentDirectory "client_config.json"
 $statusPath = Join-Path $agentDirectory "client_status.json"
 $runnerTimer = [Diagnostics.Stopwatch]::StartNew()
+$failureStage = "build_parity"
 
 function Write-Status([hashtable]$Status) {
     $Status["observed_utc"] = [DateTimeOffset]::UtcNow.ToString("O")
@@ -65,16 +66,31 @@ try {
         }
     }
 
+    $failureStage = "client_startup"
     $process = Start-Process -FilePath $executable -ArgumentList @($config.arguments) -WorkingDirectory $exportDirectory -PassThru
+    # Start-Process returning a PID only proves that Windows accepted the
+    # request. Check the initial process state and its visible error window so
+    # a loader failure is reported as startup failure rather than a later
+    # multiplayer timeout.
+    Start-Sleep -Seconds 3
+    $process.Refresh()
+    $startupWindowTitle = [string]$process.MainWindowTitle
+    if ($process.HasExited) {
+        throw "Client exited during startup (exit code $($process.ExitCode))."
+    }
+    if ($startupWindowTitle -match "Application Error") {
+        throw "Client displayed a Windows application-error dialog during startup: $startupWindowTitle"
+    }
     $status["stage"] = "client_launched"
     $status["process_id"] = $process.Id
+    $status["startup_window_title"] = $startupWindowTitle
     $status["runner_to_client_launch_ms"] = $runnerTimer.ElapsedMilliseconds
     Write-Status $status
 }
 catch {
     Write-Status @{
         result = "failed"
-        stage = "build_parity"
+        stage = $failureStage
         reason = $_.Exception.Message
     }
     exit 1

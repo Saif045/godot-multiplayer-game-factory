@@ -27,16 +27,25 @@ observation, evidence interpretation, and cleanup. A window is only startup
 evidence. Classify infrastructure failures bottom-up: export/dependencies,
 Steam lobby, native peer, Godot connection, GameFactory lifecycle, then Netfox.
 
-For manual A/B observation, use `-ShowHostConsole` to open a local terminal
-that tails the artifact-owned Godot log. The commands are:
+The host uses the one-time `GameFactoryHost` limited interactive scheduled
+task. Install it once with `tools\ab_test\host\install_host_task.ps1`; each
+Launch or Retry then starts both the visible host game and its visible
+PowerShell Godot-log tail automatically. The commands are:
+
+The task intentionally targets this permanent main checkout. Run full
+interactive A/B acceptance from that checkout, not from a disposable Git
+worktree. Feature work and unit validation may use worktrees; integrate it to
+the main checkout before running the host/VM acceptance harness. Re-running
+`install_host_task.ps1` is safe: it reconciles the task action to the runner
+at the current checkout path.
 
 ```powershell
 # No-launch VM control preflight. Requires a verified remote PowerShell marker
-# and an enabled GameFactoryClient scheduled task; it never starts the game.
+# and an enabled GameFactoryClient scheduled task; it never starts a game.
 .\tools\ab_test\run.ps1 -Mode Health
 
 # New session. Exits only after AB_READY; both games stay open.
-.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d
 
 # Evidence only. Defaults to the latest attempt and never launches, rebuilds,
 # or stops either game.
@@ -47,7 +56,7 @@ that tails the artifact-owned Godot log. The commands are:
 
 # After Stop and any manual environment repair, create a fresh attempt using
 # the run's captured immutable build identity.
-.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId>
 ```
 
 `-RecoverVm` is an explicit preflight recovery option. It runs Health first;

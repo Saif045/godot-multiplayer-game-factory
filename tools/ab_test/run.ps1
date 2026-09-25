@@ -17,6 +17,7 @@ param(
     [string]$VmConfigPath = "C:/GameFactoryAgent/client_config.json",
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
+    [string]$HostTaskName = "GameFactoryHost",
     [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay", "netfox_player_3d")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
@@ -37,8 +38,7 @@ param(
     [ValidateRange(1, 9999)]
     [int]$Attempt,
     [string]$ArtifactRoot,
-    [switch]$VerifyBuildOnly,
-    [switch]$ShowHostConsole
+    [switch]$VerifyBuildOnly
 )
 
 Set-StrictMode -Version Latest
@@ -54,10 +54,34 @@ if (-not (Test-Path -LiteralPath $sshExecutable) -or -not (Test-Path -LiteralPat
     throw "Windows OpenSSH client tools were not found under $openSshDirectory."
 }
 
+function Read-VmEndpointConfig([string]$Path) {
+    $config = @{}
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -notmatch '^\s*(Target|Port|IdentityFile)\s*=\s*(.*?)\s*$') { continue }
+        $key = $Matches[1]
+        $value = $Matches[2].Trim()
+        if ($value -eq '$null') {
+            $config[$key] = $null
+        }
+        elseif ($value -match '^"(.*)"$' -or $value -match "^'(.*)'$") {
+            $config[$key] = $Matches[1]
+        }
+        elseif ($key -eq 'Port' -and $value -match '^\d+$') {
+            $config[$key] = [int]$value
+        }
+        else {
+            throw "VM endpoint configuration has an unsupported $key value: $Path"
+        }
+    }
+    return $config
+}
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $vmEndpointPath = Join-Path $PSScriptRoot "vm-endpoint.local.psd1"
 if ((Test-Path -LiteralPath $vmEndpointPath) -and -not $PSBoundParameters.ContainsKey("VmAlias")) {
-    $vmEndpoint = Import-PowerShellDataFile -LiteralPath $vmEndpointPath
+    # Keep endpoint loading compatible with minimal Windows PowerShell hosts
+    # and never execute the local configuration file.
+    $vmEndpoint = Read-VmEndpointConfig $vmEndpointPath
     if ([string]::IsNullOrWhiteSpace([string]$vmEndpoint.Target)) {
         throw "VM endpoint configuration has no Target: $vmEndpointPath"
     }
@@ -89,8 +113,10 @@ if ($Mode -eq "Retry") {
 
 $outputDirectory = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $repoRoot "build\test_steam" } else { $OutputDirectory }
 $outputDirectory = [System.IO.Path]::GetFullPath($outputDirectory)
-$hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe"
-if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.exe" }
+# Both participants use the graphical export. Godot's --log-file provides
+# artifact-owned logs, so the console wrapper is not needed for observability.
+$hostExecutable = Join-Path $outputDirectory "GameFactory.exe"
+if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe" }
 
 $runId = if ([string]::IsNullOrWhiteSpace($RunId)) {
     "ab_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([Guid]::NewGuid().ToString("N").Substring(0, 4))
@@ -105,6 +131,12 @@ $runtimeDirectory = Join-Path $PSScriptRoot ".runtime"
 $localConfigPath = Join-Path $runtimeDirectory "client_config.json"
 $localStatusPath = Join-Path $runtimeDirectory "client_status.json"
 $localRunnerPath = Join-Path $PSScriptRoot "vm\run_client.ps1"
+$hostRunnerDirectory = Join-Path $PSScriptRoot "host"
+$hostRunnerPath = Join-Path $hostRunnerDirectory "run_host.ps1"
+$hostTaskInstallerPath = Join-Path $hostRunnerDirectory "install_host_task.ps1"
+$hostRuntimeDirectory = Join-Path $hostRunnerDirectory ".runtime"
+$hostConfigPath = Join-Path $hostRuntimeDirectory "host_config.json"
+$hostStatusPath = Join-Path $hostRuntimeDirectory "host_status.json"
 $hostOutputDirectory = Join-Path $artifactDirectory "host"
 $clientOutputDirectory = Join-Path $artifactDirectory "client"
 $sessionOutputDirectory = Join-Path $artifactDirectory "session"
@@ -167,6 +199,7 @@ New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
 function Write-Harness([string]$Message) {
     Write-Host "[harness][$runId] $Message"
 }
+
 
 function Set-Failure([string]$Layer, [string]$Stage, [string]$Reason) {
     $script:result.layer = $Layer
@@ -537,9 +570,76 @@ function Invoke-VmRunner([string]$ExpectedStage, [int]$TimeoutSeconds) {
     Set-Failure "vm_control" "runner_status" "Timed out waiting for VM runner stage '$ExpectedStage'."
 }
 
+function Ensure-HostTask {
+    if (-not (Test-Path -LiteralPath $hostRunnerPath) -or -not (Test-Path -LiteralPath $hostTaskInstallerPath)) {
+        Set-Failure "host_control" "host_task_setup" "Host task runner files are missing under $hostRunnerDirectory."
+    }
+    New-Item -ItemType Directory -Force -Path $hostRuntimeDirectory | Out-Null
+    $task = Get-ScheduledTask -TaskName $HostTaskName -ErrorAction SilentlyContinue
+    if ($null -eq $task) {
+        Write-Harness "installing one-time interactive host task '$HostTaskName'"
+        & $hostTaskInstallerPath -TaskName $HostTaskName
+        if ($LASTEXITCODE -ne 0) { Set-Failure "host_control" "host_task_setup" "Host task installer exited with code $LASTEXITCODE." }
+        $task = Get-ScheduledTask -TaskName $HostTaskName -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $task) { Set-Failure "host_control" "host_task_setup" "Host task '$HostTaskName' was not registered." }
+    if ($task.State -eq 'Disabled') { Set-Failure "host_control" "host_task_setup" "Host task '$HostTaskName' is disabled." }
+    return $task
+}
+
+function Write-HostConfig([string[]]$Arguments, [object]$Manifest, [string]$ManifestHash, [string]$AppData, [string]$LocalAppData, [string]$StandardOutputPath, [string]$StandardErrorPath) {
+    $hostConfig = [ordered]@{
+        executable = $hostExecutable
+        working_directory = $outputDirectory
+        arguments = $Arguments
+        expected_build_id = [string]$Manifest.build_id
+        expected_manifest_sha256 = $ManifestHash
+        app_data = $AppData
+        local_app_data = $LocalAppData
+        standard_output_path = $StandardOutputPath
+        standard_error_path = $StandardErrorPath
+        godot_log_path = $hostGodotLogPath
+        show_log_window = $true
+    }
+    $temporaryConfigPath = "$hostConfigPath.tmp"
+    $hostConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporaryConfigPath -Encoding utf8
+    Move-Item -LiteralPath $temporaryConfigPath -Destination $hostConfigPath -Force
+    Copy-Item -LiteralPath $hostConfigPath -Destination (Join-Path $artifactDirectory 'host_config.json') -Force
+}
+
+function Invoke-HostRunner([int]$TimeoutSeconds) {
+    [void](Ensure-HostTask)
+    Remove-Item -LiteralPath $hostStatusPath -Force -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName $HostTaskName
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-Path -LiteralPath $hostStatusPath) {
+            $status = Get-Content -LiteralPath $hostStatusPath -Raw | ConvertFrom-Json
+            if ($status.result -ne 'passed') { Set-Failure "host_control" "host_runner" ([string]$status.reason) }
+            if ($status.stage -ne 'host_launched') { Set-Failure "host_control" "host_runner" "Expected host runner stage 'host_launched', observed '$($status.stage)'." }
+            $process = Get-Process -Id ([int]$status.process_id) -ErrorAction SilentlyContinue
+            if ($null -eq $process -or $process.ProcessName -ne 'GameFactory') {
+                Set-Failure "host_control" "host_runner" "Host runner reported PID $($status.process_id), but it is not a live GameFactory process."
+            }
+            if ($null -ne $status.PSObject.Properties['log_tail_process_id'] -and $null -ne $status.log_tail_process_id) {
+                $script:hostLogTailProcess = Get-Process -Id ([int]$status.log_tail_process_id) -ErrorAction SilentlyContinue
+            }
+            $script:result.infrastructure['host_launch'] = [ordered]@{
+                mode = 'interactive_scheduled_task'
+                task_name = $HostTaskName
+                game_process_id = $process.Id
+                task_user = [string](Get-ScheduledTask -TaskName $HostTaskName).Principal.UserId
+            }
+            return $process
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    Set-Failure "host_control" "host_runner" "Timed out waiting for host task '$HostTaskName' to report its GameFactory PID."
+}
+
 function Get-VmReleaseExecutable([string]$ManifestHash) {
     if ($ManifestHash -notmatch '^[a-f0-9]{64}$') { throw "Manifest hash must be a lowercase SHA-256 value." }
-    return (($VmBuildRoot.TrimEnd('/', '\') + "/releases/$ManifestHash/GameFactory.console.exe"))
+    return (($VmBuildRoot.TrimEnd('/', '\') + "/releases/$ManifestHash/GameFactory.exe"))
 }
 
 function Test-CurrentExportReusable {
@@ -1073,8 +1173,8 @@ function Get-RunAttempt([object]$RunState, [int]$RequestedAttempt) {
 function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:Scenario = [string]$RunState.scenario
     $script:outputDirectory = [System.IO.Path]::GetFullPath([string]$RunState.host_export_directory)
-    $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe"
-    if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe" }
+    $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe"
+    if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe" }
     $script:attemptNumber = [int]$AttemptState.attempt
     $script:attemptLabel = "attempt_{0:D3}" -f $script:attemptNumber
     $script:attemptEvidenceId = if ($null -ne $AttemptState.PSObject.Properties['evidence_attempt_id']) { [string]$AttemptState.evidence_attempt_id } else { $script:runId }
@@ -1092,6 +1192,15 @@ function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
 }
 
 function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [object]$ExistingRunState) {
+    $hostLaunch = if ($result.infrastructure -is [System.Collections.IDictionary]) {
+        $result.infrastructure['host_launch']
+    }
+    elseif ($null -ne $result.infrastructure.PSObject.Properties['host_launch']) {
+        $result.infrastructure.host_launch
+    }
+    else {
+        $null
+    }
     $attemptState = [ordered]@{
         schema_version = 1
         run_id = $runId
@@ -1102,6 +1211,7 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
         cleanup_verified = $CleanupVerified
         artifact_directory = $artifactDirectory
         host_process_id = if ($null -eq $hostProcess) { $null } else { $hostProcess.Id }
+        host_launch_mode = if ($null -eq $hostLaunch) { $null } else { [string]$hostLaunch.mode }
         host_log_tail_process_id = if ($null -eq $hostLogTailProcess) { $null } else { $hostLogTailProcess.Id }
         host_godot_log_path = $hostGodotLogPath
         client_log_path = $clientLiveLogPath
@@ -1450,14 +1560,6 @@ try {
     $result.stage = "host_launch"
     $hostConsolePath = Join-Path $hostOutputDirectory "console.log"
     $hostErrorPath = Join-Path $hostOutputDirectory "console.error.log"
-    # The managed export materializes its embedded .NET payload beneath
-    # LOCALAPPDATA on first launch. The tool-owned host process cannot rely on
-    # the interactive profile being writable, so give this attempt an
-    # artifact-owned runtime profile just as ExportSmoke does.
-    $hostRuntimeProfileRoot = Join-Path $hostOutputDirectory "runtime_profile"
-    $hostRuntimeAppData = Join-Path $hostRuntimeProfileRoot "AppData\Roaming"
-    $hostRuntimeLocalAppData = Join-Path $hostRuntimeProfileRoot "AppData\Local"
-    New-Item -ItemType Directory -Force -Path $hostRuntimeAppData, $hostRuntimeLocalAppData | Out-Null
     New-Item -ItemType File -Path $hostConsolePath -Force | Out-Null
     $hostArguments = @(
         "--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath,
@@ -1466,23 +1568,21 @@ try {
     )
     Write-Harness "launching host"
     $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    $previousAppData = $env:APPDATA
-    $previousLocalAppData = $env:LOCALAPPDATA
-    try {
-        $env:APPDATA = $hostRuntimeAppData
-        $env:LOCALAPPDATA = $hostRuntimeLocalAppData
-        $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList $hostArguments -WorkingDirectory $outputDirectory -PassThru -RedirectStandardOutput $hostConsolePath -RedirectStandardError $hostErrorPath
-    }
-    finally {
-        $env:APPDATA = $previousAppData
-        $env:LOCALAPPDATA = $previousLocalAppData
-    }
-    if ($ShowHostConsole) {
-        $quotedLogPath = $hostGodotLogPath.Replace("'", "''")
-        $hostLogTailProcess = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-NoExit", "-Command", "Get-Content -LiteralPath '$quotedLogPath' -Wait") -PassThru
-        Write-Harness "host console log viewer started (process $($hostLogTailProcess.Id))"
-    }
+    # The managed export materializes its embedded .NET payload beneath
+    # LOCALAPPDATA on first launch. Keep it out of the Codex-owned profile,
+    # which cannot reliably save the game's configuration, while retaining
+    # artifact-only standard-stream capture (no logging console window).
+    $hostRuntimeProfileRoot = Join-Path $hostOutputDirectory "runtime_profile"
+    $hostRuntimeAppData = Join-Path $hostRuntimeProfileRoot "AppData\Roaming"
+    $hostRuntimeLocalAppData = Join-Path $hostRuntimeProfileRoot "AppData\Local"
+    New-Item -ItemType Directory -Force -Path $hostRuntimeAppData, $hostRuntimeLocalAppData | Out-Null
+    Write-HostConfig $hostArguments $manifest $manifestHash $hostRuntimeAppData $hostRuntimeLocalAppData $hostConsolePath $hostErrorPath
+    $hostProcess = Invoke-HostRunner $HostTimeoutSeconds
     $result.timings_ms["cleanup_to_host_launch"] = $cleanupToHost.ElapsedMilliseconds
+    # Persist immediately after a successful host launch so Mode Stop can
+    # always route cleanup through the interactive runner, even if the VM
+    # fails before client-side readiness evidence exists.
+    Save-RunAndAttemptState "launching" $false $existingRunState
 
     $result.stage = "lobby_creation"
     [void](Wait-ForLogEvent "steam.lifecycle" "lobby_created" "host" $HostTimeoutSeconds "steam" "lobby_creation")

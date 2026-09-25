@@ -61,13 +61,13 @@ The wrapper never starts A/B automatically. Use the dedicated universal interfac
 .\tools\ab_test\run.ps1 -Mode Health
 # requires a nonce-bearing remote PowerShell response and an enabled client task;
 # it never launches a game
-.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Launch -Scenario netfox_player_3d
 # human plays both participants
 .\tools\ab_test\run.ps1 -Mode Verify -RunId <RunId>
 # human/agent interprets visual report plus generic evidence
 .\tools\ab_test\run.ps1 -Mode Stop -RunId <RunId>
 # after environmental repair, if needed
-.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId> -ShowHostConsole
+.\tools\ab_test\run.ps1 -Mode Retry -RunId <RunId>
 ```
 
 Use `-RecoverVm` for one controlled VM recovery if Health fails, and use
