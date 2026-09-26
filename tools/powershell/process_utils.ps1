@@ -28,7 +28,11 @@ function Invoke-BuildTestClientIsolated {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    $startInfo.CreateNoWindow = $true
+    # The Godot console exporter terminates normally when it inherits the
+    # caller's console, but can remain alive after savepack from a hidden
+    # nested console. Keep the helper non-interactive while preserving that
+    # console inheritance.
+    $startInfo.CreateNoWindow = $false
     $startInfo.Arguments = ConvertTo-ProcessArgumentString @(
         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
         "-File", $BuildScript,

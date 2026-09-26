@@ -8,18 +8,13 @@ var dash_pressed := false
 var sprint_held := false
 var _jump_queued := false
 var _dash_queued := false
-var _network_time: Node
 
 func _ready() -> void:
-	# Exported builds can load this scene before the plugin autoload symbol is
-	# declared to the script parser. Resolve the plugin-owned autoload at runtime
-	# so input gathering still uses its real before-tick signal.
-	_network_time = get_node("/root/NetworkTime")
-	_network_time.connect(&"before_tick_loop", _gather_input)
+	NetworkTime.before_tick_loop.connect(_gather_input)
 
 func _exit_tree() -> void:
-	if _network_time != null and _network_time.is_connected(&"before_tick_loop", _gather_input):
-		_network_time.disconnect(&"before_tick_loop", _gather_input)
+	if NetworkTime.before_tick_loop.is_connected(_gather_input):
+		NetworkTime.before_tick_loop.disconnect(_gather_input)
 
 func _process(_delta: float) -> void:
 	if is_multiplayer_authority() and Input.is_action_just_pressed("jump"):

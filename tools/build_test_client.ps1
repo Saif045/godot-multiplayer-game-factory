@@ -80,10 +80,11 @@ $stdoutPath = Join-Path $RepoRoot ".tmp-build-export.log"
 $stderrPath = Join-Path $RepoRoot ".tmp-build-export.error.log"
 $engineLogPath = Join-Path $RepoRoot ".tmp-build-export.engine.log"
 Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
-# Godot completed savepack but remained in its editor loop in headless export
-# mode. Request an explicit first-iteration shutdown so a successful export
-# also terminates normally and the manifest can only describe a fresh package.
-$arguments = @("--headless", "--quit", "--log-file", "`"$engineLogPath`"", "--path", "`"$RepoRoot`"", "--export-debug", "`"Windows Desktop`"", "`"$OutputExe`"")
+# Godot's --quit shutdown path removes editor-plugin autoloads before writing
+# project.binary, which produces an exported package without Netfox globals.
+# The isolated helper retains a visible console so the normal exporter exit is
+# observed without requesting that destructive shutdown path.
+$arguments = @("--headless", "--log-file", "`"$engineLogPath`"", "--path", "`"$RepoRoot`"", "--export-debug", "`"Windows Desktop`"", "`"$OutputExe`"")
 # Windows PowerShell 5 does not expose Start-Process -Environment. Set these
 # only while creating the child, then immediately restore the caller process.
 $previousAppData = $env:APPDATA
