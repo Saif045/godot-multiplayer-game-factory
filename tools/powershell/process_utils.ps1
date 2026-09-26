@@ -1,16 +1,5 @@
 Set-StrictMode -Version Latest
 
-function ConvertTo-ProcessArgumentString {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$Arguments
-    )
-
-    return (($Arguments | ForEach-Object {
-        '"' + $_.Replace('"', '\"') + '"'
-    }) -join ' ')
-}
-
 function Invoke-BuildTestClientIsolated {
     param(
         [Parameter(Mandatory = $true)]
@@ -23,41 +12,30 @@ function Invoke-BuildTestClientIsolated {
         [int]$TimeoutSeconds
     )
 
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = "powershell.exe"
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    # The Godot console exporter terminates normally when it inherits the
-    # caller's console, but can remain alive after savepack from a hidden
-    # nested console. Keep the helper non-interactive while preserving that
-    # console inheritance.
-    $startInfo.CreateNoWindow = $false
-    $startInfo.Arguments = ConvertTo-ProcessArgumentString @(
-        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-        "-File", $BuildScript,
-        "-Godot", $Godot,
-        "-OutputDirectory", $OutputDirectory,
-        "-Clean"
-    )
-
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    [void]$process.Start()
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    $timedOut = -not $process.WaitForExit($TimeoutSeconds * 1000)
-    if ($timedOut) {
-        try { $process.Kill() } catch { }
-        $process.WaitForExit()
+    # A nested powershell.exe with piped standard handles can leave the Godot
+    # console exporter alive after savepack. Invoke the build script directly:
+    # it retains its isolated Godot profile and bounded exporter timeout while
+    # matching the direct invocation proven to exit normally.
+    $standardOutput = ""
+    $standardError = ""
+    $exitCode = 0
+    try {
+        $output = @(& $BuildScript -Godot $Godot -OutputDirectory $OutputDirectory -ExportTimeoutSeconds $TimeoutSeconds -Clean 2>&1)
+        $standardOutput = ($output | Out-String)
+        if ($LASTEXITCODE -ne 0) {
+            $exitCode = $LASTEXITCODE
+        }
     }
-    [System.Threading.Tasks.Task]::WaitAll(@($stdoutTask, $stderrTask))
+    catch {
+        $exitCode = 1
+        $standardError = ($_ | Out-String)
+    }
 
     return [PSCustomObject]@{
-        ProcessId = $process.Id
-        ExitCode = if ($timedOut) { $null } else { $process.ExitCode }
-        TimedOut = $timedOut
-        StandardOutput = $stdoutTask.Result
-        StandardError = $stderrTask.Result
+        ProcessId = $PID
+        ExitCode = $exitCode
+        TimedOut = $false
+        StandardOutput = $standardOutput
+        StandardError = $standardError
     }
 }

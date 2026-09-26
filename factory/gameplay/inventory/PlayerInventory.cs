@@ -339,6 +339,12 @@ public partial class PlayerInventory : Node
 
     private bool TryResolveStoredItem(out CarryableItem item)
     {
+        if (!HasStoredItem)
+        {
+            item = null!;
+            return false;
+        }
+
         if (_player.World.TryGet(new NetworkObjectId(StoredItemNetworkObjectId), out NetworkObject? target) &&
             target?.Host is CarryableItem carryable &&
             carryable.StorageState == CarryableItem.StoredState)

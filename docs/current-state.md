@@ -30,6 +30,12 @@ replacement for architecture or protocol documentation.
   never transfers item authority or places inventory state in GAS or Netfox
   rollback. Both owners completed carry → store → retrieve, with the remote
   peer observing the slot transitions.
+- Equipment → GAS is acceptance-proven. The same permanent cube transitions
+  between World, Carried, Stored, and Equipped without changing identity. The
+  server alone grants and removes the `equipment_cube_move_speed` capability;
+  ordinary GAS snapshots project its `6 → 12 → 6` speed change while Netfox
+  continues to own only movement simulation. An Equip request with no stored
+  item is rejected safely rather than constructing an invalid object identity.
 - GodotGAS v1.0.6 is vendored under `addons/GodotGAS` and its editor plugin is
   enabled. GameFactory C# can create a real GodotGAS Ability System Component,
   call it, and read state back through the scoped GAS adapter.
@@ -62,6 +68,15 @@ replacement for architecture or protocol documentation.
   prediction. GAS effect/runtime objects remain outside rollback history.
 
 ## Latest runtime evidence
+
+Equipment → GAS run `equipment_guard_retest_20260926_034700` passed fresh
+export, VM parity, two-player topology, visual host/VM verification, and
+cleanup on immutable build `gf_e37a5552_dcc0c761c013`. Both owners completed
+World → Carried → Stored → Equipped → Stored → Carried; authoritative logs
+show `6 → 12 → 6` GAS speed projections, replicated remote movement, and a
+safe empty-slot `equip_rejected` with no engine errors. Evidence:
+`artifacts/ab_tests/equipment_guard_retest_20260926_034700/attempt_001/evidence.json`
+and its captured host/client logs.
 
 Free-play run `carry_freeplay_retry_20260914_193933` passed infrastructure
 startup, two-player topology, and verified cleanup on immutable build
