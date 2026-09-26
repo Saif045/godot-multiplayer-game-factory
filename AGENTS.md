@@ -21,23 +21,26 @@ uses.
   diff, and use focused commits. Push a commit when the user requests it.
 - A normal feature task implements one coherent contract and validates it.
   Investigation/hardening starts only after an attempt is terminal, freezes a
-  build, asks one narrow question, and changes one variable at a time.
+  build, asks one narrow question, and changes one variable at a time,
+  If the task requires runtime/manual acceptance, do not commit or push the
+  implementation until that required acceptance has actually run and passed.
+  A build/unit/headless pass is not a substitute for required runtime evidence.
 
 ## Task routing
 
 Read this file, then only the nearest relevant scoped guide and any document it
 explicitly routes to. Do not read every architecture document by default.
 
-| Task | Read next |
-|---|---|
-| Current maturity, known blockers, recent evidence | `docs/current-state.md` |
-| Network objects, player lifecycle, identity, authority | `factory/networking/AGENTS.md` |
-| Netfox or rollback player work | `factory/networking/netfox/AGENTS.md`, then `docs/netfox-integration.md` |
-| Gameplay interaction or replicated game state | `factory/gameplay/AGENTS.md` |
-| Steam session, lobby, native peer, or adapter work | `factory/steam/AGENTS.md`, then `docs/steam-integration.md` |
-| Host/VM A/B execution or runtime investigation | `tools/ab_test/AGENTS.md`, `docs/testing-protocol.md`, and `docs/runtime-test-operator.md` |
-| Architecture/ownership boundary change | `docs/architecture.md`, relevant ADRs, and `docs/module-map.md` |
-| Investigation after a terminal test | `docs/investigation-protocol.md` |
+| Task                                                   | Read next                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Current maturity, known blockers, recent evidence      | `docs/current-state.md`                                                                    |
+| Network objects, player lifecycle, identity, authority | `factory/networking/AGENTS.md`                                                             |
+| Netfox or rollback player work                         | `factory/networking/netfox/AGENTS.md`, then `docs/netfox-integration.md`                   |
+| Gameplay interaction or replicated game state          | `factory/gameplay/AGENTS.md`                                                               |
+| Steam session, lobby, native peer, or adapter work     | `factory/steam/AGENTS.md`, then `docs/steam-integration.md`                                |
+| Host/VM A/B execution or runtime investigation         | `tools/ab_test/AGENTS.md`, `docs/testing-protocol.md`, and `docs/runtime-test-operator.md` |
+| Architecture/ownership boundary change                 | `docs/architecture.md`, relevant ADRs, and `docs/module-map.md`                            |
+| Investigation after a terminal test                    | `docs/investigation-protocol.md`                                                           |
 
 ## Context budget
 
