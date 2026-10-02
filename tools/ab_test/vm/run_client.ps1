@@ -10,6 +10,7 @@ if (-not (Test-Path -LiteralPath $hashUtilsPath)) {
 $agentDirectory = "C:\GameFactoryAgent"
 $configPath = Join-Path $agentDirectory "client_config.json"
 $statusPath = Join-Path $agentDirectory "client_status.json"
+$watcherPath = Join-Path $PSScriptRoot "watch_client_process.ps1"
 $runnerTimer = [Diagnostics.Stopwatch]::StartNew()
 $failureStage = "build_parity"
 
@@ -83,9 +84,30 @@ try {
     }
     $status["stage"] = "client_launched"
     $status["process_id"] = $process.Id
+    $status["process_started_utc"] = $process.StartTime.ToUniversalTime().ToString("O")
     $status["startup_window_title"] = $startupWindowTitle
     $status["runner_to_client_launch_ms"] = $runnerTimer.ElapsedMilliseconds
     Write-Status $status
+
+    # The scheduled task only needs to prove startup to the harness, but a
+    # separate passive watcher preserves the later exit mechanism for a
+    # terminal join investigation. It never controls the game process.
+    if (Test-Path -LiteralPath $watcherPath) {
+        $attemptArgument = @($config.arguments | Where-Object { [string]$_ -like "--test-run-id=*" } | Select-Object -First 1)
+        $attemptId = if ($attemptArgument.Count -eq 1) { ([string]$attemptArgument[0]).Substring("--test-run-id=".Length) } else { "unknown" }
+        $watcher = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $watcherPath,
+            "-ProcessId", $process.Id,
+            "-ProcessStartedUtc", $status["process_started_utc"],
+            "-AttemptId", $attemptId,
+            "-StatusPath", $statusPath
+        ) -PassThru
+        $status["watcher_process_id"] = $watcher.Id
+        Write-Status $status
+    }
 }
 catch {
     Write-Status @{

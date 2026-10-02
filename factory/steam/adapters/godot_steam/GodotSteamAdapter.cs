@@ -158,6 +158,10 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         SteamLobby lobby = await pending.Task;
         foreach ((string key, string value) in _lobbyMetadata) SetLobbyData(key, value);
         CurrentLobby = lobby with { IsJoinable = options.IsJoinable, MemberLimit = options.MaxMembers };
+        // Steam creates a lobby joinable by default.  Make the native setting
+        // agree with the requested initial state before exposing it to the
+        // session layer, so a host can prepare its transport privately.
+        SetLobbyJoinable(options.IsJoinable);
         return CurrentLobby;
     }
 

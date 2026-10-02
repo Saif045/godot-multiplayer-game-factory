@@ -8,6 +8,12 @@ func _ready() -> void:
 	join_button.pressed.connect(GameShell.OpenJoinMenu)
 	new_game_button.get_parent().add_child(join_button)
 	GameShell.MainMenuShown()
+	var online_failure: Variant = GameShell.ConsumeOnlineFailureMessage()
+	if online_failure:
+		var failure_label := Label.new()
+		failure_label.text = online_failure
+		failure_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		new_game_button.get_parent().add_child(failure_label)
 
 func new_game() -> void:
 	GameShell.GameStartRequested()

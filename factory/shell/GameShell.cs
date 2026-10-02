@@ -17,6 +17,7 @@ public partial class GameShell : Node
     private OnlineGameplayLaunchIntent? _onlineGameplayLaunchIntent;
     private SteamPlatform? _steamPlatform;
     private VBoxContainer? _joinList;
+    private string? _onlineFailureMessage;
 
     public override void _Ready()
     {
@@ -44,6 +45,13 @@ public partial class GameShell : Node
     public void MainMenuShown()
     {
         GameLog.Info("shell", "main_menu");
+    }
+
+    public string? ConsumeOnlineFailureMessage()
+    {
+        string? message = _onlineFailureMessage;
+        _onlineFailureMessage = null;
+        return message;
     }
 
     public void OpenJoinMenu()
@@ -127,6 +135,7 @@ public partial class GameShell : Node
     public void GameplayLaunchFailed(string reason)
     {
         _onlineGameplayLaunchIntent = null;
+        _onlineFailureMessage = reason;
         GameLog.Warning("shell", "gameplay_launch_returning_to_menu", reason);
         GetNode("/root/SceneLoader").CallDeferred("load_scene", MainMenuScenePath);
     }

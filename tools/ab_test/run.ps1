@@ -131,6 +131,7 @@ $runtimeDirectory = Join-Path $PSScriptRoot ".runtime"
 $localConfigPath = Join-Path $runtimeDirectory "client_config.json"
 $localStatusPath = Join-Path $runtimeDirectory "client_status.json"
 $localRunnerPath = Join-Path $PSScriptRoot "vm\run_client.ps1"
+$localWatcherPath = Join-Path $PSScriptRoot "vm\watch_client_process.ps1"
 $hostRunnerDirectory = Join-Path $PSScriptRoot "host"
 $hostRunnerPath = Join-Path $hostRunnerDirectory "run_host.ps1"
 $hostTaskInstallerPath = Join-Path $hostRunnerDirectory "install_host_task.ps1"
@@ -568,6 +569,18 @@ function Invoke-VmRunner([string]$ExpectedStage, [int]$TimeoutSeconds) {
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $deadline)
     Set-Failure "vm_control" "runner_status" "Timed out waiting for VM runner stage '$ExpectedStage'."
+}
+
+function Install-VmClientRunnerDependencies {
+    # The graphical scheduled task receives its implementation on every
+    # launch. Shell-manual must do this too; it exits before the normal lobby
+    # path where these files were previously installed.
+    $runnerCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
+    if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
+    $watcherCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localWatcherPath, "${VmAlias}:C:/GameFactoryAgent/watch_client_process.ps1")) $externalCommandTimeoutSeconds "VM client watcher installation"
+    if ($watcherCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "watcher_install" "Could not install the VM client watcher; SCP exited with $($watcherCopy.ExitCode)." }
+    $hashUtilsCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @((Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1"), "${VmAlias}:C:/GameFactoryAgent/hash_utils.ps1")) $externalCommandTimeoutSeconds "VM hash utility installation"
+    if ($hashUtilsCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "hash_utility_install" "Could not install the VM hash utility; SCP exited with $($hashUtilsCopy.ExitCode)." }
 }
 
 function Ensure-HostTask {
@@ -1584,6 +1597,9 @@ try {
     # fails before client-side readiness evidence exists.
     Save-RunAndAttemptState "launching" $false $existingRunState
 
+    $result.stage = "client_runner_install"
+    Install-VmClientRunnerDependencies
+
     if ($Scenario -eq "shell_manual") {
         $result.stage = "client_launch"
         $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--test-run-id=$attemptEvidenceId")
@@ -1611,12 +1627,6 @@ try {
     Write-Harness "discovered lobby $lobbyId from structured host diagnostics"
 
     $result.stage = "client_config"
-    # The scheduled task is reserved for the graphical client process. Install
-    # its small runner dependencies here, after build parity is complete.
-    $runnerCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @($localRunnerPath, "${VmAlias}:$VmRunnerPath")) $externalCommandTimeoutSeconds "VM runner installation"
-    if ($runnerCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "runner_install" "Could not install the VM runner; SCP exited with $($runnerCopy.ExitCode)." }
-    $hashUtilsCopy = Invoke-ExternalCommand $scpExecutable ($sshOptions + @((Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1"), "${VmAlias}:C:/GameFactoryAgent/hash_utils.ps1")) $externalCommandTimeoutSeconds "VM hash utility installation"
-    if ($hashUtilsCopy.ExitCode -ne 0) { Set-Blocked "vm_control" "hash_utility_install" "Could not install the VM hash utility; SCP exited with $($hashUtilsCopy.ExitCode)." }
     # The GPU-P guest now has the host AMD OpenGL ICD, so keep the participant
     # windowed. This is both the real player path and makes each A/B attempt
     # directly observable in the Hyper-V console.

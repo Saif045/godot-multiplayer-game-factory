@@ -53,7 +53,12 @@ public partial class OnlineGameplayWorld : Node3D
         _runtime.SetMode(RuntimeMode.ListenServer);
         _peers.Add(PeerId.Server, isLocal: true);
         foreach (int peerValue in Multiplayer.GetPeers())
-            _peers.Add(new PeerId(peerValue), isLocal: false);
+        {
+            // SteamMultiplayerPeer may include the listen server (1) in this
+            // list. The server was registered above as local, not remote.
+            if (peerValue > PeerId.Server.Value)
+                _peers.Add(new PeerId(peerValue), isLocal: false);
+        }
 
         _playerLifecycle = new PlayerLifecycle(_peers, _players, _runtime, SpawnPlayer, _world.Despawn);
         _world.Spawn<InteractableSwitch>(SwitchScene, PeerId.Server, new Godot.Collections.Dictionary
