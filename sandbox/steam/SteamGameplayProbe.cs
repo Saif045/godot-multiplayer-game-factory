@@ -44,50 +44,53 @@ public partial class SteamGameplayProbe : Node
     private bool _scenarioClientDoorReported;
     private bool _scenarioHostPassed;
     private long? _scenarioDoorRevision;
+    private Task? _initializationTask;
 
     [Export] public PackedScene DoorScene { get; set; } = null!;
     [Export] public PackedScene PlayerScene { get; set; } = null!;
 
     public override async void _Ready()
     {
-        try
+        try { await EnsureReadyAsync(); }
+        catch (Exception exception) { GameLog.Error("gameplay.probe", "initialization_failed", exception.Message); }
+    }
+
+    /// <summary>Completes only once the scene-local SteamSession is ready for host or join.</summary>
+    public Task EnsureReadyAsync() => _initializationTask ??= InitializeAsync();
+
+    private async Task InitializeAsync()
+    {
+        _world = GetNode<NetworkWorld>("NetworkWorld");
+        _confirmations.Changed += OnConfirmationChanged;
+        SubscribeToRegistries();
+        SubscribeToMultiplayer();
+
+        _diagnostics = new NetworkLogRelay { Name = "NetworkLogRelay" };
+        AddChild(_diagnostics);
+        _adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
+        _diagnostics.SourceMetadataResolver = ResolveSteamMetadata;
+        _session = new SteamSession(_adapter, Multiplayer);
+        _session.StateChanged += OnSessionStateChanged;
+        _session.PeerTearingDown += OnPeerTearingDown;
+
+        await _session.InitializeAsync();
+        GameLog.Info("gameplay.probe", "ready", "Use --steam-host or --steam-lobby=<id>. Keys: H host, R mutate door, P snapshot, L leave.");
+
+        string[] args = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
+        _testScenario = ReadArgument(args, "--test-scenario=");
+        _testRunId = ReadArgument(args, "--test-run-id=");
+        _testRole = args.Contains("--steam-host") ? "host" : args.Any(argument => argument.StartsWith("--steam-lobby=", StringComparison.Ordinal)) ? "client" : null;
+        if (_testScenario is not null && !string.Equals(_testScenario, "steam_basic", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"Unknown test scenario '{_testScenario}'. Available scenarios: steam_basic.");
+        if (args.Contains("--steam-host"))
         {
-            _world = GetNode<NetworkWorld>("NetworkWorld");
-            _confirmations.Changed += OnConfirmationChanged;
-            SubscribeToRegistries();
-            SubscribeToMultiplayer();
-
-            _diagnostics = new NetworkLogRelay { Name = "NetworkLogRelay" };
-            AddChild(_diagnostics);
-            _adapter = GetNode<SteamPlatform>("/root/SteamPlatform").Adapter;
-            _diagnostics.SourceMetadataResolver = ResolveSteamMetadata;
-            _session = new SteamSession(_adapter, Multiplayer);
-            _session.StateChanged += OnSessionStateChanged;
-            _session.PeerTearingDown += OnPeerTearingDown;
-
-            await _session.InitializeAsync();
-            GameLog.Info("gameplay.probe", "ready", "Use --steam-host or --steam-lobby=<id>. Keys: H host, R mutate door, P snapshot, L leave.");
-
-            string[] args = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
-            _testScenario = ReadArgument(args, "--test-scenario=");
-            _testRunId = ReadArgument(args, "--test-run-id=");
-            _testRole = args.Contains("--steam-host") ? "host" : args.Any(argument => argument.StartsWith("--steam-lobby=", StringComparison.Ordinal)) ? "client" : null;
-            if (_testScenario is not null && !string.Equals(_testScenario, "steam_basic", StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException($"Unknown test scenario '{_testScenario}'. Available scenarios: steam_basic.");
-            if (args.Contains("--steam-host"))
-            {
-                await HostGameAsync();
-                return;
-            }
-
-            string? joinArgument = args.FirstOrDefault(argument => argument.StartsWith("--steam-lobby=", StringComparison.Ordinal));
-            if (joinArgument is not null && ulong.TryParse(joinArgument["--steam-lobby=".Length..], out ulong lobbyValue) && lobbyValue != 0)
-                await JoinAsync(new SteamLobbyId(lobbyValue));
+            await HostGameAsync();
+            return;
         }
-        catch (Exception exception)
-        {
-            GameLog.Error("gameplay.probe", "initialization_failed", exception.Message);
-        }
+
+        string? joinArgument = args.FirstOrDefault(argument => argument.StartsWith("--steam-lobby=", StringComparison.Ordinal));
+        if (joinArgument is not null && ulong.TryParse(joinArgument["--steam-lobby=".Length..], out ulong lobbyValue) && lobbyValue != 0)
+            await JoinGameAsync(new SteamLobbyId(lobbyValue));
     }
 
     public override async void _UnhandledInput(InputEvent inputEvent)
@@ -139,6 +142,8 @@ public partial class SteamGameplayProbe : Node
     public async Task HostGameAsync()
     {
         SteamLobby lobby = await _session!.HostAsync(new SteamLobbyCreateOptions(), new SteamListenServerOptions());
+        _adapter!.SetLobbyData("gamefactory_protocol", "1");
+        _adapter.SetRichPresence("connect", $"+connect_lobby {lobby.Id}");
         _runtime.SetMode(RuntimeMode.ListenServer);
         InitializeAuthoritativeGameplay();
         _diagnostics?.StartHostSession();
@@ -148,7 +153,7 @@ public partial class SteamGameplayProbe : Node
         LogSnapshot("host_initialized");
     }
 
-    private async Task JoinAsync(SteamLobbyId lobbyId)
+    public async Task JoinGameAsync(SteamLobbyId lobbyId)
     {
         await _session!.JoinAsync(lobbyId, new SteamClientOptions());
         _runtime.SetMode(RuntimeMode.Client);
@@ -157,7 +162,11 @@ public partial class SteamGameplayProbe : Node
         LogPeerStatus("initial");
     }
 
-    public Task LeaveGameAsync() => _session?.LeaveAsync() ?? Task.CompletedTask;
+    public async Task LeaveGameAsync()
+    {
+        _adapter?.ClearRichPresence();
+        if (_session is not null) await _session.LeaveAsync();
+    }
 
     private void InitializeAuthoritativeGameplay()
     {

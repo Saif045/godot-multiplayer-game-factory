@@ -1,0 +1,55 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://factory/shell/OnlineGameplayShell.cs" id="1"]
+[ext_resource type="Script" path="res://factory/shell/OnlineGameplayWorld.cs" id="2"]
+[ext_resource type="PackedScene" path="res://factory/networking/world/network_world.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://factory/networking/netfox/player_3d/network_player_3d.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://factory/gameplay/interaction/interactable_switch.tscn" id="5"]
+[ext_resource type="PackedScene" path="res://factory/gameplay/carry/carryable_item.tscn" id="6"]
+[ext_resource type="Script" path="res://addons/maaacks_game_template/base/nodes/utilities/pause_menu_controller.gd" id="7"]
+[ext_resource type="PackedScene" path="res://factory/shell/pause_menu.tscn" id="8"]
+
+[sub_resource type="Environment" id="Environment_3d"]
+background_mode = 1
+background_color = Color(0.08, 0.11, 0.16, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.55, 0.65, 0.8, 1)
+ambient_light_energy = 0.8
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(80, 0.2, 80)
+
+[sub_resource type="BoxShape3D" id="BoxShape_floor"]
+size = Vector3(80, 0.2, 80)
+
+[node name="OnlineGameplayShell" type="Node"]
+script = ExtResource("1")
+
+[node name="OnlineGameplayWorld" type="Node3D" parent="."]
+script = ExtResource("2")
+PlayerScene = ExtResource("4")
+SwitchScene = ExtResource("5")
+CarryableScene = ExtResource("6")
+
+[node name="NetworkWorld" parent="OnlineGameplayWorld" instance=ExtResource("3")]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="OnlineGameplayWorld"]
+environment = SubResource("Environment_3d")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="OnlineGameplayWorld"]
+rotation_degrees = Vector3(-55, -30, 0)
+light_energy = 1.4
+
+[node name="Floor" type="StaticBody3D" parent="OnlineGameplayWorld"]
+
+[node name="Mesh" type="MeshInstance3D" parent="OnlineGameplayWorld/Floor"]
+mesh = SubResource("BoxMesh_floor")
+
+[node name="Collision" type="CollisionShape3D" parent="OnlineGameplayWorld/Floor"]
+shape = SubResource("BoxShape_floor")
+
+[node name="PauseMenuController" type="Node" parent="."]
+script = ExtResource("7")
+pause_menu_packed = ExtResource("8")
+
+[editable path="OnlineGameplayWorld/NetworkWorld"]

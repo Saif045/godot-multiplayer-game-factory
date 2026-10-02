@@ -12,9 +12,16 @@ public partial class AppBootstrap : Node
 
     public override void _Ready()
     {
-        bool hasRunTarget = OS.GetCmdlineArgs()
-            .Concat(OS.GetCmdlineUserArgs())
-            .Any(argument => argument.StartsWith("--run=", StringComparison.OrdinalIgnoreCase));
+        string[] arguments = OS.GetCmdlineArgs().Concat(OS.GetCmdlineUserArgs()).ToArray();
+        bool hasRunTarget = arguments.Any(argument => argument.StartsWith("--run=", StringComparison.OrdinalIgnoreCase));
+
+        int connectIndex = Array.FindIndex(arguments, argument => string.Equals(argument, "+connect_lobby", StringComparison.OrdinalIgnoreCase));
+        if (!hasRunTarget && connectIndex >= 0 && connectIndex + 1 < arguments.Length)
+        {
+            string lobbyId = arguments[connectIndex + 1];
+            GetNode<GameShell>("/root/GameShell").CallDeferred(nameof(GameShell.JoinLobby), lobbyId);
+            return;
+        }
 
         GetTree().CallDeferred(
             SceneTree.MethodName.ChangeSceneToFile,

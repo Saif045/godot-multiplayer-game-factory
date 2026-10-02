@@ -104,7 +104,11 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         Godot.Collections.Dictionary raw = _bridge.Call("get_presence", ToSteamInt(userId)).AsGodotDictionary();
         string state = raw["state"].AsString();
         string connect = raw["connect"].AsString();
-        return new SteamPresence(state, string.IsNullOrEmpty(connect) ? null : connect);
+        string gameFactoryProtocol = raw["gamefactory_protocol"].AsString();
+        return new SteamPresence(
+            state,
+            string.IsNullOrEmpty(connect) ? null : connect,
+            string.IsNullOrEmpty(gameFactoryProtocol) ? null : gameFactoryProtocol);
     }
 
     public bool IsFriend(SteamUserId userId) => _bridge.Call("is_friend", ToSteamInt(userId)).AsBool();
@@ -301,6 +305,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         _bridge.Connect("lobby_data_changed", Callable.From<long>(OnLobbyDataChanged));
         _bridge.Connect("lobby_member_changed", Callable.From<long, long, long, long>(OnLobbyMemberChanged));
         _bridge.Connect("lobby_invited", Callable.From<long, long>(OnLobbyInvited));
+        _bridge.Connect("join_requested", Callable.From<long, long>(OnJoinRequested));
         _bridge.Connect("overlay_changed", Callable.From<bool>(active => OverlayActivityChanged?.Invoke(active)));
         _bridge.Connect("lobby_search_completed", Callable.From<Godot.Collections.Array>(OnLobbySearchCompleted));
     }
@@ -352,6 +357,8 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     private void OnLobbyMemberChanged(long rawLobbyId, long changedId, long makingChangeId, long chatState)
     {
         if (CurrentLobby?.Id.Value != (ulong)rawLobbyId || changedId <= 0) return;
+        CurrentLobby = ToLobby(CurrentLobby.Id);
+        LobbyUpdated?.Invoke(CurrentLobby);
         SteamLobbyId lobbyId = CurrentLobby.Id;
         SteamUserId userId = new((ulong)changedId);
         if (chatState == 1) LobbyMemberJoined?.Invoke(lobbyId, new SteamUser(userId, string.Empty));
@@ -359,7 +366,13 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     }
     private void OnLobbyInvited(long inviterId, long lobbyId)
     {
-        if (inviterId > 0 && lobbyId > 0) LobbyJoinRequested?.Invoke(new SteamLobbyId((ulong)lobbyId), new SteamUserId((ulong)inviterId));
+        if (inviterId > 0 && lobbyId > 0)
+            GameLog.Info("steam.lobby", "invite_received", fields: new Dictionary<string, string?> { ["lobby_id"] = lobbyId.ToString(), ["inviter_steam_id"] = inviterId.ToString() });
+    }
+    private void OnJoinRequested(long rawLobbyId, long rawFriendId)
+    {
+        if (rawLobbyId <= 0 || rawFriendId <= 0) return;
+        LobbyJoinRequested?.Invoke(new SteamLobbyId((ulong)rawLobbyId), new SteamUserId((ulong)rawFriendId));
     }
     private void OnLobbySearchCompleted(Godot.Collections.Array rawLobbyIds)
     {
@@ -370,6 +383,10 @@ public sealed class GodotSteamAdapter : ISteamAdapter
                 .Where(id => id.Value != 0)
                 .Select(ToLobbyInfo)
                 .ToArray();
+            GameLog.Info("steam.lobby", "search_completed", fields: new Dictionary<string, string?>
+            {
+                ["result_count"] = lobbies.Count.ToString()
+            });
             _pendingSearch?.TrySetResult(lobbies);
         }
         catch (Exception exception)
@@ -390,7 +407,12 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         SteamUserId owner = new((ulong)raw["owner_id"].AsInt64());
         int memberCount = (int)raw["member_count"].AsInt64();
         int memberLimit = (int)raw["member_limit"].AsInt64();
-        return new SteamLobbyInfo(id, owner, memberCount, memberLimit, new Dictionary<string, string>(_lobbyMetadata));
+        var metadata = new Dictionary<string, string>(_lobbyMetadata)
+        {
+            ["joinable"] = raw["joinable"].AsBool() ? "true" : "false",
+            ["gamefactory_protocol"] = raw["gamefactory_protocol"].AsString()
+        };
+        return new SteamLobbyInfo(id, owner, memberCount, memberLimit, metadata);
     }
     private IReadOnlyList<SteamLobbyMember> GetMembers(SteamLobbyId id)
     {

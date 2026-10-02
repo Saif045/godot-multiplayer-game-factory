@@ -172,7 +172,7 @@ copy_path="res://factory/shell/"
 disable_update_check=true
 disable_install_wizard=true
 main_menu_scene_path="res://factory/shell/main_menu.tscn"
-game_scene_path="res://factory/shell/host_gameplay.tscn"
+game_scene_path="res://factory/shell/online_gameplay.tscn"
 loading_scene_path="res://addons/maaacks_game_template/examples/scenes/loading_screen/loading_screen.tscn"
 disable_install_audio_busses=true
 

@@ -18,7 +18,7 @@ param(
     [string]$VmStatusPath = "C:/GameFactoryAgent/client_status.json",
     [string]$VmRunnerPath = "C:/GameFactoryAgent/run_client.ps1",
     [string]$HostTaskName = "GameFactoryHost",
-    [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay", "netfox_player_3d")]
+    [ValidateSet("steam_basic", "netfox_time_sync", "netfox_gameplay", "netfox_player_3d", "shell_manual")]
     [string]$Scenario = "steam_basic",
     [int]$HostTimeoutSeconds = 120,
     [int]$ScenarioTimeoutSeconds = 120,
@@ -191,8 +191,8 @@ $result = [ordered]@{
     started_utc = [DateTimeOffset]::UtcNow.ToString("O")
     completed_utc = $null
 }
-$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } elseif ($Scenario -eq "netfox_player_3d") { "netfox-player-3d" } else { "steam-gameplay" }
-$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.movement" } "netfox_player_3d" { "netfox.player3d" } default { throw "Unsupported scenario '$Scenario'." } }
+$runTarget = if ($Scenario -eq "netfox_time_sync") { "netfox" } elseif ($Scenario -eq "netfox_gameplay") { "netfox-gameplay" } elseif ($Scenario -eq "netfox_player_3d") { "netfox-player-3d" } elseif ($Scenario -eq "shell_manual") { $null } else { "steam-gameplay" }
+$scenarioCategory = switch ($Scenario) { "steam_basic" { "ab_test.scenario" } "netfox_time_sync" { "netfox.scenario" } "netfox_gameplay" { "netfox.movement" } "netfox_player_3d" { "netfox.player3d" } "shell_manual" { "shell" } default { throw "Unsupported scenario '$Scenario'." } }
 
 New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
 
@@ -577,10 +577,8 @@ function Ensure-HostTask {
     New-Item -ItemType Directory -Force -Path $hostRuntimeDirectory | Out-Null
     $task = Get-ScheduledTask -TaskName $HostTaskName -ErrorAction SilentlyContinue
     if ($null -eq $task) {
-        Write-Harness "installing one-time interactive host task '$HostTaskName'"
-        & $hostTaskInstallerPath -TaskName $HostTaskName
-        if ($LASTEXITCODE -ne 0) { Set-Failure "host_control" "host_task_setup" "Host task installer exited with code $LASTEXITCODE." }
-        $task = Get-ScheduledTask -TaskName $HostTaskName -ErrorAction SilentlyContinue
+        $query = & schtasks.exe /Query /TN $HostTaskName 2>$null
+        if ($LASTEXITCODE -eq 0) { $task = [pscustomobject]@{ State = 'Ready' } }
     }
     if ($null -eq $task) { Set-Failure "host_control" "host_task_setup" "Host task '$HostTaskName' was not registered." }
     if ($task.State -eq 'Disabled') { Set-Failure "host_control" "host_task_setup" "Host task '$HostTaskName' is disabled." }
@@ -845,12 +843,13 @@ function Sync-VmRunLog {
 
 function Get-RunLogFiles {
     Sync-VmRunLog
-    $runsDirectory = Join-Path $outputDirectory "logs\runs"
-    $files = @(Get-ChildItem -Path $runsDirectory -Directory -Filter "*_$attemptEvidenceId" -ErrorAction SilentlyContinue |
-        ForEach-Object { Join-Path $_.FullName "game.jsonl" } |
-        Where-Object { Test-Path $_ })
+    # Export layout differs between the normal shell and probe launchers (and
+    # the relay can create a nested participant run). Search only the active
+    # immutable export, then let Get-LogEntries select the exact run id.
+    $files = @(Get-ChildItem -Path $outputDirectory -Recurse -File -Filter "game.jsonl" -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty FullName)
     if (Test-Path -LiteralPath $clientLiveLogPath) { $files += $clientLiveLogPath }
-    return $files
+    return @($files | Select-Object -Unique)
 }
 
 function Get-LogEntries {
@@ -1430,10 +1429,13 @@ if ($Mode -eq "Retry") {
     }
     $attemptNumber = ([int](@($existingRunState.attempts | Measure-Object -Property attempt -Maximum).Maximum)) + 1
     $artifactDirectory = Join-Path $runDirectory ("attempt_{0:D3}" -f $attemptNumber)
+    $attemptLabel = "attempt_{0:D3}" -f $attemptNumber
+    $attemptEvidenceId = "{0}_{1}" -f $runId, $attemptLabel
     $hostOutputDirectory = Join-Path $artifactDirectory "host"
     $clientOutputDirectory = Join-Path $artifactDirectory "client"
     $sessionOutputDirectory = Join-Path $artifactDirectory "session"
     $hostGodotLogPath = Join-Path $hostOutputDirectory "godot.log"
+    $vmGodotLogPath = "C:/GameFactoryAgent/logs/$runId/$attemptLabel/godot.log"
     $clientLiveLogPath = Join-Path $clientOutputDirectory "game.jsonl"
     $resultPath = Join-Path $artifactDirectory "result.json"
     $attemptStatePath = Join-Path $artifactDirectory "state.json"
@@ -1548,9 +1550,9 @@ try {
     }
 
     if ($VerifyBuildOnly) {
-        $result.result = "passed"
+        $result.result = "running"
         $result.layer = $null
-        $result.stage = "complete"
+        $result.stage = "ready"
         $result.reason = $null
         Complete-Stage "build_stage_and_parity"
         Write-Harness "PASS build staging and VM parity verification"
@@ -1561,11 +1563,8 @@ try {
     $hostConsolePath = Join-Path $hostOutputDirectory "console.log"
     $hostErrorPath = Join-Path $hostOutputDirectory "console.error.log"
     New-Item -ItemType File -Path $hostConsolePath -Force | Out-Null
-    $hostArguments = @(
-        "--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath,
-        "--run=$runTarget", "--steam-host",
-        "--test-scenario=$Scenario", "--test-run-id=$attemptEvidenceId"
-    )
+    $hostArguments = @("--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath, "--test-run-id=$attemptEvidenceId")
+    if ($Scenario -ne "shell_manual") { $hostArguments += @("--run=$runTarget", "--steam-host", "--test-scenario=$Scenario") }
     Write-Harness "launching host"
     $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
     # The managed export materializes its embedded .NET payload beneath
@@ -1583,6 +1582,22 @@ try {
     # always route cleanup through the interactive runner, even if the VM
     # fails before client-side readiness evidence exists.
     Save-RunAndAttemptState "launching" $false $existingRunState
+
+    if ($Scenario -eq "shell_manual") {
+        $result.stage = "client_launch"
+        $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--test-run-id=$attemptEvidenceId")
+        Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable
+        [void](Invoke-VmRunner "client_launched" $HostTimeoutSeconds)
+        [void](Wait-ForLogEvent "shell" "main_menu" "" $HostTimeoutSeconds "shell" "main_menu")
+        Complete-Stage "normal_shell_ready"
+        $result.result = "running"
+        $result.layer = $null
+        $result.stage = "ready"
+        $result.reason = $null
+        Save-RunAndAttemptState "running" $false $existingRunState
+        Write-Harness "AB_READY normal shell host and client are running"
+        return
+    }
 
     $result.stage = "lobby_creation"
     [void](Wait-ForLogEvent "steam.lifecycle" "lobby_created" "host" $HostTimeoutSeconds "steam" "lobby_creation")
@@ -1604,7 +1619,8 @@ try {
     # The GPU-P guest now has the host AMD OpenGL ICD, so keep the participant
     # windowed. This is both the real player path and makes each A/B attempt
     # directly observable in the Hyper-V console.
-    $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario", "--test-run-id=$attemptEvidenceId")
+    $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--test-run-id=$attemptEvidenceId")
+    if ($Scenario -ne "shell_manual") { $clientArguments += @("--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario") }
     Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable
 
     $result.stage = "client_launch"

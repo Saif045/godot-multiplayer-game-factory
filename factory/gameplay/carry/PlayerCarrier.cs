@@ -40,7 +40,7 @@ public partial class PlayerCarrier : Node
             !HasHeldItemLocally())
             return;
 
-        if (Multiplayer.IsServer())
+        if (Multiplayer.HasMultiplayerPeer() && Multiplayer.IsServer())
         {
             HandleDrop(PeerId.Server);
             return;
@@ -51,7 +51,7 @@ public partial class PlayerCarrier : Node
 
     public override void _ExitTree()
     {
-        if (Multiplayer.IsServer() && HasCarriedItem)
+        if (Multiplayer.HasMultiplayerPeer() && Multiplayer.IsServer() && HasCarriedItem)
             HandleDrop(PeerId.Server, "carrier_exit");
     }
 
@@ -148,7 +148,8 @@ public partial class PlayerCarrier : Node
     }
 
     private bool IsLocalOwner() =>
-        _player.IsBound && _player.OwnerPeerId.Value == Multiplayer.GetUniqueId();
+        _player.IsBound && Multiplayer.HasMultiplayerPeer() &&
+        _player.OwnerPeerId.Value == Multiplayer.GetUniqueId();
 
     private bool HasHeldItemLocally()
     {
@@ -172,7 +173,7 @@ public partial class PlayerCarrier : Node
             ["player_network_object_id"] = _player.IsBound ? _player.Id.ToString() : null,
             ["item_network_object_id"] = item?.GetNetworkObject().Id.ToString(),
             ["reason"] = reason,
-            ["role"] = Multiplayer.IsServer() ? "host" : "client"
+            ["role"] = Multiplayer.HasMultiplayerPeer() && Multiplayer.IsServer() ? "host" : "client"
         };
         GameLog.Info("carry", eventName, fields: fields);
     }

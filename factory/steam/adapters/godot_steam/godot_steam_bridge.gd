@@ -9,6 +9,7 @@ signal lobby_joined_result(lobby_id: int, response: int)
 signal lobby_data_changed(lobby_id: int)
 signal lobby_member_changed(lobby_id: int, changed_id: int, making_change_id: int, chat_state: int)
 signal lobby_invited(inviter_id: int, lobby_id: int)
+signal join_requested(lobby_id: int, friend_id: int)
 signal overlay_changed(active: bool)
 signal lobby_search_completed(lobbies: Array)
 
@@ -20,6 +21,7 @@ func _ready() -> void:
 	Steam.lobby_data_update.connect(_on_lobby_data_update)
 	Steam.lobby_chat_update.connect(_on_lobby_chat_update)
 	Steam.lobby_invite.connect(_on_lobby_invite)
+	Steam.join_requested.connect(_on_join_requested)
 	Steam.overlay_toggled.connect(_on_overlay_toggled)
 	Steam.lobby_match_list.connect(_on_lobby_match_list)
 
@@ -59,7 +61,8 @@ func get_lobby_summary(lobby_id: int) -> Dictionary:
 		"owner_id": Steam.getLobbyOwner(lobby_id),
 		"member_count": Steam.getNumLobbyMembers(lobby_id),
 		"member_limit": Steam.getLobbyMemberLimit(lobby_id),
-		"joinable": Steam.getLobbyData(lobby_id, "joinable") != "false"
+		"joinable": Steam.getLobbyData(lobby_id, "joinable") != "false",
+		"gamefactory_protocol": Steam.getLobbyData(lobby_id, "gamefactory_protocol")
 	}
 
 func get_lobby_members(lobby_id: int) -> Array:
@@ -91,7 +94,11 @@ func get_friends() -> Array:
 	return friends
 
 func get_presence(user_id: int) -> Dictionary:
-	return { "state": str(Steam.getFriendPersonaState(user_id)), "connect": Steam.getFriendRichPresence(user_id, "connect") }
+	return {
+		"state": str(Steam.getFriendPersonaState(user_id)),
+		"connect": Steam.getFriendRichPresence(user_id, "connect"),
+		"gamefactory_protocol": Steam.getFriendRichPresence(user_id, "gamefactory_protocol")
+	}
 
 func is_friend(user_id: int) -> bool:
 	return Steam.getFriendRelationship(user_id) == 3
@@ -157,6 +164,9 @@ func _on_lobby_chat_update(lobby_id: int, changed_id: int, making_change_id: int
 
 func _on_lobby_invite(inviter_id: int, lobby_id: int, _game_id: int) -> void:
 	lobby_invited.emit(inviter_id, lobby_id)
+
+func _on_join_requested(lobby_id: int, friend_id: int) -> void:
+	join_requested.emit(lobby_id, friend_id)
 
 func _on_overlay_toggled(active: bool, _user_initiated: bool, _app_id: int) -> void:
 	overlay_changed.emit(active)

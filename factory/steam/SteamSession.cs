@@ -110,7 +110,7 @@ public sealed class SteamSession : IDisposable
         try
         {
             Exception? peerTeardownException = null;
-            try { TearDownActivePeer(); }
+            try { await TearDownActivePeerAsync(); }
             catch (Exception exception) { peerTeardownException = exception; }
 
             await _adapter.LeaveLobbyAsync();
@@ -169,9 +169,30 @@ public sealed class SteamSession : IDisposable
 
     private void TearDownActivePeer()
     {
+        MultiplayerPeer? peer = CloseActivePeer();
+        if (peer is null) return;
+
+        FinalizePeerTeardown(peer);
+    }
+
+    private async Task TearDownActivePeerAsync()
+    {
+        MultiplayerPeer? peer = CloseActivePeer();
+        if (peer is null) return;
+
+        // Netfox observes the Steam disconnect through the active
+        // MultiplayerApi. Let that notification run before removing the peer.
+        if (Engine.GetMainLoop() is SceneTree tree)
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+
+        FinalizePeerTeardown(peer);
+    }
+
+    private MultiplayerPeer? CloseActivePeer()
+    {
         MultiplayerPeer? peer = _activePeer;
         _activePeer = null;
-        if (peer is null) return;
+        if (peer is null) return null;
 
         GameLog.Info("steam.peer", "closing", peer.GetType().Name);
         try { PeerTearingDown?.Invoke(); }
@@ -179,7 +200,7 @@ public sealed class SteamSession : IDisposable
         {
             GameLog.Warning("steam.peer", "pre_teardown_hook_failed", exception.Message);
         }
-        if (GodotObject.IsInstanceValid(peer))
+        if (IsPeerValid(peer))
         {
             try
             {
@@ -200,13 +221,28 @@ public sealed class SteamSession : IDisposable
             GameLog.Info("steam.peer", "already_disposed");
         }
 
-        if (ReferenceEquals(_multiplayer.MultiplayerPeer, peer))
+        return peer;
+    }
+
+    private void FinalizePeerTeardown(MultiplayerPeer peer)
+    {
+        try
         {
-            _multiplayer.MultiplayerPeer = null;
-            GameLog.Info("steam.peer", "cleared_from_multiplayer_api");
+            if (ReferenceEquals(_multiplayer.MultiplayerPeer, peer))
+            {
+                _multiplayer.MultiplayerPeer = null;
+                GameLog.Info("steam.peer", "cleared_from_multiplayer_api");
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Godot can dispose the native peer while its managed wrapper is
+            // still retained by MultiplayerApi. That is equivalent to an
+            // already-cleared peer, not a failed leave operation.
+            GameLog.Info("steam.peer", "already_disposed");
         }
 
-        if (!GodotObject.IsInstanceValid(peer))
+        if (!IsPeerValid(peer))
             return;
 
         try
@@ -224,10 +260,16 @@ public sealed class SteamSession : IDisposable
         }
     }
 
+    private static bool IsPeerValid(MultiplayerPeer peer)
+    {
+        try { return GodotObject.IsInstanceValid(peer); }
+        catch (ObjectDisposedException) { return false; }
+    }
+
     private async Task RollbackFailedConnectionAsync(Exception operationException)
     {
         Exception? cleanupException = null;
-        try { TearDownActivePeer(); }
+        try { await TearDownActivePeerAsync(); }
         catch (Exception exception) { cleanupException = exception; }
 
         try { await _adapter.LeaveLobbyAsync(); }
