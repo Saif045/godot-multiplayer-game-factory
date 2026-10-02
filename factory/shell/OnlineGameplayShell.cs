@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;
 using GameFactory.Diagnostics;
+using GameFactory.Networking.Peers;
 using GameFactory.Steam;
 using GameFactory.Steam.Models;
 
@@ -16,10 +17,15 @@ public partial class OnlineGameplayShell : Node
     private Control? _lobby;
     private GameFactory.Steam.ISteamAdapter? _adapter;
     private bool _gameStarted;
+    private bool _clientPhaseReadySent;
+    private bool _leaving;
 
     public override async void _Ready()
     {
         _gameplay = GetNode<OnlineGameplayWorld>("OnlineGameplayWorld");
+        Multiplayer.ConnectedToServer += OnConnectedToServer;
+        Multiplayer.PeerConnected += OnPeerConnected;
+        Multiplayer.ServerDisconnected += OnServerDisconnected;
         GameShell shell = GetNode<GameShell>("/root/GameShell");
         try
         {
@@ -50,7 +56,6 @@ public partial class OnlineGameplayShell : Node
                     throw new InvalidOperationException($"Unknown online gameplay launch intent '{intent.Kind}'.");
             }
 
-            Multiplayer.PeerConnected += OnPeerConnected;
             ShowLobby();
             GameLog.Info("shell", "lobby_entered");
         }
@@ -63,7 +68,10 @@ public partial class OnlineGameplayShell : Node
 
     public async Task LeaveGameAsync()
     {
-        await _gameplay.StopAsync();
+        _leaving = true;
+        // Keep replicated nodes alive until the Steam peer closes and Netfox
+        // observes the disconnect. Scene replacement destroys them afterward.
+        _gameplay.Stop();
         SteamPlatform platform = GetNode<SteamPlatform>("/root/SteamPlatform");
         platform.Adapter.ClearRichPresence();
         await _session.LeaveAsync();
@@ -72,7 +80,9 @@ public partial class OnlineGameplayShell : Node
     public override void _ExitTree()
     {
         if (_adapter is not null) _adapter.LobbyUpdated -= RefreshLobby;
+        Multiplayer.ConnectedToServer -= OnConnectedToServer;
         Multiplayer.PeerConnected -= OnPeerConnected;
+        Multiplayer.ServerDisconnected -= OnServerDisconnected;
         _gameplay.Stop();
         _session?.Dispose();
     }
@@ -119,15 +129,81 @@ public partial class OnlineGameplayShell : Node
     private void StartGame()
     {
         if (!Multiplayer.IsServer()) return;
+
+        // This slice supports assembling a lobby before play begins. Netfox's
+        // dynamic-world bootstrap is not yet a supported late-join contract,
+        // so stop Steam discovery before any peer enters the running world.
+        SteamPlatform platform = GetNode<SteamPlatform>("/root/SteamPlatform");
+        platform.Adapter.SetLobbyJoinable(false);
+        platform.Adapter.ClearRichPresence();
+        GameLog.Info("shell", "lobby_closed_for_gameplay");
         _gameStarted = true;
         Rpc(nameof(EnterGameplayRpc));
         EnterGameplayRpc();
     }
 
-    private void OnPeerConnected(long peerId)
+    private void OnConnectedToServer()
     {
-        if (_gameStarted && Multiplayer.HasMultiplayerPeer() && Multiplayer.IsServer())
-            RpcId(peerId, MethodName.EnterGameplayRpc);
+        if (_clientPhaseReadySent || Multiplayer.IsServer()) return;
+        _clientPhaseReadySent = true;
+        RpcId(PeerId.Server.Value, MethodName.ClientReadyForPhaseRpc);
+        GameLog.Info("shell", "client_phase_ready_sent");
+    }
+
+    private void OnPeerConnected(long peerValue)
+    {
+        if (!Multiplayer.IsServer() || !_gameStarted || peerValue <= PeerId.Server.Value)
+            return;
+
+        // Steam's joinable flag controls discovery but cannot prevent a client
+        // already holding stale presence from opening a transport connection.
+        // This slice has no late-world bootstrap, so enforce the phase boundary
+        // at the host before that connection can enter gameplay.
+        GameLog.Warning("shell", "late_join_rejected", fields: new Dictionary<string, string?>
+        {
+            ["peer_id"] = peerValue.ToString()
+        });
+        Multiplayer.MultiplayerPeer.DisconnectPeer((int)peerValue, true);
+    }
+
+    private async void OnServerDisconnected()
+    {
+        if (Multiplayer.IsServer() || _leaving)
+            return;
+
+        _leaving = true;
+        GameLog.Warning("shell", "server_disconnected_returning_to_menu");
+        try
+        {
+            _gameplay.Stop();
+            await _session.LeaveAsync();
+        }
+        catch (Exception exception)
+        {
+            GameLog.Warning("shell", "server_disconnect_cleanup_failed", exception.Message);
+        }
+        finally
+        {
+            GetNode<GameShell>("/root/GameShell").GameplayLaunchFailed("host_game_already_started");
+        }
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ClientReadyForPhaseRpc()
+    {
+        if (!Multiplayer.IsServer()) return;
+        long peerId = Multiplayer.GetRemoteSenderId();
+        if (peerId <= PeerId.Server.Value) return;
+        GameLog.Info("shell", "client_phase_ready_received", fields: new Dictionary<string, string?>
+        {
+            ["peer_id"] = peerId.ToString(),
+            ["game_started"] = _gameStarted.ToString()
+        });
+        if (_gameStarted)
+            GameLog.Warning("shell", "late_join_ready_rejected", fields: new Dictionary<string, string?>
+            {
+                ["peer_id"] = peerId.ToString()
+            });
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]

@@ -37,6 +37,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     public event Action<SteamLobbyId, SteamUserId>? LobbyMemberLeft;
     public event Action<SteamLobbyId, SteamUserId>? LobbyOwnerChanged;
     public event Action<SteamLobbyId, SteamUserId>? LobbyJoinRequested;
+    public event Action<SteamUserId>? FriendPresenceUpdated;
     public event Action<bool>? OverlayActivityChanged;
     public event Action<SteamAdapterError>? Error;
 
@@ -109,6 +110,12 @@ public sealed class GodotSteamAdapter : ISteamAdapter
             state,
             string.IsNullOrEmpty(connect) ? null : connect,
             string.IsNullOrEmpty(gameFactoryProtocol) ? null : gameFactoryProtocol);
+    }
+
+    public void RequestFriendPresence(SteamUserId userId)
+    {
+        EnsureInitialized();
+        _bridge.Call("request_friend_presence", ToSteamInt(userId));
     }
 
     public bool IsFriend(SteamUserId userId) => _bridge.Call("is_friend", ToSteamInt(userId)).AsBool();
@@ -306,6 +313,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         _bridge.Connect("lobby_member_changed", Callable.From<long, long, long, long>(OnLobbyMemberChanged));
         _bridge.Connect("lobby_invited", Callable.From<long, long>(OnLobbyInvited));
         _bridge.Connect("join_requested", Callable.From<long, long>(OnJoinRequested));
+        _bridge.Connect("friend_presence_updated", Callable.From<long>(OnFriendPresenceUpdated));
         _bridge.Connect("overlay_changed", Callable.From<bool>(active => OverlayActivityChanged?.Invoke(active)));
         _bridge.Connect("lobby_search_completed", Callable.From<Godot.Collections.Array>(OnLobbySearchCompleted));
     }
@@ -373,6 +381,11 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     {
         if (rawLobbyId <= 0 || rawFriendId <= 0) return;
         LobbyJoinRequested?.Invoke(new SteamLobbyId((ulong)rawLobbyId), new SteamUserId((ulong)rawFriendId));
+    }
+    private void OnFriendPresenceUpdated(long rawUserId)
+    {
+        if (rawUserId > 0)
+            FriendPresenceUpdated?.Invoke(new SteamUserId((ulong)rawUserId));
     }
     private void OnLobbySearchCompleted(Godot.Collections.Array rawLobbyIds)
     {

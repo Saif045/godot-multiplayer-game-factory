@@ -1175,6 +1175,7 @@ function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe"
     if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe" }
     $script:attemptNumber = [int]$AttemptState.attempt
+    $script:result.started_utc = [string]$AttemptState.started_utc
     $script:attemptLabel = "attempt_{0:D3}" -f $script:attemptNumber
     $script:attemptEvidenceId = if ($null -ne $AttemptState.PSObject.Properties['evidence_attempt_id']) { [string]$AttemptState.evidence_attempt_id } else { $script:runId }
     $script:artifactDirectory = [System.IO.Path]::GetFullPath([string]$AttemptState.artifact_directory)

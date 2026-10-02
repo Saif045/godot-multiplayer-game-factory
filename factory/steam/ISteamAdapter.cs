@@ -27,6 +27,7 @@ public interface ISteamAdapter : IDisposable
     event Action<SteamLobbyId, SteamUserId>? LobbyMemberLeft;
     event Action<SteamLobbyId, SteamUserId>? LobbyOwnerChanged;
     event Action<SteamLobbyId, SteamUserId>? LobbyJoinRequested;
+    event Action<SteamUserId>? FriendPresenceUpdated;
     event Action<bool>? OverlayActivityChanged;
     event Action<SteamAdapterError>? Error;
 
@@ -34,6 +35,7 @@ public interface ISteamAdapter : IDisposable
     Task ShutdownAsync();
     IReadOnlyList<SteamFriend> GetFriends();
     SteamPresence GetPresence(SteamUserId userId);
+    void RequestFriendPresence(SteamUserId userId);
     bool IsFriend(SteamUserId userId);
     Task<IReadOnlyList<SteamLobbyInfo>> FindLobbiesAsync(SteamLobbySearchOptions options, CancellationToken cancellationToken = default);
     Task<SteamLobbyInfo> GetLobbyInfoAsync(SteamLobbyId lobbyId, CancellationToken cancellationToken = default);

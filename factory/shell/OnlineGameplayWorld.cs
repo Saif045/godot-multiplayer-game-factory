@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Godot;
 using GameFactory.Diagnostics;
 using GameFactory.Gameplay.Carry;
@@ -83,28 +81,6 @@ public partial class OnlineGameplayWorld : Node3D
         GameLog.Info("shell.gameplay", "stopped");
     }
 
-    /// <summary>Removes all replicated hosts before the Steam peer is cleared.</summary>
-    public async Task StopAsync()
-    {
-        if (!_started) return;
-
-        Stop();
-        foreach (NetworkObject networkObject in _world.Objects.ToArray())
-        {
-            if (GodotObject.IsInstanceValid(networkObject.Host))
-                networkObject.Host.QueueFree();
-        }
-
-        // QueueFree and Netfox unregister on the deletion queue. Keep the
-        // multiplayer peer installed until both frames have completed.
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        GameLog.Info("shell.gameplay", "network_objects_stopped", fields: new Dictionary<string, string?>
-        {
-            ["remaining_network_objects"] = _world.Count.ToString()
-        });
-    }
-
     public override void _ExitTree()
     {
         Multiplayer.PeerConnected -= OnPeerConnected;
@@ -124,7 +100,9 @@ public partial class OnlineGameplayWorld : Node3D
 
     private void OnPeerConnected(long peerValue)
     {
-        if (_started && Multiplayer.IsServer())
+        // Godot emits the server ID as the transport becomes active. It is
+        // already registered as the local server peer in Start().
+        if (_started && Multiplayer.IsServer() && peerValue > PeerId.Server.Value)
             _peers.Add(new PeerId(peerValue), isLocal: false);
     }
 

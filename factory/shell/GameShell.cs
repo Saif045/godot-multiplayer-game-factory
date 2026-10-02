@@ -14,15 +14,16 @@ public partial class GameShell : Node
     public const string OnlineGameplayScenePath = "res://factory/shell/online_gameplay.tscn";
     public const string JoinMenuScenePath = "res://factory/shell/join_menu.tscn";
     private bool _leaveInProgress;
-    private bool _mainMenuActive;
     private OnlineGameplayLaunchIntent? _onlineGameplayLaunchIntent;
     private SteamPlatform? _steamPlatform;
+    private VBoxContainer? _joinList;
 
     public override void _Ready()
     {
         GameLog.EnsureInitialized();
         _steamPlatform = GetNode<SteamPlatform>("/root/SteamPlatform");
         _steamPlatform.Adapter.LobbyJoinRequested += OnLobbyJoinRequested;
+        _steamPlatform.Adapter.FriendPresenceUpdated += OnFriendPresenceUpdated;
         GameLog.Info("shell", "ready");
     }
 
@@ -30,62 +31,38 @@ public partial class GameShell : Node
     {
         if (_steamPlatform is not null)
             _steamPlatform.Adapter.LobbyJoinRequested -= OnLobbyJoinRequested;
+        if (_steamPlatform is not null)
+            _steamPlatform.Adapter.FriendPresenceUpdated -= OnFriendPresenceUpdated;
     }
 
     public void GameStartRequested()
     {
-        _mainMenuActive = false;
         _onlineGameplayLaunchIntent = OnlineGameplayLaunchIntent.Host();
         GameLog.Info("shell", "host_requested", fields: LaunchIntentFields(_onlineGameplayLaunchIntent.Value));
     }
 
     public void MainMenuShown()
     {
-        _mainMenuActive = true;
         GameLog.Info("shell", "main_menu");
     }
 
     public void OpenJoinMenu()
     {
-        _mainMenuActive = false;
         GetNode("/root/SceneLoader").Call("load_scene", JoinMenuScenePath);
         GameLog.Info("shell", "join_menu_requested");
     }
 
     public async void PopulateJoinLobbies(VBoxContainer list)
     {
-        foreach (Node child in list.GetChildren()) child.QueueFree();
         try
         {
             await _steamPlatform!.ReadyTask;
+            _joinList = list;
             ISteamAdapter adapter = _steamPlatform.Adapter;
             IReadOnlyList<SteamFriend> friends = adapter.GetFriends();
-            var displayedLobbyIds = new HashSet<SteamLobbyId>();
-
-            // FriendsOnly lobbies deliberately do not appear in Steam's
-            // global RequestLobbyList result. A friend's rich-presence
-            // connect value is the intended pull-style discovery route.
+            RenderJoinLobbies(friends);
             foreach (SteamFriend friend in friends)
-            {
-                if (!adapter.CanJoinUser(friend.User.Id) ||
-                    friend.Presence.GameFactoryProtocol != "1" ||
-                    !TryReadConnectLobby(friend.Presence.ConnectString, out SteamLobbyId lobbyId) ||
-                    !displayedLobbyIds.Add(lobbyId))
-                    continue;
-
-                // Steam's lobby summary cache is not hydrated for an arbitrary
-                // FriendsOnly lobby. The host's matching rich-presence marker
-                // identifies this game without treating a cache miss as a
-                // failed or non-joinable session.
-                AddLobbyButton(list, lobbyId, friend.User.DisplayName);
-            }
-
-            if (displayedLobbyIds.Count == 0) list.AddChild(new Label { Text = "No joinable GameFactory lobbies found." });
-            GameLog.Info("shell", "join_search_completed", fields: new Dictionary<string, string?>
-            {
-                ["friend_count"] = friends.Count.ToString(),
-                ["displayed_count"] = displayedLobbyIds.Count.ToString()
-            });
+                if (adapter.IsFriend(friend.User.Id)) adapter.RequestFriendPresence(friend.User.Id);
         }
         catch (Exception exception)
         {
@@ -104,7 +81,6 @@ public partial class GameShell : Node
 
     public void GameEntered()
     {
-        _mainMenuActive = false;
         GameLog.Info("shell", "game_entered");
     }
     public void PauseOpened() => GameLog.Info("shell", "pause_opened");
@@ -151,7 +127,6 @@ public partial class GameShell : Node
     public void GameplayLaunchFailed(string reason)
     {
         _onlineGameplayLaunchIntent = null;
-        _mainMenuActive = false;
         GameLog.Warning("shell", "gameplay_launch_returning_to_menu", reason);
         GetNode("/root/SceneLoader").CallDeferred("load_scene", MainMenuScenePath);
     }
@@ -171,7 +146,7 @@ public partial class GameShell : Node
 
     private void OnLobbyJoinRequested(SteamLobbyId lobbyId, SteamUserId inviter)
     {
-        if (!_mainMenuActive)
+        if (HasActiveOnlineSession())
         {
             GameLog.Warning("shell", "join_request_ignored_active_gameplay", fields: new Dictionary<string, string?>
             {
@@ -191,6 +166,39 @@ public partial class GameShell : Node
         GetNode("/root/SceneLoader").Call("load_scene", OnlineGameplayScenePath);
         GameLog.Info("shell", "online_gameplay_scene_requested", fields: LaunchIntentFields(intent));
     }
+
+    private void OnFriendPresenceUpdated(SteamUserId _)
+    {
+        if (_joinList is null || !GodotObject.IsInstanceValid(_joinList) || !_joinList.IsInsideTree()) return;
+        try { RenderJoinLobbies(_steamPlatform!.Adapter.GetFriends()); }
+        catch (Exception exception) { GameLog.Warning("shell", "join_search_refresh_failed", exception.Message); }
+    }
+
+    private void RenderJoinLobbies(IReadOnlyList<SteamFriend> friends)
+    {
+        if (_joinList is null || !GodotObject.IsInstanceValid(_joinList)) return;
+        foreach (Node child in _joinList.GetChildren()) child.QueueFree();
+        HashSet<SteamLobbyId> displayedLobbyIds = [];
+        foreach (SteamFriend friend in friends)
+        {
+            if (friend.Presence.GameFactoryProtocol != "1" ||
+                !TryReadConnectLobby(friend.Presence.ConnectString, out SteamLobbyId lobbyId) ||
+                !displayedLobbyIds.Add(lobbyId))
+                continue;
+            AddLobbyButton(_joinList, lobbyId, friend.User.DisplayName);
+        }
+
+        if (displayedLobbyIds.Count == 0)
+            _joinList.AddChild(new Label { Text = "No joinable GameFactory lobbies found. Refreshing friends..." });
+        GameLog.Info("shell", "join_search_completed", fields: new Dictionary<string, string?>
+        {
+            ["friend_count"] = friends.Count.ToString(),
+            ["displayed_count"] = displayedLobbyIds.Count.ToString()
+        });
+    }
+
+    private bool HasActiveOnlineSession() =>
+        _onlineGameplayLaunchIntent is not null || GetTree().CurrentScene is OnlineGameplayShell;
 
     private static bool TryReadConnectLobby(string? connect, out SteamLobbyId lobbyId)
     {

@@ -10,6 +10,7 @@ signal lobby_data_changed(lobby_id: int)
 signal lobby_member_changed(lobby_id: int, changed_id: int, making_change_id: int, chat_state: int)
 signal lobby_invited(inviter_id: int, lobby_id: int)
 signal join_requested(lobby_id: int, friend_id: int)
+signal friend_presence_updated(user_id: int)
 signal overlay_changed(active: bool)
 signal lobby_search_completed(lobbies: Array)
 
@@ -22,6 +23,7 @@ func _ready() -> void:
 	Steam.lobby_chat_update.connect(_on_lobby_chat_update)
 	Steam.lobby_invite.connect(_on_lobby_invite)
 	Steam.join_requested.connect(_on_join_requested)
+	Steam.friend_rich_presence_update.connect(_on_friend_rich_presence_update)
 	Steam.overlay_toggled.connect(_on_overlay_toggled)
 	Steam.lobby_match_list.connect(_on_lobby_match_list)
 
@@ -100,6 +102,9 @@ func get_presence(user_id: int) -> Dictionary:
 		"gamefactory_protocol": Steam.getFriendRichPresence(user_id, "gamefactory_protocol")
 	}
 
+func request_friend_presence(user_id: int) -> void:
+	Steam.requestFriendRichPresence(user_id)
+
 func is_friend(user_id: int) -> bool:
 	return Steam.getFriendRelationship(user_id) == 3
 
@@ -167,6 +172,9 @@ func _on_lobby_invite(inviter_id: int, lobby_id: int, _game_id: int) -> void:
 
 func _on_join_requested(lobby_id: int, friend_id: int) -> void:
 	join_requested.emit(lobby_id, friend_id)
+
+func _on_friend_rich_presence_update(user_id: int, _app_id: int) -> void:
+	friend_presence_updated.emit(user_id)
 
 func _on_overlay_toggled(active: bool, _user_initiated: bool, _app_id: int) -> void:
 	overlay_changed.emit(active)
