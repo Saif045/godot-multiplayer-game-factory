@@ -7,6 +7,9 @@ replacement for architecture or protocol documentation.
 
 - Steam listen-server transport, Godot `MultiplayerAPI`, `NetworkWorld`, and
   `PlayerLifecycle` have accepted two-account Hyper-V evidence.
+- Steam lobby/peer lifecycle isolation is accepted for tested fresh join,
+  same-lobby rejoin, new-lobby reuse, and role reversal; retained closed peers
+  sent no stale handshakes.
 - The reusable Netfox v1.35.3 `CharacterBody3D` player composition is
   acceptance-proven: split server-state/client-input authority, rollback,
   interpolation, bidirectional walking/jumping, and queued one-shot jump.
@@ -68,6 +71,14 @@ replacement for architecture or protocol documentation.
   prediction. GAS effect/runtime objects remain outside rollback history.
 
 ## Latest runtime evidence
+
+Steam lifecycle run `native_lifecycle_acceptance_d28f7ad_20261003_02` tested
+unchanged `d28f7ad` runtime inputs. Attempt 001 passed all four lobby/peer flows.
+Attempt 003, after an authorized Steam restart on both machines, passed fresh
+join to ConnectedToServer and ready 2/2, Lobby → Start, mutual visibility,
+movement/jumping, bidirectional switch interaction, and clean Leave. Host/VM
+cleanup was verified. The retained-object native re-host probe also passed.
+Details: [Steam peer lifecycle investigation](steam-peer-lifecycle-investigation.md).
 
 Equipment → GAS run `equipment_guard_retest_20260926_034700` passed fresh
 export, VM parity, two-player topology, visual host/VM verification, and
@@ -138,6 +149,13 @@ and its captured host/client JSONL.
 
 ## Transport history
 
+BadCert remains unresolved: attempt 002 of the Steam lifecycle run failed
+before Godot admission with certificate errors and unrecovered connection /
+rendezvous timeouts. The later Steam-restart comparison passed, but does not
+prove the cause, GameFactory ownership, or permanent resolution. The original
+second full four-join cycle remains incomplete. Preserve this failure separately
+from the accepted lifecycle isolation; Netfox investigation remains queued.
+
 The free-play launch immediately preceding the accepted run reached lobby
 membership and peer assignment but remained native `Connecting` for 120
 seconds. It was cleanly terminated; the next unchanged retry reached two-player
@@ -147,6 +165,9 @@ evidence and investigate it only if it recurs.
 
 ## Recent commits
 
+- `d28f7ad` — native GodotSteam callback lifecycle isolation, rebuilt DLLs,
+  reproducible patches, and opt-in diagnostics.
+- `45fcd36` — export-helper completion fix and lifecycle/gameplay acceptance record.
 - `81458f2` — server-authoritative carryable item.
 - `240d772` — carry acceptance checkpoint sequencing (superseded for normal
   free play by the infrastructure-only harness).
