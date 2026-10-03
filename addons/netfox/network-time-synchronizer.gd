@@ -1,5 +1,6 @@
 extends Node
 class_name _NetworkTimeSynchronizer
+const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## Continuously synchronizes time to the host's remote clock.
 ##
@@ -145,6 +146,7 @@ func start() -> void:
 		_sample_idx = 0
 		_sample_buffer = _RingBuffer.new(sync_samples)
 		
+		_gf_trace.record(self, "request_timestamp_send", {"target": 1})
 		_request_timestamp.rpc_id(1)
 
 ## Stop the time synchronization loop.
@@ -266,11 +268,14 @@ func _send_pong(idx: int, ping_received: float, pong_sent: float) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _request_timestamp() -> void:
+	_gf_trace.record(self, "request_timestamp_receive", {"reply_target": multiplayer.get_remote_sender_id()})
 	_logger.debug("Requested initial timestamp @ %.4fs raw time", [_clock.get_raw_time()])
+	_gf_trace.record(self, "set_timestamp_send", {"target": multiplayer.get_remote_sender_id()})
 	_set_timestamp.rpc_id(multiplayer.get_remote_sender_id(), _clock.get_time())
 
 @rpc("any_peer", "call_remote", "reliable")
 func _set_timestamp(timestamp: float) -> void:
+	_gf_trace.record(self, "set_timestamp_receive", {"timestamp": timestamp})
 	_logger.debug("Received initial timestamp @ %.4fs raw time", [_clock.get_raw_time()])
 	_clock.set_time(timestamp)
 	_loop()

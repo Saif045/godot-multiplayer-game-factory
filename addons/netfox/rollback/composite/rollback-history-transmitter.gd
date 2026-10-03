@@ -1,5 +1,6 @@
 extends Node
 class_name _RollbackHistoryTransmitter
+const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 var root: Node
 var enable_input_broadcast: bool = true
@@ -165,6 +166,7 @@ func transmit_state(tick: int) -> void:
 				_send_full_state(tick, peer)
 			else:
 				# Send only diff
+				_trace_state("diff_state_send", peer, tick)
 				_submit_diff_state.rpc_id(peer, diff_state_data, tick, reference_tick)
 
 				# Push metrics
@@ -189,6 +191,7 @@ func _send_full_state(tick: int, peer: int = 0) -> void:
 	var full_state_snapshot := _state_history.get_snapshot(tick).as_dictionary()
 	var full_state_data := _full_state_encoder.encode(tick, _get_owned_state_props())
 
+	_trace_state("full_state_send", peer, tick)
 	_submit_full_state.rpc_id(peer, full_state_data, tick)
 
 	if peer <= 0:
@@ -218,6 +221,7 @@ func _submit_input(tick: int, data: Array) -> void:
 # `serialized_state` is a serialized _PropertySnapshot
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _submit_full_state(data: Array, tick: int) -> void:
+	_trace_state("full_state_receive", multiplayer.get_remote_sender_id(), tick)
 	if not _is_initialized:
 		# Settings not processed yet
 		return
@@ -235,6 +239,7 @@ func _submit_full_state(data: Array, tick: int) -> void:
 # State is a serialized _PropertySnapshot (Dictionary[String, Variant])
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _submit_diff_state(data: PackedByteArray, tick: int, reference_tick: int) -> void:
+	_trace_state("diff_state_receive", multiplayer.get_remote_sender_id(), tick)
 	if not _is_initialized:
 		# Settings not processed yet
 		return
@@ -280,3 +285,14 @@ func _get_recorded_input_props() -> Array[PropertyEntry]:
 
 func _get_owned_input_props() -> Array[PropertyEntry]:
 	return _input_property_config.get_owned_properties()
+
+func _trace_state(event: String, target: int, tick: int) -> void:
+	if not _gf_trace.enabled():
+		return
+	_gf_trace.rpc_sample(self, event, target, {
+		"tick": tick, "root": str(root.get_path()), "root_instance": root.get_instance_id(),
+		"root_authority": root.get_multiplayer_authority(),
+		"synchronizer_authority": get_parent().get_multiplayer_authority(),
+		"visible": _visibility_filter.get_visible_peers(),
+		"rpc_targets": _visibility_filter.get_rpc_target_peers()
+	})

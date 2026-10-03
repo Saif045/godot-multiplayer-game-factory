@@ -1,6 +1,7 @@
 @tool
 extends Node
 class_name RollbackSynchronizer
+const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## Similar to [MultiplayerSynchronizer], this class is responsible for
 ## synchronizing data between players, but with support for rollback.
@@ -237,6 +238,7 @@ func _ready() -> void:
 	process_settings.call_deferred()
 
 func _connect_signals() -> void:
+	_gf_trace.record(self, "rollback_connect", {"already_connected": NetworkTime.before_tick.is_connected(_before_tick)})
 	NetworkTime.before_tick.connect(_before_tick)
 	NetworkTime.after_tick.connect(_after_tick)
 
@@ -248,6 +250,7 @@ func _connect_signals() -> void:
 	NetworkRollback.after_loop.connect(_after_rollback_loop)
 
 func _disconnect_signals() -> void:
+	_gf_trace.record(self, "rollback_disconnect", {"connected": NetworkTime.before_tick.is_connected(_before_tick)})
 	NetworkTime.before_tick.disconnect(_before_tick)
 	NetworkTime.after_tick.disconnect(_after_tick)
 
@@ -315,6 +318,8 @@ func _enter_tree() -> void:
 	if Engine.is_editor_hint():
 		return
 
+	_gf_trace.record(self, "rollback_enter", {"root": str(root.get_path()), "root_instance": root.get_instance_id(), "root_authority": root.get_multiplayer_authority(), "input_authority": root.get_node("Input").get_multiplayer_authority() if root.has_node("Input") else 0})
+
 	if not visibility_filter:
 		visibility_filter = PeerVisibilityFilter.new()
 
@@ -339,6 +344,7 @@ func _exit_tree() -> void:
 	if Engine.is_editor_hint():
 		return
 
+	_gf_trace.record(self, "rollback_exit")
 	_disconnect_signals()
 
 func _notify_resim() -> void:

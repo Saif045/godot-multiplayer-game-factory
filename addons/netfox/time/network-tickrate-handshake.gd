@@ -1,5 +1,6 @@
 extends Node
 class_name NetworkTickrateHandshake
+const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## Internal class to manage the tickrate handshake.
 ##
@@ -42,12 +43,14 @@ signal on_tickrate_mismatch(peer: int, tickrate: int)
 func run() -> void:
 	if multiplayer.is_server():
 		# Broadcast tickrate
+		_gf_trace.record(self, "tickrate_send", {"target": 0, "call": "rpc"})
 		_submit_tickrate.rpc(NetworkTime.tickrate)
 		
 		# Submit tickrate to anyone joining
 		multiplayer.peer_connected.connect(_handle_new_peer)
 	else:
 		# Submit tickrate to host
+		_gf_trace.record(self, "tickrate_send", {"target": 1, "call": "rpc_id"})
 		_submit_tickrate.rpc_id(1, NetworkTime.tickrate)
 
 ## Stop the tickrate handshake.
@@ -62,6 +65,7 @@ func _ready() -> void:
 
 func _handle_new_peer(peer: int) -> void:
 	if multiplayer.is_server():
+		_gf_trace.record(self, "tickrate_send", {"target": peer, "call": "rpc_id", "trigger_peer": peer})
 		_submit_tickrate.rpc_id(peer, NetworkTime.tickrate)
 
 func _handle_tickrate_mismatch(peer: int, tickrate: int) -> void:
@@ -91,6 +95,7 @@ func _handle_tickrate_mismatch(peer: int, tickrate: int) -> void:
 
 @rpc("any_peer", "reliable", "call_remote")
 func _submit_tickrate(tickrate: int) -> void:
+	_gf_trace.record(self, "tickrate_receive", {"tickrate": tickrate})
 	var sender := multiplayer.get_remote_sender_id()
 	_logger.debug("Received tickrate %d from peer %d", [tickrate, sender])
 

@@ -47,12 +47,30 @@ autoloads: `NetworkTime`, `NetworkTimeSynchronizer`, `NetworkRollback`,
 `NetworkEvents`, and `NetworkPerformance`. Their generated autoload entries are
 not hand-authored replacements for the plugin mechanism.
 
-The vendored `RollbackSynchronizer.get_last_known_input()` has one local
+The vendored `RollbackSynchronizer.get_last_known_input()` has a local
 source-level correction: it calls `_PropertyHistoryBuffer.get_latest_tick()`
 rather than `keys()`. The latter is a `Dictionary` API and causes a runtime
 error because `_PropertyHistoryBuffer` is a `RefCounted` wrapper. This keeps
 the documented public accessor usable for diagnostics; it does not alter
 history retention, authority, prediction, transport, or gameplay behavior.
+
+`NetworkEvents` also carries a narrow v1.35.3 lifecycle correction: a
+listen-server close's `server_disconnected` notification is paired with the
+active server role immediately, while client-stop requires a started client
+role. Clearing the cached role prevents a second stop from the server frame
+check and prevents a time-loop frame after peer detachment. NetworkEvents
+remains the only start/stop owner; `NetworkTime.start()` keeps its duplicate
+warning and RPC routing remains unchanged.
+
+Opt-in diagnostic hooks in NetworkEvents, NetworkTime, NetworkTimeSynchronizer,
+NetworkTickrateHandshake, PeerVisibilityFilter, RollbackSynchronizer, and
+RollbackHistoryTransmitter use the factory `netfox_lifecycle_trace.gd` helper.
+Enable both peers through `tools/ab_test/run.ps1 -NetfoxLifecycleTrace` or
+`--netfox-lifecycle-trace`. `NFTRACE` records capture lifecycle/authority/targets;
+state RPC samples are rate-limited with exact totals at stop. Default runs are
+quiet. Version checks, exact local deltas, baseline limitations, and accepted
+fresh-gameplay/process-reuse evidence are recorded in
+[Netfox lifecycle investigation](netfox-lifecycle-investigation.md).
 
 On a fresh import Godot may need one clean editor restart after the plugins
 first add their interdependent autoloads. The first activation can compile

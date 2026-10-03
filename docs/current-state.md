@@ -72,6 +72,18 @@ replacement for architecture or protocol documentation.
 
 ## Latest runtime evidence
 
+Netfox lifecycle run `netfox_lifecycle_fix_20261003_02`, attempt 001, passed
+normal-shell gameplay (56.8 seconds common PC-host gameplay, then 75.7 seconds
+with VM hosting in the same processes), movement/jump/switch acceptance, and
+verified host/VM cleanup on build `gf_f7c129f4_d838f603ed97`. Exact traces show
+one start, after-sync, and stop per peer/session, correct server-state/owner-input
+authority, five unique autoloads, and clean rollback callback teardown.
+Historical duplicate-start/self-RPC errors did not reproduce; their origin is
+unproven. A confirmed host-close double stop was fixed in Netfox NetworkEvents
+with immediate role-paired stop routing. No transport or RPC-target changes
+were needed. See [Netfox lifecycle investigation](netfox-lifecycle-investigation.md)
+for deviations, local vendor delta, upstream checks, and remaining warnings.
+
 Steam lifecycle run `native_lifecycle_acceptance_d28f7ad_20261003_02` tested
 unchanged `d28f7ad` runtime inputs. Attempt 001 passed all four lobby/peer flows.
 Attempt 003, after an authorized Steam restart on both machines, passed fresh
@@ -154,7 +166,8 @@ before Godot admission with certificate errors and unrecovered connection /
 rendezvous timeouts. The later Steam-restart comparison passed, but does not
 prove the cause, GameFactory ownership, or permanent resolution. The original
 second full four-join cycle remains incomplete. Preserve this failure separately
-from the accepted lifecycle isolation; Netfox investigation remains queued.
+from the accepted lifecycle isolation. The subsequent Netfox investigation
+accepted the normal gameplay/process-reuse lifecycle described above.
 
 The free-play launch immediately preceding the accepted run reached lobby
 membership and peer assignment but remained native `Connecting` for 120

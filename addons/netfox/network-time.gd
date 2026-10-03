@@ -1,5 +1,6 @@
 extends Node
 class_name _NetworkTime
+const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## This class handles timing.
 ##
@@ -407,6 +408,8 @@ static var _logger: NetfoxLogger = NetfoxLogger._for_netfox("NetworkTime")
 ## Returns [constant ERR_ALREADY_IN_USE] if the tick loop is currently active.[br]
 ## Returns [constant ERR_UNAVAILABLE] if there's no available [MultiplayerPeer].
 func start() -> int:
+	_gf_trace.record(self, "time_start", {"state_before": _state, "stack": get_stack() if _gf_trace.enabled() else []})
+	_gf_trace.autoloads(self)
 	# Check if time loop can be started
 	if _state != _STATE_INACTIVE:
 		_logger.warning(
@@ -453,6 +456,7 @@ func start() -> int:
 	_clock.set_time(NetworkTimeSynchronizer.get_time())
 	_last_process_time = _clock.get_time()
 	_next_tick_time = _clock.get_time()
+	_gf_trace.record(self, "after_sync", {"state": _state})
 	after_sync.emit()
 
 	# Handle tickrate handshake
@@ -465,6 +469,8 @@ func start() -> int:
 ## This will stop the time sync in the background, and no more ticks will be 
 ## emitted until the next start.
 func stop() -> void:
+	_gf_trace.record(self, "time_stop", {"state_before": _state, "stack": get_stack() if _gf_trace.enabled() else []})
+	_gf_trace.flush(self)
 	NetworkTimeSynchronizer.stop()
 	_tickrate_handshake.stop()
 	_state = _STATE_INACTIVE

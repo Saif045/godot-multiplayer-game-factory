@@ -1,5 +1,6 @@
 extends Node
 class_name PeerVisibilityFilter
+const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## Tracks visibility for multiplayer peers
 ##
@@ -109,6 +110,8 @@ func update_visibility(peers: PackedInt32Array = multiplayer.get_peers()) -> voi
 		# Don't include self in RPC target list
 		if multiplayer:
 			_rpc_target_peers.erase(multiplayer.get_unique_id())
+
+	_gf_trace.record(self, "visibility_update", {"visible": _visible_peers, "rpc_targets": _rpc_target_peers})
 
 ## Return a list of visible peers
 ## [br][br]
