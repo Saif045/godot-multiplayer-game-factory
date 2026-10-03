@@ -47,6 +47,10 @@ project/assembly_name="GameFactory"
 
 enabled=PackedStringArray("res://addons/plugin_updater/plugin.cfg", "res://addons/maaacks_game_template/plugin.cfg", "res://addons/netfox.internals/plugin.cfg", "res://addons/netfox/plugin.cfg", "res://addons/GodotGAS/plugin.cfg")
 
+[steam]
+
+initialization/processes/initialize_on_startup=false
+
 [input]
 
 move_forward={

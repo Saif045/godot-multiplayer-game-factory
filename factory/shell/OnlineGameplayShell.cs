@@ -108,8 +108,15 @@ public partial class OnlineGameplayShell : Node
         foreach (var member in platform.Adapter.GetLobbyMembers())
             box.AddChild(new Label { Text = $"• {member.User.DisplayName}" });
         Button invite = new() { Text = "Invite Friends" };
-        invite.Pressed += () => platform.Adapter.OpenInviteOverlay();
+        Label inviteFeedback = new() { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        invite.Pressed += () =>
+        {
+            string? feedback = SteamInviteFeedback.Request(platform.Adapter.IsOverlayAvailable, platform.Adapter.OpenInviteOverlay);
+            inviteFeedback.Text = feedback ?? string.Empty;
+            if (feedback is not null) GameLog.Info("shell", "invite_overlay_unavailable");
+        };
         box.AddChild(invite);
+        box.AddChild(inviteFeedback);
         if (platform.Adapter.IsLobbyOwner)
         {
             bool canStart = IsReadyToStart();

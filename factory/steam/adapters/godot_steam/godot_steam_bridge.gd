@@ -48,6 +48,9 @@ func shutdown() -> void:
 func local_user() -> Dictionary:
 	return { "id": Steam.getSteamID(), "name": Steam.getPersonaName() }
 
+func initialized_app_id() -> int:
+	return Steam.getAppID()
+
 func create_lobby(lobby_type: int, max_members: int) -> void:
 	Steam.createLobby(lobby_type, max_members)
 

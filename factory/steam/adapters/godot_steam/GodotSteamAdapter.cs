@@ -13,7 +13,7 @@ namespace GameFactory.Steam.Adapters.GodotSteam;
 /// <summary>Typed C# facade over the vendor-specific GDScript bridge.</summary>
 public sealed class GodotSteamAdapter : ISteamAdapter
 {
-    public const int DevelopmentAppId = 480;
+    public SteamLaunchOptions LaunchOptions { get; } = SteamLaunchOptions.Development;
 
     private readonly Node _bridge;
     private readonly Dictionary<string, string> _lobbyMetadata = [];
@@ -24,6 +24,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
     private bool _disposed;
 
     public bool IsInitialized { get; private set; }
+    public uint InitializedAppId => IsInitialized ? (uint)_bridge.Call("initialized_app_id").AsInt64() : 0;
     public SteamUser LocalUser { get; private set; } = null!;
     public bool IsOverlayAvailable => IsInitialized && _bridge.Call("is_overlay_enabled").AsBool();
     public SteamLobby? CurrentLobby { get; private set; }
@@ -62,7 +63,7 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         cancellationToken.ThrowIfCancellationRequested();
         if (IsInitialized) return Task.CompletedTask;
 
-        Godot.Collections.Dictionary result = _bridge.Call("initialize", DevelopmentAppId).AsGodotDictionary();
+        Godot.Collections.Dictionary result = _bridge.Call("initialize", LaunchOptions.AppId).AsGodotDictionary();
         bool success = result.TryGetValue("status", out Variant status) && status.AsInt64() == 0;
         if (!success)
         {
@@ -325,7 +326,14 @@ public sealed class GodotSteamAdapter : ISteamAdapter
         _bridge.Connect("lobby_invited", Callable.From<long, long>(OnLobbyInvited));
         _bridge.Connect("join_requested", Callable.From<long, long>(OnJoinRequested));
         _bridge.Connect("friend_presence_updated", Callable.From<long>(OnFriendPresenceUpdated));
-        _bridge.Connect("overlay_changed", Callable.From<bool>(active => OverlayActivityChanged?.Invoke(active)));
+        _bridge.Connect("overlay_changed", Callable.From<bool>(active =>
+        {
+            GameLog.Info("steam.overlay", "toggled", fields: new Dictionary<string, string?>
+            {
+                ["active"] = active ? "true" : "false"
+            });
+            OverlayActivityChanged?.Invoke(active);
+        }));
         _bridge.Connect("lobby_search_completed", Callable.From<Godot.Collections.Array>(OnLobbySearchCompleted));
     }
 
