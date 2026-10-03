@@ -110,13 +110,16 @@ ConnectedToServer, ready 2/2, no invalid packets or stale callback consumption,
 and verified cleanup. Only afterward check Lobby → Start → gameplay once.
 Tracing and retention are opt-in; normal gameplay retains no diagnostic peers.
 
-Runtime acceptance is partial: the retained-object native probe and strict
-same-lobby client rejoin passed. The fresh join recovered through the existing
-BadCert retry, then reached ConnectedToServer and ready 2/2 with one successful
-handshake per endpoint. Failed pre-admission handles remain recorded separately.
-The repeated new-lobby/role-reversal suite and final gameplay regression check
-remain incomplete. The user explicitly requested committing/pushing this state
-after those limits were reported. See
+Runtime lifecycle isolation is accepted for the tested paths on `d28f7ad`:
+retained-object native probe; fresh join; same-lobby rejoin; new-lobby reuse;
+role reversal; and a final gameplay/movement/jump/bidirectional switch check.
+Run `native_lifecycle_acceptance_d28f7ad_20261003_02` attempt 001 passed all four
+transport joins. Attempt 002 failed before admission with unrecovered native
+certificate/rendezvous errors. A separately authorized Steam restart on both
+machines preceded attempt 003, which passed fresh join, gameplay, and clean
+Leave. All process cleanup was verified. BadCert remains unresolved; neither
+its ownership nor permanent recovery is proven. The original second full
+four-join cycle was not completed. See
 [`docs/steam-peer-lifecycle-investigation.md`](../../../docs/steam-peer-lifecycle-investigation.md)
 for preserved evidence and the failed stricter handle-count assertion.
 

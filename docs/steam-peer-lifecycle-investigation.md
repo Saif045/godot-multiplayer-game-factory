@@ -1,12 +1,13 @@
 # Steam peer lifecycle investigation — 2026-10-03
 
-Current result: a retained closed peer consuming a new connection and sending
-its stale ID was proven and fixed with native lifecycle/ownership guards.
-Debug/release builds, the retained-object native probe, and strict same-lobby
-rejoin passed. Fresh join recovered from BadCert; repeated full-suite and final
-gameplay acceptance remain incomplete. Games are stopped and cleanup verified.
-The user requested pushing this partially validated state. Sections below
-preserve the investigation chronology and evidence limits.
+Current result: native closed-peer lifecycle isolation is accepted for the
+tested fresh/rejoin/new-lobby/role-reversal paths on `d28f7ad`. The retained-object
+native probe and final gameplay regression check passed. An unrecovered fresh
+certificate failure remains preserved; a separately authorized Steam restart
+comparison then passed. The original second full four-join cycle was not
+completed. BadCert root cause and long-term connection reliability remain
+unproven. Games are stopped and cleanup verified. Sections below preserve the
+investigation chronology and evidence limits.
 
 Initial status: **BLOCKED for runtime evidence / deferred by operator**. The operator
 requested diagnostics and a plan for a later run. No gameplay processes were
@@ -362,3 +363,46 @@ Validation already completed: debug/release native builds, clean application of
 the complete patch series to pinned upstream, exported host/VM DLL parity,
 native retained-object probe, and GameFactory Quick validation (source hygiene,
 managed build, unit regression). No shell/readiness or Netfox changes are included.
+
+## Final acceptance and fresh-session comparison
+
+Run `native_lifecycle_acceptance_d28f7ad_20261003_02` used unchanged runtime
+inputs from `d28f7ad35f55bd0e533cc4a89123a6ff6f4d57fc`, build
+`gf_d28f7ad3_994c5ca461d1`, manifest
+`3dcd9f2a3dee492ba94d0474ec058567f863496401ad228a2f4c1543d91a9773`.
+Only the build helper changed: it exports through the matching editor directly,
+avoiding the Windows console wrapper's wait for persistent compiler descendants,
+and preserves full exporter logs. Direct and harness exports passed; no
+`--quit`, timeout increase, runtime changes, or in-attempt workaround was used.
+
+- Attempt 001 **PASS**: fresh join, strict same-lobby rejoin, both Leave/new
+  lobby, and role reversal. Four connected handles, four successful pings, and
+  four Godot admissions per machine; no stale handshake, invalid packet, or
+  BadCert. Retained old native objects remained inert. Clean Leave and Stop
+  cleanup verified.
+- Attempt 002 **FAIL / native Steam connection**: fresh generation-1 peers
+  encountered BadCert 4003; VM retry failed with 5002 (missing certificate,
+  self-signed disallowed), followed by connection/rendezvous timeouts 5003/5008.
+  No successful handshake or Godot admission occurred. Operator screenshots
+  preserve a Steam NetworkingSockets matching-listener assertion absent from
+  the Godot logs. Both lobby members existed, but the host remained 1/2 ready.
+  Stop cleanup verified. This does not prove a GameFactory-owned defect.
+- Attempt 003 **PASS**, explicitly authorized separate comparison: restart
+  Steam on both machines before launch; same immutable export and trace flags.
+  Fresh join reached ConnectedToServer and ready 2/2, with one connected
+  handle/ping/admission per endpoint and no certificate or transport errors.
+  After verified readiness, Start entered gameplay on both machines. Host
+  reported two players/four network objects. Operator confirmed mutual
+  visibility, movement/jumping on each, and switch interaction from each.
+  Server accepted peer 1 and peer `1428263598` switch requests and the client
+  replicated both changes. Clean Leave returned both to menus; Stop verified
+  cleanup. VM audio initialization errors are preserved separately.
+
+The lifecycle fix and tested gameplay path are accepted. Five joins passed
+across two successful process attempts; the failed certificate attempt remains
+recorded. This is **not** a claim that both original four-join cycles passed or
+that BadCert is resolved. The successful restart comparison supports session
+state dependence but does not establish its cause. BadCert investigation is
+deferred and Netfox investigation remains separate. Detailed results and raw
+evidence live in each attempt's `acceptance.txt`, `evidence.json`, and host/client
+logs under the run above.

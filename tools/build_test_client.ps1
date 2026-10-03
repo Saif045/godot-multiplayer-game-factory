@@ -53,6 +53,18 @@ if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch 'v?(?<version>\d+\.\d+\.\d+
     throw "Could not determine the installed Godot Mono export-template version. Output: $versionOutput"
 }
 $templateVersion = $Matches.version
+$exportGodot = $Godot
+# The Windows console wrapper waits for every descendant, including persistent
+# .NET compiler servers, after the editor has finished exporting. Keep it for
+# synchronous --version output, but launch the matching editor directly for
+# export so its own exit code and deadline determine completion.
+if ($Godot -match '(?i)_console\.exe$') {
+    $editorExecutable = $Godot -replace '(?i)_console\.exe$', '.exe'
+    if (-not (Test-Path -LiteralPath $editorExecutable)) {
+        throw "Matching Godot editor executable is missing: $editorExecutable"
+    }
+    $exportGodot = $editorExecutable
+}
 $installedTemplates = Join-Path $env:APPDATA "Godot\export_templates\$templateVersion"
 $isolatedTemplates = Join-Path $GodotAppData "Godot\export_templates\$templateVersion"
 $templateNames = @(
@@ -76,14 +88,15 @@ foreach ($templateName in $templateNames) {
     }
 }
 
-$stdoutPath = Join-Path $RepoRoot ".tmp-build-export.log"
-$stderrPath = Join-Path $RepoRoot ".tmp-build-export.error.log"
-$engineLogPath = Join-Path $RepoRoot ".tmp-build-export.engine.log"
-Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
+$exportEvidenceDirectory = Join-Path $RepoRoot ("artifacts\build_exports\" + [DateTime]::UtcNow.ToString("yyyyMMdd_HHmmss_fff"))
+New-Item -ItemType Directory -Path $exportEvidenceDirectory -Force | Out-Null
+$stdoutPath = Join-Path $exportEvidenceDirectory "stdout.log"
+$stderrPath = Join-Path $exportEvidenceDirectory "stderr.log"
+$engineLogPath = Join-Path $exportEvidenceDirectory "engine.log"
+Write-Host "Export evidence: $exportEvidenceDirectory"
 # Godot's --quit shutdown path removes editor-plugin autoloads before writing
 # project.binary, which produces an exported package without Netfox globals.
-# The isolated helper retains a visible console so the normal exporter exit is
-# observed without requesting that destructive shutdown path.
+# Observe the editor's normal exit without requesting that shutdown path.
 $arguments = @("--headless", "--log-file", "`"$engineLogPath`"", "--path", "`"$RepoRoot`"", "--export-debug", "`"Windows Desktop`"", "`"$OutputExe`"")
 # Windows PowerShell 5 does not expose Start-Process -Environment. Set these
 # only while creating the child, then immediately restore the caller process.
@@ -92,7 +105,7 @@ $previousLocalAppData = $env:LOCALAPPDATA
 try {
     $env:APPDATA = $GodotAppData
     $env:LOCALAPPDATA = $GodotLocalAppData
-    $process = Start-Process -FilePath $Godot -ArgumentList $arguments -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $process = Start-Process -FilePath $exportGodot -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
 }
 finally {
     $env:APPDATA = $previousAppData
@@ -142,7 +155,7 @@ finally {
     if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Tail 25 | Write-Host }
     if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Tail 50 | Write-Host }
     if (Test-Path -LiteralPath $engineLogPath) { Get-Content -LiteralPath $engineLogPath -Tail 50 | Write-Host }
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath, $engineLogPath -Force -ErrorAction SilentlyContinue
+    Write-Host "Preserved export evidence: $exportEvidenceDirectory"
 }
 
 if (-not (Test-Path $OutputExe)) {
