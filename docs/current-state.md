@@ -72,6 +72,15 @@ replacement for architecture or protocol documentation.
 
 ## Latest runtime evidence
 
+Windows startup investigation at `62a8cfc` did not reproduce reported
+`0xC0000142 / STATUS_DLL_INIT_FAILED`: 109/109 controlled startup probes passed
+before reboot and 109/109 after reboot, including editor-closed and scheduled
+task/profile/renderer comparisons. The defect remains unresolved and may recur;
+these are baseline results, not post-fix acceptance. Diagnostic-folder discovery
+caused separate duplicate Steam editor registrations and was excluded with
+`.gdignore`. See [Windows startup investigation](windows-startup-investigation.md)
+for evidence, limitations, and the capture procedure if the failure returns.
+
 Netfox lifecycle run `netfox_lifecycle_fix_20261003_02`, attempt 001, passed
 normal-shell gameplay (56.8 seconds common PC-host gameplay, then 75.7 seconds
 with VM hosting in the same processes), movement/jump/switch acceptance, and
