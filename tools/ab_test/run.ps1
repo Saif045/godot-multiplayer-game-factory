@@ -26,6 +26,8 @@ param(
     [int]$BuildStageTimeoutSeconds = 300,
     [switch]$RecoverVm,
     [switch]$FreshTransport,
+    [switch]$SteamTransportTrace,
+    [switch]$SteamTransportRetainClosedPeer,
     [string]$VmName = "Game-Testing-VM",
     [ValidateRange(30, 600)]
     [int]$VmRecoveryTimeoutSeconds = 180,
@@ -107,6 +109,9 @@ if ($Mode -eq "Retry") {
     }
     $OutputDirectory = [string]$retryState.host_export_directory
     $Scenario = [string]$retryState.scenario
+    # Keep the diagnostic configuration frozen across immutable-build attempts.
+    $SteamTransportTrace = $null -ne $retryState.PSObject.Properties['steam_transport_trace'] -and [bool]$retryState.steam_transport_trace
+    $SteamTransportRetainClosedPeer = $null -ne $retryState.PSObject.Properties['steam_transport_retain_closed_peer'] -and [bool]$retryState.steam_transport_retain_closed_peer
     $ExpectedManifestSha256 = [string]$retryState.manifest_sha256
     $SkipExport = $true
 }
@@ -162,6 +167,8 @@ $result = [ordered]@{
     result = "failed"
     test_run_id = $runId
     scenario = $Scenario
+    steam_transport_trace = [bool]$SteamTransportTrace
+    steam_transport_retain_closed_peer = [bool]$SteamTransportRetainClosedPeer
     mode = "infrastructure_only"
     layer = "harness"
     stage = "initializing"
@@ -1184,6 +1191,10 @@ function Get-RunAttempt([object]$RunState, [int]$RequestedAttempt) {
 
 function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:Scenario = [string]$RunState.scenario
+    $script:SteamTransportTrace = $null -ne $RunState.PSObject.Properties['steam_transport_trace'] -and [bool]$RunState.steam_transport_trace
+    $script:result.steam_transport_trace = [bool]$script:SteamTransportTrace
+    $script:SteamTransportRetainClosedPeer = $null -ne $RunState.PSObject.Properties['steam_transport_retain_closed_peer'] -and [bool]$RunState.steam_transport_retain_closed_peer
+    $script:result.steam_transport_retain_closed_peer = [bool]$script:SteamTransportRetainClosedPeer
     $script:outputDirectory = [System.IO.Path]::GetFullPath([string]$RunState.host_export_directory)
     $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe"
     if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe" }
@@ -1220,6 +1231,8 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
         attempt = $attemptNumber
         evidence_attempt_id = $attemptEvidenceId
         scenario = $Scenario
+        steam_transport_trace = [bool]$SteamTransportTrace
+        steam_transport_retain_closed_peer = [bool]$SteamTransportRetainClosedPeer
         lifecycle = $Lifecycle
         cleanup_verified = $CleanupVerified
         artifact_directory = $artifactDirectory
@@ -1244,6 +1257,8 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
             schema_version = 1
             run_id = $runId
             scenario = $Scenario
+            steam_transport_trace = [bool]$SteamTransportTrace
+            steam_transport_retain_closed_peer = [bool]$SteamTransportRetainClosedPeer
             host_export_directory = $outputDirectory
             manifest_sha256 = $result.build_mapping["manifest_sha256"]
             build_id = $result.build_id
@@ -1578,6 +1593,8 @@ try {
     $hostErrorPath = Join-Path $hostOutputDirectory "console.error.log"
     New-Item -ItemType File -Path $hostConsolePath -Force | Out-Null
     $hostArguments = @("--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath, "--test-run-id=$attemptEvidenceId")
+    if ($SteamTransportTrace) { $hostArguments += "--steam-transport-trace" }
+    if ($SteamTransportRetainClosedPeer) { $hostArguments += "--steam-transport-retain-closed-peer" }
     if ($Scenario -ne "shell_manual") { $hostArguments += @("--run=$runTarget", "--steam-host", "--test-scenario=$Scenario") }
     Write-Harness "launching host"
     $hostLobbyTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1603,6 +1620,8 @@ try {
     if ($Scenario -eq "shell_manual") {
         $result.stage = "client_launch"
         $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--test-run-id=$attemptEvidenceId")
+        if ($SteamTransportTrace) { $clientArguments += "--steam-transport-trace" }
+        if ($SteamTransportRetainClosedPeer) { $clientArguments += "--steam-transport-retain-closed-peer" }
         Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable
         [void](Invoke-VmRunner "client_launched" $HostTimeoutSeconds)
         [void](Wait-ForLogEvent "shell" "main_menu" "" $HostTimeoutSeconds "shell" "main_menu")
@@ -1631,6 +1650,8 @@ try {
     # windowed. This is both the real player path and makes each A/B attempt
     # directly observable in the Hyper-V console.
     $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--test-run-id=$attemptEvidenceId")
+    if ($SteamTransportTrace) { $clientArguments += "--steam-transport-trace" }
+    if ($SteamTransportRetainClosedPeer) { $clientArguments += "--steam-transport-retain-closed-peer" }
     if ($Scenario -ne "shell_manual") { $clientArguments += @("--run=$runTarget", "--steam-lobby=$lobbyId", "--test-scenario=$Scenario") }
     Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable
 

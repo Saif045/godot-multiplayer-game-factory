@@ -1,0 +1,208 @@
+--- a/godotsteam_multiplayer_peer.cpp
++++ b/godotsteam_multiplayer_peer.cpp
+@@ -97,6 +97,7 @@
+ void SteamMultiplayerPeer::_disconnect_peer(int p_peer_id, bool p_force) {
+ 	// Let godot know our peer disconnected and erase from our maps
+ 	if (peers.has(p_peer_id)) {
++		owned_connections.erase(peers[p_peer_id]->get_connection_handle());
+ 		steam_connections.erase(peers[p_peer_id]->get_connection_handle());
+ 		peers[p_peer_id]->disconnect_peer(p_force);
+ 		emit_signal("peer_disconnected", p_peer_id);
+@@ -120,6 +121,9 @@
+ }
+ 
+ void SteamMultiplayerPeer::_poll() {
++	if (!lifecycle_active) {
++		return;
++	}
+ 	SteamNetworkingMessage_t *messages[MAX_MESSAGE_COUNT];
+ 	int number_messages = SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnPollGroup(
+ 			SteamAPI_SteamNetworkingSockets_SteamAPI(),
+@@ -156,6 +160,20 @@
+ 
+ void SteamMultiplayerPeer::network_connection_status_changed(
+ 		SteamNetConnectionStatusChangedCallback_t *p_status_change) {
++	// Steam callbacks are process-wide. A closed but still referenced object
++	// must remain inert, and an active object must never adopt another peer's
++	// outgoing connection. Incoming ownership is established by our listener.
++	if (!lifecycle_active) {
++		return;
++	}
++	if (!owned_connections.has(p_status_change->m_hConn)) {
++		if (p_status_change->m_info.m_eState != k_ESteamNetworkingConnectionState_Connecting ||
++				listen_socket == k_HSteamListenSocket_Invalid ||
++				p_status_change->m_info.m_hListenSocket != listen_socket) {
++			return;
++		}
++		owned_connections.insert(p_status_change->m_hConn);
++	}
+ 	if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+ 		WARN_PRINT(vformat(
+ 				"Connection from %ud changed from %ud to %ud",
+@@ -170,6 +188,7 @@
+ 		case k_ESteamNetworkingConnectionState_None:
+ 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+ 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: {
++			owned_connections.erase(p_status_change->m_hConn);
+ 			uint64_t remote_steam_id = SteamAPI_SteamNetworkingIdentity_GetSteamID64(
+ 					&p_status_change->m_info.m_identityRemote);
+ 			pending_steam_ids.erase(remote_steam_id);
+@@ -186,6 +205,8 @@
+ 				// Erase directly from the status_change in case it was a lingering connection.
+ 				steam_connections.erase(p_status_change->m_hConn);
+ 			}
++			// Pending connections can close before a Godot peer ID is assigned.
++			steam_connections.erase(p_status_change->m_hConn);
+ 
+ 			// Clean up the connection, but the reason does not matter since it was
+ 			// closed on the other end
+@@ -209,6 +230,9 @@
+ 					&p_status_change->m_info.m_identityRemote);
+ 			if (listen_socket != k_HSteamListenSocket_Invalid && p_status_change->m_info.m_hListenSocket == listen_socket) {
+ 				if (is_refusing_new_connections()) {
++					owned_connections.erase(p_status_change->m_hConn);
++					SteamAPI_ISteamNetworkingSockets_CloseConnection(
++							SteamAPI_SteamNetworkingSockets_SteamAPI(), p_status_change->m_hConn, 0, nullptr, false);
+ 					if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+ 						WARN_PRINT("Connection refused because Godot peer is refusing connections.");
+ 					}
+@@ -235,6 +259,7 @@
+ 							SteamAPI_SteamNetworkingSockets_SteamAPI(),
+ 							p_status_change->m_hConn, 0, nullptr, false);
+ 					WARN_PRINT("A connection was started but couldn't be accepted.");
++					owned_connections.erase(p_status_change->m_hConn);
+ 					return;
+ 				} else {
+ 					if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+@@ -251,6 +276,7 @@
+ 						SteamAPI_SteamNetworkingSockets_SteamAPI(), p_status_change->m_hConn, 0,
+ 						nullptr, false);
+ 				WARN_PRINT("A connection was abandoned because it could not be added to a poll group.");
++				owned_connections.erase(p_status_change->m_hConn);
+ 				return;
+ 			}
+ 
+@@ -276,10 +302,10 @@
+ 						steam_connections[p_status_change->m_hConn]->ping(get_unique_id());
+ 				if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+ 					WARN_PRINT(vformat(
+-							"Ping sent to %ud: %d",
++							"Ping sent to %ud: %d (object=%ud handle=%ud local_peer_id=%d)",
+ 							(uint64_t)SteamAPI_SteamNetworkingIdentity_GetSteamID64(
+ 									&p_status_change->m_info.m_identityRemote),
+-							ping_result));
++							ping_result, get_instance_id(), p_status_change->m_hConn, get_unique_id()));
+ 				}
+ 
+ 				// If we already have their peer ID, upgrade it
+@@ -305,6 +331,9 @@
+ }
+ 
+ void SteamMultiplayerPeer::lobby_chat_update(LobbyChatUpdate_t *p_chat_update) {
++	if (!lifecycle_active) {
++		return;
++	}
+ 	if (p_chat_update->m_ulSteamIDLobby != tracked_lobby) {
+ 		if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+ 			WARN_PRINT(vformat("LobbyChatUpdate ignored due to lobby ID mismatch: "
+@@ -354,16 +383,21 @@
+ 		}
+ 		// Remove collected connections outside the iteration
+ 		for (HSteamNetConnection conn : connections_to_remove) {
++			owned_connections.erase(conn);
+ 			steam_connections.erase(conn);
+ 		}
+ 	}
+ }
+ 
+ void SteamMultiplayerPeer::_close() {
++	lifecycle_active = false;
++	tracked_lobby = 0;
+ 	connection_status = CONNECTION_DISCONNECTED;
+ 	server = false;
+ 
+ 	if (!Engine::get_singleton()->has_singleton("Steam")) {
++		owned_connections.clear();
++		pending_steam_ids.clear();
+ 		return;
+ 	}
+ 
+@@ -371,6 +405,15 @@
+ 			steam_connections) {
+ 		E.value->disconnect_peer(true);
+ 	}
++	// Outgoing handles belong to us from ConnectP2P, even before their first
++	// callback constructs a packet peer. Close that gap during teardown too.
++	for (HSteamNetConnection connection : owned_connections) {
++		if (!steam_connections.has(connection)) {
++			SteamAPI_ISteamNetworkingSockets_CloseConnection(
++					SteamAPI_SteamNetworkingSockets_SteamAPI(), connection, 0, nullptr, false);
++		}
++	}
++	owned_connections.clear();
+ 	steam_connections.clear();
+ 	pending_steam_ids.clear();
+ 	peers.clear();
+@@ -499,9 +542,13 @@
+ 	ERR_FAIL_COND_V(socket_created != OK, socket_created);
+ 
+ 	Error poll_group_created = _create_poll_group();
+-	ERR_FAIL_COND_V(poll_group_created != OK, poll_group_created);
++	if (poll_group_created != OK) {
++		close();
++		return poll_group_created;
++	}
+ 
+ 	set_refuse_new_connections(false);
++	lifecycle_active = true;
+ 	connection_status = CONNECTION_CONNECTED;
+ 	return OK;
+ }
+@@ -518,10 +565,17 @@
+ 	ERR_FAIL_COND_V(socket_created != OK, socket_created);
+ 
+ 	Error poll_group_created = _create_poll_group();
+-	ERR_FAIL_COND_V(poll_group_created != OK, poll_group_created);
+-
++	if (poll_group_created != OK) {
++		close();
++		return poll_group_created;
++	}
++
++	lifecycle_active = true;
+ 	Error peer_created = add_peer(p_host_steam_id, p_virtual_port);
+-	ERR_FAIL_COND_V(peer_created != OK, peer_created);
++	if (peer_created != OK) {
++		close();
++		return peer_created;
++	}
+ 
+ 	set_refuse_new_connections(false);
+ 	connection_status = CONNECTION_CONNECTING;
+@@ -530,6 +584,7 @@
+ }
+ 
+ Error SteamMultiplayerPeer::add_peer(uint64_t p_steam_id, int p_virtual_port) {
++	ERR_FAIL_COND_V(!lifecycle_active, ERR_UNCONFIGURED);
+ 	if (pending_steam_ids.has(p_steam_id)) {
+ 		return OK;
+ 	}
+@@ -553,6 +608,7 @@
+ 			remote_identity, p_virtual_port, 1, opt);
+ 
+ 	ERR_FAIL_COND_V(connection == k_HSteamNetConnection_Invalid, ERR_CANT_CREATE);
++	owned_connections.insert(connection);
+ 	pending_steam_ids.insert(p_steam_id);
+ 
+ 	return OK;
+--- a/godotsteam_multiplayer_peer.h
++++ b/godotsteam_multiplayer_peer.h
+@@ -77,6 +77,8 @@
+ 	HashMap<uint32_t, Ref<SteamPacketPeer>> peers;
+ 	HashMap<HSteamNetConnection, Ref<SteamPacketPeer>> steam_connections;
+ 	HashSet<uint64_t> pending_steam_ids;
++	HashSet<HSteamNetConnection> owned_connections;
++	bool lifecycle_active = false;
+ 	List<SteamNetworkingMessage_t *> incoming_packets;
+ 	SteamNetworkingMessage_t *current_packet = nullptr;
+ 

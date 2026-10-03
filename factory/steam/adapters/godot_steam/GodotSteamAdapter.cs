@@ -311,6 +311,13 @@ public sealed class GodotSteamAdapter : ISteamAdapter
 
     private void ConnectBridgeSignals()
     {
+        _bridge.Connect("transport_trace", Callable.From<string, Godot.Collections.Dictionary>((eventName, raw) =>
+        {
+            Dictionary<string, string?> fields = new();
+            foreach (Variant key in raw.Keys)
+                fields[key.AsString()] = raw[key].VariantType == Variant.Type.Nil ? null : raw[key].AsString();
+            GameLog.Info("steam.transport_trace", eventName, fields: fields);
+        }));
         _bridge.Connect("lobby_created_result", Callable.From<long, long>(OnLobbyCreated));
         _bridge.Connect("lobby_joined_result", Callable.From<long, long>(OnLobbyJoined));
         _bridge.Connect("lobby_data_changed", Callable.From<long>(OnLobbyDataChanged));

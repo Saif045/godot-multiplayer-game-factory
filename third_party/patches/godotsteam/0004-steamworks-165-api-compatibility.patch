@@ -1,0 +1,73 @@
+--- a/godotsteam.cpp
++++ b/godotsteam.cpp
+@@ -298,11 +298,10 @@
+ uint32_t Steam::getIPFromString(String ip_string) {
+ 	uint32_t ip_address = 0;
+ 
+-	SteamNetworkingIPAddr this_address;
+-	this_address.Clear();
++	SteamNetworkingIPAddr this_address = {};
+ 
+ 	if (SteamAPI_SteamNetworkingIPAddr_ParseString(&this_address, ip_string.utf8().get_data())) {
+-		ip_address = this_address.GetIPv4();
++		ip_address = SteamAPI_SteamNetworkingIPAddr_GetIPv4(&this_address);
+ 	}
+ 	return ip_address;
+ }
+@@ -4585,21 +4584,21 @@
+ 
+ 		Dictionary new_event_data;
+ 		if (event_type == k_ERemotePlayInputMouseMotion) {
+-			RemotePlayInputMouseMotion_t this_event_data = these_remote_inputs[i].m_MouseMotion;
++			RemotePlayInputMouseMotion_t this_event_data = these_remote_inputs[i].data.m_MouseMotion;
+ 			new_event_data["absolute"] = this_event_data.m_bAbsolute;
+ 			new_event_data["normalized_x"] = this_event_data.m_flNormalizedX;
+ 			new_event_data["normalized_y"] = this_event_data.m_flNormalizedY;
+ 			new_event_data["delta_x"] = this_event_data.m_nDeltaX;
+ 			new_event_data["delta_y"] = this_event_data.m_nDeltaY;
+ 		} else if (event_type == k_ERemotePlayInputMouseButtonDown || event_type == k_ERemotePlayInputMouseButtonUp) {
+-			ERemotePlayMouseButton mouse_button = these_remote_inputs[i].m_eMouseButton;
++			ERemotePlayMouseButton mouse_button = these_remote_inputs[i].data.m_eMouseButton;
+ 			new_event_data["mouse_button"] = mouse_button;
+ 		} else if (event_type == k_ERemotePlayInputMouseWheel) {
+-			RemotePlayInputMouseWheel_t mouse_wheel = these_remote_inputs[i].m_MouseWheel;
++			RemotePlayInputMouseWheel_t mouse_wheel = these_remote_inputs[i].data.m_MouseWheel;
+ 			new_event_data["direction"] = mouse_wheel.m_eDirection;
+ 			new_event_data["amount"] = mouse_wheel.m_flAmount;
+ 		} else if (event_type == k_ERemotePlayInputKeyDown || event_type == k_ERemotePlayInputKeyUp) {
+-			RemotePlayInputKey_t input_key = these_remote_inputs[i].m_Key;
++			RemotePlayInputKey_t input_key = these_remote_inputs[i].data.m_Key;
+ 			new_event_data["scancode"] = input_key.m_eScancode;
+ 			new_event_data["modifiers"] = input_key.m_unModifiers;
+ 			new_event_data["keycode"] = input_key.m_unKeycode;
+@@ -7558,20 +7557,20 @@
+ 
+ 	switch (event_type) {
+ 		case ESteamInputActionEventType_AnalogAction: {
+-			is_active = call_data->analogAction.analogActionData.bActive;
+-			action_handle = call_data->analogAction.actionHandle;
+-
+-			data["mode"] = call_data->analogAction.analogActionData.eMode;
+-			data["x"] = call_data->analogAction.analogActionData.x;
+-			data["y"] = call_data->analogAction.analogActionData.y;
++			is_active = call_data->x.analogAction.analogActionData.bActive;
++			action_handle = call_data->x.analogAction.actionHandle;
++
++			data["mode"] = call_data->x.analogAction.analogActionData.eMode;
++			data["x"] = call_data->x.analogAction.analogActionData.x;
++			data["y"] = call_data->x.analogAction.analogActionData.y;
+ 
+ 			break;
+ 		}
+ 		case ESteamInputActionEventType_DigitalAction: {
+-			is_active = call_data->digitalAction.digitalActionData.bActive;
+-			action_handle = call_data->digitalAction.actionHandle;
+-
+-			data["state"] = call_data->digitalAction.digitalActionData.bState;
++			is_active = call_data->x.digitalAction.digitalActionData.bActive;
++			action_handle = call_data->x.digitalAction.actionHandle;
++
++			data["state"] = call_data->x.digitalAction.digitalActionData.bState;
+ 
+ 			break;
+ 		}

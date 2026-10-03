@@ -15,6 +15,11 @@ public sealed class SteamSession : IDisposable
     private readonly MultiplayerApi _multiplayer;
     private MultiplayerPeer? _activePeer;
     private bool _disposed;
+    private readonly bool _traceEnabled = Array.Exists(OS.GetCmdlineArgs(), arg => arg == "--steam-transport-trace") ||
+        Array.Exists(OS.GetCmdlineUserArgs(), arg => arg == "--steam-transport-trace");
+    private readonly string _traceSessionId = Guid.NewGuid().ToString("N");
+    private int _traceAttempt;
+    private ulong _tracePeerInstanceId;
 
     public SteamSessionState State { get; private set; } = SteamSessionState.Offline;
     public string? LastError { get; private set; }
@@ -31,6 +36,14 @@ public sealed class SteamSession : IDisposable
         _multiplayer = multiplayer;
         _adapter.LobbyJoinRequested += OnLobbyJoinRequested;
         _adapter.Error += OnError;
+        if (_traceEnabled)
+        {
+            _multiplayer.ConnectedToServer += TraceConnectedToServer;
+            _multiplayer.ConnectionFailed += TraceConnectionFailed;
+            _multiplayer.ServerDisconnected += TraceServerDisconnected;
+            _multiplayer.PeerConnected += TracePeerConnected;
+            _multiplayer.PeerDisconnected += TracePeerDisconnected;
+        }
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -57,6 +70,8 @@ public sealed class SteamSession : IDisposable
     {
         EnsureNotDisposed();
         EnsureState(SteamSessionState.Ready);
+        _traceAttempt++;
+        Trace("host_requested");
         TransitionTo(SteamSessionState.CreatingLobby);
         try
         {
@@ -82,6 +97,8 @@ public sealed class SteamSession : IDisposable
     {
         EnsureNotDisposed();
         EnsureState(SteamSessionState.Ready);
+        _traceAttempt++;
+        Trace("join_requested");
         TransitionTo(SteamSessionState.JoiningLobby);
         try
         {
@@ -133,6 +150,15 @@ public sealed class SteamSession : IDisposable
         _disposed = true;
         _adapter.LobbyJoinRequested -= OnLobbyJoinRequested;
         _adapter.Error -= OnError;
+        if (_traceEnabled)
+        {
+            _multiplayer.ConnectedToServer -= TraceConnectedToServer;
+            _multiplayer.ConnectionFailed -= TraceConnectionFailed;
+            _multiplayer.ServerDisconnected -= TraceServerDisconnected;
+            _multiplayer.PeerConnected -= TracePeerConnected;
+            _multiplayer.PeerDisconnected -= TracePeerDisconnected;
+        }
+        Trace("session_disposing");
         try { TearDownActivePeer(); }
         finally
         {
@@ -142,8 +168,11 @@ public sealed class SteamSession : IDisposable
 
     private void InstallPeer(MultiplayerPeer peer, string role, SteamLobby lobby)
     {
+        _tracePeerInstanceId = peer.GetInstanceId();
+        Trace("before_peer_assignment");
         _activePeer = peer;
         _multiplayer.MultiplayerPeer = peer;
+        Trace("after_peer_assignment");
         LogPeer("assigned_to_multiplayer_api", role, peer, lobby);
     }
 
@@ -195,6 +224,7 @@ public sealed class SteamSession : IDisposable
         if (peer is null) return null;
 
         GameLog.Info("steam.peer", "closing", peer.GetType().Name);
+        Trace("before_peer_close");
         try { PeerTearingDown?.Invoke(); }
         catch (Exception exception)
         {
@@ -205,6 +235,7 @@ public sealed class SteamSession : IDisposable
             try
             {
                 peer.Close();
+                Trace("after_peer_close");
                 GameLog.Info("steam.peer", "closed");
             }
             catch (ObjectDisposedException)
@@ -231,6 +262,7 @@ public sealed class SteamSession : IDisposable
             if (ReferenceEquals(_multiplayer.MultiplayerPeer, peer))
             {
                 _multiplayer.MultiplayerPeer = null;
+                Trace("after_peer_clear");
                 GameLog.Info("steam.peer", "cleared_from_multiplayer_api");
             }
         }
@@ -248,6 +280,7 @@ public sealed class SteamSession : IDisposable
         try
         {
             peer.Dispose();
+            Trace("after_peer_dispose");
             GameLog.Info("steam.peer", "disposed");
         }
         catch (ObjectDisposedException)
@@ -286,6 +319,32 @@ public sealed class SteamSession : IDisposable
     }
 
     private void OnLobbyJoinRequested(SteamLobbyId lobbyId, SteamUserId inviter) => LobbyJoinRequested?.Invoke(lobbyId, inviter);
+    private void TraceConnectedToServer() => Trace("godot_connected_to_server");
+    private void TraceConnectionFailed() => Trace("godot_connection_failed");
+    private void TraceServerDisconnected() => Trace("godot_server_disconnected");
+    private void TracePeerConnected(long peerId) => Trace("godot_peer_connected", peerId);
+    private void TracePeerDisconnected(long peerId) => Trace("godot_peer_disconnected", peerId);
+
+    private void Trace(string eventName, long? remotePeerId = null)
+    {
+        if (!_traceEnabled) return;
+        MultiplayerPeer? assigned = _multiplayer.MultiplayerPeer;
+        bool valid = assigned is not null && IsPeerValid(assigned);
+        GameLog.Info("steam.session_trace", eventName, fields: new Dictionary<string, string?>
+        {
+            ["session_instance_id"] = _traceSessionId,
+            ["process_id"] = System.Environment.ProcessId.ToString(),
+            ["local_steam_id"] = _adapter.IsInitialized ? _adapter.LocalUser.Id.ToString() : null,
+            ["session_attempt"] = _traceAttempt.ToString(),
+            ["peer_instance_id"] = _tracePeerInstanceId.ToString(),
+            ["assigned_peer_instance_id"] = valid ? assigned!.GetInstanceId().ToString() : null,
+            ["assigned_peer_valid"] = valid.ToString(),
+            ["connection_status"] = valid ? assigned!.GetConnectionStatus().ToString() : null,
+            ["remote_peer_id"] = remotePeerId?.ToString(),
+            ["lobby_id"] = Lobby?.Id.ToString(),
+            ["state"] = State.ToString()
+        });
+    }
     private void OnError(SteamAdapterError error) => LastError = error.Message;
     private void Fail(Exception exception) { LastError = exception.Message; TransitionTo(SteamSessionState.Failed); }
     private void EnsureState(SteamSessionState expected)

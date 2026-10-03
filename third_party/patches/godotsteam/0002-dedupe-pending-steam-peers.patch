@@ -1,0 +1,94 @@
+--- a/godotsteam_multiplayer_peer.cpp
++++ b/godotsteam_multiplayer_peer.cpp
+@@ -170,6 +170,9 @@
+ 		case k_ESteamNetworkingConnectionState_None:
+ 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+ 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: {
++			uint64_t remote_steam_id = SteamAPI_SteamNetworkingIdentity_GetSteamID64(
++					&p_status_change->m_info.m_identityRemote);
++			pending_steam_ids.erase(remote_steam_id);
+ 			if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+ 				WARN_PRINT(vformat("Connection closed with reason %ud: %s",
+ 						p_status_change->m_info.m_eEndReason,
+@@ -195,14 +198,15 @@
+ 				if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+ 					WARN_PRINT("Attempting to reconnect after bad cert.");
+ 				}
+-				add_peer(SteamAPI_SteamNetworkingIdentity_GetSteamID64(
+-						&p_status_change->m_info.m_identityRemote));
++				add_peer(remote_steam_id);
+ 				connection_retries++;
+ 			}
+ 			break;
+ 		}
+ 		// A new incoming connection we should handle
+ 		case k_ESteamNetworkingConnectionState_Connecting: {
++			uint64_t remote_steam_id = SteamAPI_SteamNetworkingIdentity_GetSteamID64(
++					&p_status_change->m_info.m_identityRemote);
+ 			if (listen_socket != k_HSteamListenSocket_Invalid && p_status_change->m_info.m_hListenSocket == listen_socket) {
+ 				if (is_refusing_new_connections()) {
+ 					if (unlikely(debug_level > DEBUG_LEVEL_NONE)) {
+@@ -251,9 +255,8 @@
+ 			}
+ 
+ 			// Create our packet peer
+-			_add_pending_peer(SteamAPI_SteamNetworkingIdentity_GetSteamID64(
+-									  &p_status_change->m_info.m_identityRemote),
+-					p_status_change->m_hConn,
++			pending_steam_ids.erase(remote_steam_id);
++			_add_pending_peer(remote_steam_id, p_status_change->m_hConn,
+ 					SteamPacketPeer::PeerState::STATE_CONNECTING);
+ 			break;
+ 		}
+@@ -369,6 +372,7 @@
+ 		E.value->disconnect_peer(true);
+ 	}
+ 	steam_connections.clear();
++	pending_steam_ids.clear();
+ 	peers.clear();
+ 
+ 	// Clear any remaining packets
+@@ -526,6 +530,17 @@
+ }
+ 
+ Error SteamMultiplayerPeer::add_peer(uint64_t p_steam_id, int p_virtual_port) {
++	if (pending_steam_ids.has(p_steam_id)) {
++		return OK;
++	}
++
++	for (const KeyValue<HSteamNetConnection, Ref<SteamPacketPeer>> &E : steam_connections) {
++		SteamPacketPeer *peer = E.value.ptr();
++		if (peer != nullptr && peer->get_steam_id() == p_steam_id) {
++			return OK;
++		}
++	}
++
+ 	SteamNetworkingIdentity remote_identity;
+ 	SteamAPI_SteamNetworkingIdentity_SetSteamID64(&remote_identity, p_steam_id);
+ 
+@@ -538,6 +553,7 @@
+ 			remote_identity, p_virtual_port, 1, opt);
+ 
+ 	ERR_FAIL_COND_V(connection == k_HSteamNetConnection_Invalid, ERR_CANT_CREATE);
++	pending_steam_ids.insert(p_steam_id);
+ 
+ 	return OK;
+ }
+--- a/godotsteam_multiplayer_peer.h
++++ b/godotsteam_multiplayer_peer.h
+@@ -38,6 +38,7 @@
+ #include <godot_cpp/classes/multiplayer_peer_extension.hpp>
+ #include <godot_cpp/classes/os.hpp>
+ #include <godot_cpp/templates/hash_map.hpp>
++#include <godot_cpp/templates/hash_set.hpp>
+ #include <godot_cpp/templates/local_vector.hpp>
+ 
+ #include <godot_cpp/core/ext_wrappers.gen.inc>
+@@ -75,6 +76,7 @@
+ private:
+ 	HashMap<uint32_t, Ref<SteamPacketPeer>> peers;
+ 	HashMap<HSteamNetConnection, Ref<SteamPacketPeer>> steam_connections;
++	HashSet<uint64_t> pending_steam_ids;
+ 	List<SteamNetworkingMessage_t *> incoming_packets;
+ 	SteamNetworkingMessage_t *current_packet = nullptr;
+ 

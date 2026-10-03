@@ -8,7 +8,7 @@ GameFactory has an accepted manual Steam listen-server path. A real two-account 
 
 - GodotSteam GDExtension 4.22, built against Steamworks SDK 1.65.
 - Source lives in `addons/godotsteam/` with the upstream MIT license.
-- Windows x86_64 binaries include the documented `SteamMultiplayerPeer::_close()` re-host patch in [`third_party/patches/godotsteam/README.md`](../third_party/patches/godotsteam/README.md).
+- Windows x86_64 binaries include the documented close fix, recovered pending-peer dedupe, and callback lifecycle/connection ownership guards in [`third_party/patches/godotsteam/README.md`](../third_party/patches/godotsteam/README.md). Repeated runtime acceptance remains incomplete; see the linked patch record for validation limits.
 - Development uses Steam App ID 480 only.
 
 `SteamPlatform` is a process-lifetime autoload that owns the `GodotSteamAdapter` and shuts the Steam singleton down only on application exit. Each scene-local `SteamSession` calls that shared `ISteamAdapter`; `GodotSteamAdapter` calls the project GDScript bridge, the only GameFactory code that knows GodotSteam's singleton and `SteamMultiplayerPeer`. A session installs the returned peer into Godot's `MultiplayerApi`. Existing Godot RPC, spawners, synchronizers, `NetworkWorld`, and player lifecycle remain above it and have no GodotSteam dependency.

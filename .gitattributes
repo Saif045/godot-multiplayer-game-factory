@@ -3,3 +3,7 @@
 
 # Keep the pinned upstream GodotGAS source byte-for-byte, including its existing whitespace.
 addons/GodotGAS/** whitespace=-trailing-space
+
+# Unified diffs require a leading context space, including before upstream tabs
+# and on empty context lines. Preserve that patch syntax for clean application.
+third_party/patches/godotsteam/*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
