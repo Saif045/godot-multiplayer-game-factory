@@ -70,7 +70,37 @@ replacement for architecture or protocol documentation.
   normal rollback/reconciliation retain accepted motion or correct a rejected
   prediction. GAS effect/runtime objects remain outside rollback history.
 
+- Player Vital Lifecycle is acceptance-proven: canonical server GAS Downed/Dead
+  tags, HP50 teammate revive, server-owned 10-second bleedout and 2-second
+  respawn to HP100/Stamina100 with unchanged player identity. Incapacitated
+  actions are gated canonically; gravity continues. Carried items auto-drop,
+  stored/equipped items and GAS capabilities survive death, and player despawn
+  releases hidden inventory/equipment to World and removes equipment effects.
+
 ## Latest runtime evidence
+
+Player Vital Lifecycle run `player_vital_lifecycle_20261006_081300` used one
+fresh immutable export `gf_629f3e3a_c79372e6ca6e`, manifest
+`3aaed13da6d78b69ea1b70709f16d87f2ca9dc7c7dc87457ffd32c60e4a946b1`.
+Operator reports and structured evidence together pass the complete slice:
+attempt 002 proves bidirectional HP50 revival, action restrictions, ~10s/~2s
+bleedout/respawn with stable identities, automatic carry drops, and existing
+gameplay; attempt 004 proves equipped-client disconnect, player removal,
+equipment effect removal (12 -> 6), and recoverable cube 3; attempt 006 proves
+client-owned equipped death/respawn to HP100 and speed12 with unchanged player
+and item identity. The ordinary respawn revision/tick is consumed inside
+rollback simulation; only reset consumption joins physical history. See
+[Netfox integration](netfox-integration.md#player-vital-respawn-boundary).
+Accepted logs have zero severe matches. Verify/Stop passed and independent
+checks confirmed host=0 / VM=0. Evidence is under
+`artifacts/ab_tests/player_vital_lifecycle_20261006_081300/attempt_002`,
+`attempt_004`, and `attempt_006` (`evidence.json` and host/client logs).
+Deviation: missed manual steps required immutable retries, with no re-export,
+source changes, or Steam restart. Attempt 001 stopped at sandbox Task Scheduler
+access; attempts 003/005 closed the client before equipped respawn and are
+preserved as incomplete checks. Cheap validation passed: C# build, 73 unit
+tests, real GAS/composed-player probe (stale request rejection and both hidden
+inventory cleanup cases), Netfox history/motion probe, and `git diff --check`.
 
 App 480 development supports direct/harness launch; Steam overlay is not
 guaranteed unless Steam owns launch. Invite Friends falls back to Join Game

@@ -201,6 +201,16 @@ public partial class CarryableItem : Node3D, IInteractable, INetworkSpawnInitial
         return true;
     }
 
+    internal bool TryReleaseInventory(Transform3D transform)
+    {
+        if (!Multiplayer.IsServer() || StorageState is not (StoredState or EquippedState)) return false;
+        HolderNetworkObjectId = 0;
+        StorageState = WorldState;
+        WorldTransform = transform;
+        ApplyReplicatedState("disconnect_inventory_cleanup");
+        return true;
+    }
+
     private void OnReplicated() => ApplyReplicatedState("replicated");
 
     private void ApplyReplicatedState(string source)

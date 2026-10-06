@@ -6,6 +6,7 @@ var self_damage_effect: GameplayEffect
 func _ready() -> void:
 	ability_name = "SelfDamage"
 	ability_tag = &"Ability.SelfDamage"
+	activation_blocked_tags = [&"State.Downed", &"State.Dead"]
 	self_damage_effect = GameplayEffect.new()
 	var modifier := GameplayEffectModifier.new()
 	modifier.attribute_name = "Health"

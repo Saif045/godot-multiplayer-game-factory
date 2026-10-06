@@ -17,15 +17,23 @@ func _exit_tree() -> void:
 		NetworkTime.before_tick_loop.disconnect(_gather_input)
 
 func _process(_delta: float) -> void:
-	if is_multiplayer_authority() and Input.is_action_just_pressed("jump"):
+	if is_multiplayer_authority() and not get_parent().IsIncapacitated and Input.is_action_just_pressed("jump"):
 		_jump_queued = true
-	if is_multiplayer_authority() and Input.is_action_just_pressed("dash"):
+	if is_multiplayer_authority() and not get_parent().IsIncapacitated and Input.is_action_just_pressed("dash"):
 		_dash_queued = true
 
 func _gather_input() -> void:
 	if not is_multiplayer_authority():
 		return
 
+	if get_parent().IsIncapacitated:
+		movement = Vector2.ZERO
+		sprint_held = false
+		jump_pressed = false
+		dash_pressed = false
+		_jump_queued = false
+		_dash_queued = false
+		return
 	movement = Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
 	sprint_held = Input.is_action_pressed("sprint")
 	# Input is recorded per Netfox tick. Queue the physical press until that

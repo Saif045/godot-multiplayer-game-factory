@@ -8,7 +8,7 @@ var speed_effect: GameplayEffect
 func _ready() -> void:
 	ability_name = "SpeedBoost"
 	ability_tag = &"Ability.SpeedBoost"
-	activation_blocked_tags = [SpeedBoostedTag]
+	activation_blocked_tags = [&"State.Downed", &"State.Dead", SpeedBoostedTag]
 	speed_effect = GameplayEffect.new()
 	speed_effect.policy = GameplayEffect.DurationPolicy.DURATION
 	speed_effect.duration = 3.0

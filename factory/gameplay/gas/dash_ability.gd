@@ -9,7 +9,7 @@ const CooldownDuration := 0.75
 func _ready() -> void:
 	ability_name = "Dash"
 	ability_tag = &"Ability.Dash"
-	activation_blocked_tags = [ExhaustedTag]
+	activation_blocked_tags = [&"State.Downed", &"State.Dead", ExhaustedTag]
 
 	cost_effect = GameplayEffect.new()
 	cost_effect.policy = GameplayEffect.DurationPolicy.INSTANT

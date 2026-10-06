@@ -42,7 +42,7 @@ public sealed class GodotGasAdapter
     public Node Component => _component;
 
     /// <summary>Creates and attaches a real GodotGAS AbilitySystemComponent.</summary>
-    public static GodotGasAdapter Create(Node owner)
+    public static GodotGasAdapter Create(Node owner, bool authoritative = true)
     {
         ArgumentNullException.ThrowIfNull(owner);
 
@@ -50,8 +50,15 @@ public sealed class GodotGasAdapter
             ?? throw new InvalidOperationException("GodotGAS AbilitySystemComponent scene could not be loaded.");
         Node component = componentScene.Instantiate<Node>();
         owner.AddChild(component);
+        component.Call("set_authoritative", authoritative);
         return new GodotGasAdapter(component);
     }
+
+    public bool IsDowned() => _component.Call("is_downed").AsBool();
+    public bool IsDead() => _component.Call("is_dead").AsBool();
+    public bool TryRevive() => _component.Call("try_revive").AsBool();
+    public void MarkDead() => _component.Call("mark_dead");
+    public void ResetVitals() => _component.Call("reset_vitals");
 
     public int GetHealth() => Mathf.RoundToInt(_component.Call(GetHealthMethod).AsSingle());
 
@@ -87,11 +94,11 @@ public sealed class GodotGasAdapter
         GetStamina(),
         IsExhausted(),
         IsSprinting(),
-        GetDashCooldownRemaining());
+        GetDashCooldownRemaining(), IsDowned(), IsDead());
 
     public void ApplySnapshot(GasSnapshot snapshot)
     {
-        _component.Call(ApplySnapshotMethod, snapshot.Health, snapshot.Stamina);
+        _component.Call(ApplySnapshotMethod, snapshot.Health, snapshot.Stamina, snapshot.IsDowned, snapshot.IsDead);
     }
 
     public bool ConsumeLifecycleChange() =>

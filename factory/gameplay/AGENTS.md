@@ -26,3 +26,12 @@ replicated or rolled back.
 
 Read `docs/architecture.md` for a cross-module ownership change and
 `docs/current-state.md` before claiming a gameplay slice acceptance-proven.
+
+Player vital tags are canonical server GAS state, projected through ordinary
+replication; clients must not derive Downed/Dead from health. Gate gameplay
+requests against canonical incapacitation as well as suppressing local input.
+Netfox reads that gate but records only physical state and reset consumption,
+never GAS tags/attributes. Normal death preserves stored/equipped items and
+their source effects; player despawn must release hidden items to World and
+remove equipment capabilities. In the player prefab, inventory must exit before
+GAS so source removal can run against the live ASC.

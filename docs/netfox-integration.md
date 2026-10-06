@@ -232,3 +232,24 @@ peer to show a post-input change in that remote player's
 presentation-versus-simulation distance. This prevents pre-connection input
 from satisfying a later stage and avoids treating state-tick traffic alone as
 movement evidence.
+
+## Player vital respawn boundary
+
+Player Vital Lifecycle uses ordinary server-owned `RespawnRevision` and
+`RespawnTick`, with the original spawn position retained from spawn data.
+`_rollback_tick` consumes a newer revision at/after its server tick and resets
+position, velocity, grounded, dash duration/direction, and consumed dash
+permission. That tick ignores stale action inputs. Only
+`Simulation:last_respawn_revision` is added to physical rollback state; GAS
+health/tags and lifecycle revision/tick remain ordinary projection. Restoring
+an older snapshot restores older consumption, causing the reset to replay at
+the boundary instead of losing the teleport. Later snapshots retain consumption
+and permit normal motion. No vendor history clearing, `process_settings()`
+reset, or arbitrary `_Process()` teleport is used.
+
+The headless `sandbox/netfox/player_vital_motion_probe.tscn` loads the prefab's
+actual state list into Netfox's `_RollbackHistoryRecorder`, restores pre-reset
+history, and proves reset replay plus resumed motion. It also proves canonical
+incapacitation overrides stale movement/jump/dash inputs while gravity settles
+the body. Immutable A/B run `player_vital_lifecycle_20261006_081300` proves
+normal and equipped respawn with unchanged network identity (attempts 002/006).

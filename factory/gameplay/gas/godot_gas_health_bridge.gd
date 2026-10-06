@@ -7,12 +7,18 @@ const FortifyAbilityScript = preload("res://factory/gameplay/gas/fortify_ability
 const SpeedBoostAbilityScript = preload("res://factory/gameplay/gas/speed_boost_ability.gd")
 const DashAbilityScript = preload("res://factory/gameplay/gas/dash_ability.gd")
 
+const DownedTag := &"State.Downed"
+const DeadTag := &"State.Dead"
+const MaxHealth := 100.0
+const ReviveHealth := 50.0
+
 const SprintingTag := &"State.Sprinting"
 const ExhaustedTag := &"State.Exhausted"
 const RegeneratingTag := &"State.StaminaRegenerating"
 const EquipmentCubeTag := &"State.EquipmentCube"
 const ExhaustionRecoveryThreshold := 25.0
 
+var _authoritative := true
 var _asc: AbilitySystemComponent
 var _self_damage: GameplayAbility
 var _fortify: GameplayAbility
@@ -49,6 +55,62 @@ func _ready() -> void:
 	_exhaustion_effect.granted_tags = [ExhaustedTag]
 	_start_regeneration()
 
+func set_authoritative(value: bool) -> void:
+	_authoritative = value
+
+func is_downed() -> bool:
+	return _asc.has_tag_exact(DownedTag)
+
+func is_dead() -> bool:
+	return _asc.has_tag_exact(DeadTag)
+
+func _apply_vital_tag(tag: StringName) -> void:
+	var effect := GameplayEffect.new()
+	effect.policy = GameplayEffect.DurationPolicy.INFINITE
+	effect.granted_tags = [tag]
+	_asc.apply_gameplay_effect(effect, _asc)
+	_lifecycle_changed = true
+
+func _restore_attribute(attribute: String, value: float) -> void:
+	var effect := GameplayEffect.new()
+	effect.policy = GameplayEffect.DurationPolicy.INSTANT
+	var modifier := GameplayEffectModifier.new()
+	modifier.attribute_name = attribute
+	modifier.operation = GameplayEffectModifier.Operation.OVERRIDE
+	modifier.magnitude = value
+	effect.modifiers = [modifier]
+	_asc.apply_gameplay_effect(effect, _asc)
+
+func try_revive() -> bool:
+	if not _authoritative or not is_downed() or is_dead():
+		return false
+	_restore_attribute("Health", ReviveHealth)
+	_asc.remove_effects_with_tag(DownedTag)
+	_lifecycle_changed = true
+	return true
+
+func mark_dead() -> void:
+	if not _authoritative or not is_downed() or is_dead():
+		return
+	# Apply Dead first so the Health=0 callback cannot re-enter Downed.
+	_apply_vital_tag(DeadTag)
+	_asc.remove_effects_with_tag(DownedTag)
+	_restore_attribute("Health", 0.0)
+
+func reset_vitals() -> void:
+	if not _authoritative:
+		return
+	_sprint_intent = false
+	# Explicit transient allowlist: equipment source/effect remains intact.
+	for tag in [SprintingTag, ExhaustedTag, RegeneratingTag, &"State.SpeedBoosted", &"State.Fortified", &"Cooldown.Fortify", &"Cooldown.Dash"]:
+		_asc.remove_effects_with_tag(tag)
+	_restore_attribute("Health", MaxHealth)
+	_restore_attribute("Stamina", 100.0)
+	_asc.remove_effects_with_tag(DownedTag)
+	_asc.remove_effects_with_tag(DeadTag)
+	_start_regeneration()
+	_lifecycle_changed = true
+
 func get_health() -> float:
 	return _asc.get_attribute("Health").current_value
 
@@ -65,6 +127,7 @@ func is_sprinting() -> bool:
 	return _asc.has_tag_exact(SprintingTag)
 
 func set_sprint_intent(held: bool) -> void:
+	held = held and not is_downed() and not is_dead()
 	if _sprint_intent == held:
 		return
 	_sprint_intent = held
@@ -107,11 +170,17 @@ func is_equipment_cube_capability_active() -> bool:
 func get_dash_cooldown_remaining() -> float:
 	return _asc.get_tag_duration_remaining(&"Cooldown.Dash")
 
-func apply_snapshot(health: float, stamina: float) -> void:
+func apply_snapshot(health: float, stamina: float, downed: bool, dead: bool) -> void:
 	_asc.initialize_attribute_overrides({"Health": health, "Stamina": stamina})
+	for state in [[DownedTag, downed], [DeadTag, dead]]:
+		if state[1] and not _asc.has_tag_exact(state[0]):
+			_apply_vital_tag(state[0])
+		elif not state[1]:
+			_asc.remove_effects_with_tag(state[0])
 
 func apply_self_damage() -> float:
-	_self_damage.try_activate()
+	if not is_downed() and not is_dead():
+		_self_damage.try_activate()
 	return get_health()
 
 func apply_fortify() -> bool:
@@ -141,6 +210,10 @@ func _on_attribute_changed(attribute_name: String, old_value: float, new_value: 
 	if attribute_name == "Health":
 		_last_old_health = old_value
 		_last_new_health = new_value
+		_lifecycle_changed = true
+		if _authoritative and new_value <= 0.0 and not is_downed() and not is_dead():
+			_apply_vital_tag(DownedTag)
+			set_sprint_intent(false)
 	if attribute_name == "Stamina":
 		_lifecycle_changed = true
 		if new_value <= 0.0 and not is_exhausted():
@@ -171,7 +244,7 @@ func _make_periodic_effect(delta: float, state_tag: StringName) -> GameplayEffec
 	return effect
 
 func _reconcile_sprint_state() -> void:
-	if _sprint_intent and get_stamina() > 0.0 and not is_exhausted():
+	if not is_downed() and not is_dead() and _sprint_intent and get_stamina() > 0.0 and not is_exhausted():
 		_stop_regeneration()
 		if not is_sprinting():
 			_asc.apply_gameplay_effect(_drain_effect, _asc)

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using GameFactory.Diagnostics;
+using GameFactory.Gameplay.Gas;
+using GameFactory.Networking.Netfox.Player3D;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Peers;
 
@@ -36,7 +38,7 @@ public partial class PlayerCarrier : Node
 
     public override void _Process(double delta)
     {
-        if (!IsLocalOwner() || !Input.IsActionJustPressed("drop_item") ||
+        if (!IsLocalOwner() || (_playerHost as NetworkPlayer3D)?.IsIncapacitated == true || !Input.IsActionJustPressed("drop_item") ||
             !HasHeldItemLocally())
             return;
 
@@ -59,6 +61,8 @@ public partial class PlayerCarrier : Node
     {
         if (!Multiplayer.IsServer())
             throw new InvalidOperationException("Only the server may assign a carried item.");
+
+        if (_playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(_player.OwnerPeerId, "pickup")) return false;
 
         if (HasCarriedItem)
         {
@@ -109,12 +113,19 @@ public partial class PlayerCarrier : Node
         HandleDrop(new PeerId(sender));
     }
 
+    public void DropOnDowned()
+    {
+        if (HasCarriedItem) HandleDrop(_player.OwnerPeerId, "carried_item_dropped_on_downed");
+    }
+
     private void HandleDrop(PeerId sender, string source = "request")
     {
         if (!Multiplayer.IsServer())
             throw new InvalidOperationException("Only the server may drop a carried item.");
 
-        if (_player.OwnerPeerId != sender)
+        if (source == "request" && _playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(sender, "drop")) return;
+
+        if (source == "request" && _player.OwnerPeerId != sender)
         {
             Log("rejected", null, "sender_is_not_player_owner");
             return;
@@ -145,6 +156,7 @@ public partial class PlayerCarrier : Node
 
         _carriedItemId = 0;
         Log("dropped", item, source);
+        if (source == "carried_item_dropped_on_downed") Log(source, item, "downed");
     }
 
     private bool IsLocalOwner() =>
@@ -173,6 +185,10 @@ public partial class PlayerCarrier : Node
             ["player_network_object_id"] = _player.IsBound ? _player.Id.ToString() : null,
             ["item_network_object_id"] = item?.GetNetworkObject().Id.ToString(),
             ["reason"] = reason,
+            ["owner_peer_id"] = _player.IsBound ? _player.OwnerPeerId.ToString() : null,
+            ["health"] = (_playerHost as NetworkPlayer3D)?.GasHealth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["state"] = (_playerHost as NetworkPlayer3D)?.GasIsDead == true ? "Dead" :
+                (_playerHost as NetworkPlayer3D)?.GasIsDowned == true ? "Downed" : "Normal",
             ["role"] = Multiplayer.HasMultiplayerPeer() && Multiplayer.IsServer() ? "host" : "client"
         };
         GameLog.Info("carry", eventName, fields: fields);

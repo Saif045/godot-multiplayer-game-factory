@@ -33,6 +33,58 @@ public partial class NetworkGasComponent : Node
     private long? _lastObservedDashAuthorizationRevision;
     private string? _lastEffectiveMovementSignature;
     private double _cooldownReplicationElapsed;
+    private const double BleedoutSeconds = 10d;
+    private const double RespawnDelaySeconds = 2d;
+    private double _vitalRemaining;
+    private bool _observedDowned;
+    private bool _observedDead;
+
+    public bool IsIncapacitated => Multiplayer.IsServer()
+        ? _gas.IsDowned() || _gas.IsDead() : _playerHost.IsIncapacitated;
+
+    public bool RejectIncapacitated(PeerId sender, string action)
+    {
+        // On server, inspect canonical GAS rather than trusting the projection.
+        bool blocked = IsIncapacitated;
+        if (blocked)
+            Log("action_rejected_incapacitated", new Dictionary<string, string?>
+            { ["requesting_peer_id"] = sender.ToString(), ["reason"] = action });
+        return blocked;
+    }
+
+    public void LogRespawnApplied(long revision, long tick) =>
+        Log("respawn_applied", new Dictionary<string, string?>
+        { ["respawn_revision"] = revision.ToString(), ["tick"] = tick.ToString() });
+
+    public bool TryRevive(PeerId requester)
+    {
+        if (!Multiplayer.IsServer() || !_gas.TryRevive()) return false;
+        _vitalRemaining = 0;
+        Log("revive_accepted", new Dictionary<string, string?> { ["requesting_peer_id"] = requester.ToString() });
+        PublishAuthoritativeSnapshot("revive");
+        return true;
+    }
+
+    private void AdvanceVitals(double delta)
+    {
+        if (!_gas.IsDowned() && !_gas.IsDead()) return;
+        _vitalRemaining -= delta;
+        if (_vitalRemaining > 0) return;
+        if (_gas.IsDowned())
+        {
+            Log("bleedout_expired", new Dictionary<string, string?>());
+            _gas.MarkDead();
+            PublishAuthoritativeSnapshot("bleedout");
+        }
+        else
+        {
+            Log("respawn_started", new Dictionary<string, string?>());
+            _gas.ResetVitals();
+            _playerHost.RespawnTick = GetNode<Node>("/root/NetworkTime").Get("tick").AsInt64() + 1;
+            _playerHost.RespawnRevision++;
+            PublishAuthoritativeSnapshot("respawn");
+        }
+    }
 
     public override void _Ready()
     {
@@ -41,7 +93,7 @@ public partial class NetworkGasComponent : Node
         _replication = _player.GetComponent<INetworkReplication>();
         _replication.Synchronized += OnReplicated;
         _replication.DeltaSynchronized += OnReplicated;
-        _gas = GodotGasAdapter.Create(this);
+        _gas = GodotGasAdapter.Create(this, Multiplayer.IsServer());
         _healthLabel = CreateHealthLabel();
 
         if (Multiplayer.IsServer())
@@ -67,6 +119,9 @@ public partial class NetworkGasComponent : Node
     {
         if (Multiplayer.IsServer())
         {
+            if (_gas.ConsumeLifecycleChange())
+                PublishAuthoritativeSnapshot("effect_lifecycle_changed");
+            AdvanceVitals(delta);
             UpdateAuthoritativeSprintIntent();
             RefreshAuthoritativeCooldownProjection(delta);
         }
@@ -78,7 +133,7 @@ public partial class NetworkGasComponent : Node
 
         LogEffectiveNetfoxMovementProjection();
 
-        if (!IsLocalOwner())
+        if (!IsLocalOwner() || _playerHost.IsIncapacitated)
             return;
 
         if (Input.IsActionJustPressed(SelfDamageAction))
@@ -111,7 +166,7 @@ public partial class NetworkGasComponent : Node
 
     private void UpdateAuthoritativeSprintIntent()
     {
-        bool sprintHeld = _playerHost.GetNode<Node>("Input").Get("sprint_held").AsBool();
+        bool sprintHeld = !_playerHost.IsIncapacitated && _playerHost.GetNode<Node>("Input").Get("sprint_held").AsBool();
         _gas.SetSprintIntent(sprintHeld);
         if (_lastSprintIntent == sprintHeld)
             return;
@@ -122,9 +177,9 @@ public partial class NetworkGasComponent : Node
 
     private void LogEffectiveNetfoxMovementProjection()
     {
-        bool sprintHeld = _playerHost.GetNode<Node>("Input").Get("sprint_held").AsBool();
+        bool sprintHeld = !_playerHost.IsIncapacitated && _playerHost.GetNode<Node>("Input").Get("sprint_held").AsBool();
         bool sprintAllowed = _playerHost.GasIsSprinting;
-        float effectiveSpeed = _playerHost.GasMoveSpeed * (sprintHeld && sprintAllowed ? 1.5f : 1f);
+        float effectiveSpeed = IsIncapacitated ? 0f : _playerHost.GasMoveSpeed * (sprintHeld && sprintAllowed ? 1.5f : 1f);
         string signature = $"{sprintHeld}:{sprintAllowed}:{_playerHost.GasIsExhausted}:{effectiveSpeed:F3}";
         if (_lastEffectiveMovementSignature == signature)
             return;
@@ -262,6 +317,7 @@ public partial class NetworkGasComponent : Node
 
     private void HandleSpeedBoost(PeerId sender)
     {
+        if (RejectIncapacitated(sender, "speed_boost")) return;
         if (_player.OwnerPeerId != sender || !_gas.ApplySpeedBoost())
         {
             Log("activation_rejected", new Dictionary<string, string?> { ["ability"] = "speed_boost", ["reason"] = "not_owner_or_not_activated" });
@@ -273,6 +329,7 @@ public partial class NetworkGasComponent : Node
 
     private void HandleDash(PeerId sender)
     {
+        if (RejectIncapacitated(sender, "dash")) return;
         if (_player.OwnerPeerId != sender || !_gas.ApplyDash())
         {
             Log("activation_rejected", new Dictionary<string, string?>
@@ -325,6 +382,7 @@ public partial class NetworkGasComponent : Node
 
     private void HandleActivation(PeerId sender)
     {
+        if (RejectIncapacitated(sender, "self_damage")) return;
         if (!Multiplayer.IsServer())
             throw new InvalidOperationException("Only the server may activate SelfDamage.");
 
@@ -349,6 +407,7 @@ public partial class NetworkGasComponent : Node
 
     private void HandleFortifyActivation(PeerId sender)
     {
+        if (RejectIncapacitated(sender, "fortify")) return;
         if (!Multiplayer.IsServer())
             throw new InvalidOperationException("Only the server may activate Fortify.");
 
@@ -387,6 +446,23 @@ public partial class NetworkGasComponent : Node
     {
         GasSnapshot snapshot = _gas.CaptureSnapshot();
         _playerHost.GasHealth = snapshot.Health;
+        _playerHost.GasIsDowned = snapshot.IsDowned;
+        _playerHost.GasIsDead = snapshot.IsDead;
+        if (snapshot.IsDowned && !_observedDowned)
+        {
+            _vitalRemaining = BleedoutSeconds;
+            Log("downed_entered", new Dictionary<string, string?>());
+            _playerHost.GetNode<PlayerCarrier>("PlayerCarrier").DropOnDowned();
+        }
+        if (!snapshot.IsDowned && _observedDowned)
+            Log("downed_cleared", new Dictionary<string, string?> { ["reason"] = reason });
+        if (snapshot.IsDead && !_observedDead)
+        {
+            _vitalRemaining = RespawnDelaySeconds;
+            Log("dead_entered", new Dictionary<string, string?>());
+        }
+        _observedDowned = snapshot.IsDowned;
+        _observedDead = snapshot.IsDead;
         _playerHost.GasIsFortified = snapshot.IsFortified;
         _playerHost.GasFortifyCooldownRemaining = snapshot.FortifyCooldownRemaining;
         _playerHost.GasMoveSpeed = _gas.GetMoveSpeed();
@@ -425,10 +501,12 @@ public partial class NetworkGasComponent : Node
             _playerHost.GasStamina,
             _playerHost.GasIsExhausted,
             _playerHost.GasIsSprinting,
-            _playerHost.GasDashCooldownRemaining);
+            _playerHost.GasDashCooldownRemaining,
+            _playerHost.GasIsDowned, _playerHost.GasIsDead);
         if (_lastAppliedSnapshot is GasSnapshot previous &&
             Mathf.IsEqualApprox(previous.Health, snapshot.Health) &&
             previous.IsFortified == snapshot.IsFortified &&
+            previous.IsDowned == snapshot.IsDowned && previous.IsDead == snapshot.IsDead &&
             Mathf.IsEqualApprox(previous.FortifyCooldownRemaining, snapshot.FortifyCooldownRemaining) &&
             Mathf.IsEqualApprox(previous.Stamina, snapshot.Stamina) &&
             previous.IsExhausted == snapshot.IsExhausted &&
@@ -495,6 +573,7 @@ public partial class NetworkGasComponent : Node
             ? $"DASH COOLDOWN ({snapshot.DashCooldownRemaining:F1}s)"
             : "DASH READY (X)";
         _healthLabel.Text = $"HP {Mathf.RoundToInt(snapshot.Health)}" +
+            (snapshot.IsDead ? "\nDEAD" : snapshot.IsDowned ? "\nDOWNED (E TO REVIVE)" : string.Empty) +
             $"\nSTAMINA {Mathf.RoundToInt(snapshot.Stamina)}" +
             (snapshot.IsExhausted ? " EXHAUSTED" : snapshot.IsSprinting ? " SPRINTING" : string.Empty) +
             (string.IsNullOrEmpty(fortify) ? string.Empty : $"\n{fortify}") +
@@ -518,6 +597,9 @@ public partial class NetworkGasComponent : Node
             ["player_network_object_id"] = _player.IsBound ? _player.Id.ToString() : null,
             ["owner_peer_id"] = _player.IsBound ? _player.OwnerPeerId.ToString() : null,
             ["local_peer_id"] = Multiplayer.GetUniqueId().ToString(),
+            ["health"] = (Multiplayer.IsServer() ? _gas.GetHealth() : _playerHost.GasHealth).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["state"] = (Multiplayer.IsServer() ? _gas.IsDead() : _playerHost.GasIsDead) ? "Dead" :
+                (Multiplayer.IsServer() ? _gas.IsDowned() : _playerHost.GasIsDowned) ? "Downed" : "Normal",
             ["role"] = Multiplayer.IsServer() ? "host" : "client"
         };
         GameLog.Info("gas.network", eventName, fields: values);

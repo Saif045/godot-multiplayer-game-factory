@@ -11,7 +11,7 @@ var fortify_effect: GameplayEffect
 func _ready() -> void:
 	ability_name = "Fortify"
 	ability_tag = &"Ability.Fortify"
-	activation_blocked_tags = [FortifiedTag]
+	activation_blocked_tags = [&"State.Downed", &"State.Dead", FortifiedTag]
 
 	fortify_effect = GameplayEffect.new()
 	fortify_effect.policy = GameplayEffect.DurationPolicy.DURATION

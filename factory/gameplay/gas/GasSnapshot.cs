@@ -8,4 +8,6 @@ public readonly record struct GasSnapshot(
     float Stamina = 100f,
     bool IsExhausted = false,
     bool IsSprinting = false,
-    float DashCooldownRemaining = 0f);
+    float DashCooldownRemaining = 0f,
+    bool IsDowned = false,
+    bool IsDead = false);

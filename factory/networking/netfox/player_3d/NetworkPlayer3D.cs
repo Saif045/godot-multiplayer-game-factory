@@ -67,6 +67,18 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
     [Replicated(ReplicationMode.OnChange)]
     public long InventoryEquippedItemNetworkObjectId { get; set; }
 
+    [Replicated(ReplicationMode.OnChange)]
+    public bool GasIsDowned { get; set; }
+    [Replicated(ReplicationMode.OnChange)]
+    public bool GasIsDead { get; set; }
+    public bool IsIncapacitated => GasIsDowned || GasIsDead;
+
+    [Replicated(ReplicationMode.OnChange)]
+    public long RespawnRevision { get; set; }
+    [Replicated(ReplicationMode.OnChange)]
+    public long RespawnTick { get; set; }
+    public Vector3 OriginalSpawnPosition { get; private set; }
+
     public override void _Ready()
     {
         ApplyOwnerColor();
@@ -81,7 +93,8 @@ public partial class NetworkPlayer3D : CharacterBody3D, INetworkSpawnInitializab
         if (!values.ContainsKey("spawn_position"))
             throw new InvalidOperationException("NetworkPlayer3D spawn data is missing spawn_position.");
 
-        Position = values["spawn_position"].AsVector3();
+        OriginalSpawnPosition = values["spawn_position"].AsVector3();
+        Position = OriginalSpawnPosition;
     }
 
     public NetworkObject GetNetworkObject() => GetNode<NetworkObject>("NetworkObject");

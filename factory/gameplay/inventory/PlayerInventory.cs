@@ -49,6 +49,8 @@ public partial class PlayerInventory : Node
 
     public override void _ExitTree()
     {
+        if (_player is not null && Multiplayer.HasMultiplayerPeer() && Multiplayer.IsServer())
+            CleanupInventory();
         if (_replication is not null)
         {
             _replication.Synchronized -= OnReplicated;
@@ -58,7 +60,7 @@ public partial class PlayerInventory : Node
 
     public override void _Process(double _delta)
     {
-        if (!IsLocalOwner())
+        if (!IsLocalOwner() || _networkPlayer.IsIncapacitated)
             return;
 
         if (Input.IsActionJustPressed(StoreAction))
@@ -165,6 +167,7 @@ public partial class PlayerInventory : Node
 
     private void HandleStore(PeerId sender)
     {
+        if (_playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(sender, "store")) return;
         if (_player.OwnerPeerId != sender)
         {
             Reject("store_rejected", "sender_is_not_player_owner");
@@ -197,6 +200,7 @@ public partial class PlayerInventory : Node
 
     private void HandleRetrieve(PeerId sender)
     {
+        if (_playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(sender, "retrieve")) return;
         if (_player.OwnerPeerId != sender)
         {
             Reject("retrieve_rejected", "sender_is_not_player_owner");
@@ -232,6 +236,7 @@ public partial class PlayerInventory : Node
 
     private void HandleEquip(PeerId sender)
     {
+        if (_playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(sender, "equip")) return;
         if (_player.OwnerPeerId != sender)
         {
             Reject("equip_rejected", "sender_is_not_player_owner");
@@ -277,6 +282,7 @@ public partial class PlayerInventory : Node
 
     private void HandleUnequip(PeerId sender)
     {
+        if (_playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(sender, "unequip")) return;
         if (_player.OwnerPeerId != sender)
         {
             Reject("unequip_rejected", "sender_is_not_player_owner");
@@ -321,6 +327,24 @@ public partial class PlayerInventory : Node
         Log("unequip_accepted", new Dictionary<string, string?> { ["item_network_object_id"] = itemId.ToString() });
     }
 
+    private void CleanupInventory()
+    {
+        foreach (long id in new[] { StoredItemNetworkObjectId, EquippedItemNetworkObjectId })
+        {
+            if (id <= 0 || !_player.World.TryGet(new NetworkObjectId(id), out NetworkObject? target) ||
+                target?.Host is not CarryableItem item || !GodotObject.IsInstanceValid(item) || !item.IsInsideTree()) continue;
+            if (id == EquippedItemNetworkObjectId)
+                _playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").TryRemoveEquipmentCubeCapability(item);
+            Transform3D transform = _playerHost.GlobalTransform;
+            transform.Origin += new Vector3(0, 0.5f, -1.25f);
+            if (item.TryReleaseInventory(transform))
+                Log("disconnect_inventory_cleanup", new Dictionary<string, string?>
+                { ["item_network_object_id"] = id.ToString(), ["reason"] = "player_exit" });
+        }
+        _networkPlayer.InventoryStoredItemNetworkObjectId = 0;
+        _networkPlayer.InventoryEquippedItemNetworkObjectId = 0;
+    }
+
     private bool TryFindCarriedItem(out CarryableItem item)
     {
         foreach (NetworkObject candidate in _player.World.Objects)
@@ -358,6 +382,7 @@ public partial class PlayerInventory : Node
 
     private bool TryResolveEquippedItem(out CarryableItem item)
     {
+        if (!HasEquippedItem) { item = null!; return false; }
         if (_player.World.TryGet(new NetworkObjectId(EquippedItemNetworkObjectId), out NetworkObject? target) &&
             target?.Host is CarryableItem carryable &&
             carryable.StorageState == CarryableItem.EquippedState)

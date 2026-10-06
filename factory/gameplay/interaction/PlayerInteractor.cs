@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using GameFactory.Diagnostics;
+using GameFactory.Gameplay.Gas;
+using GameFactory.Networking.Netfox.Player3D;
 using GameFactory.Networking.Objects;
 using GameFactory.Networking.Peers;
 
@@ -28,7 +30,7 @@ public partial class PlayerInteractor : Node
 
     public override void _Process(double delta)
     {
-        if (!IsLocalOwner() || !Input.IsActionJustPressed("interact"))
+        if (!IsLocalOwner() || (_playerHost as NetworkPlayer3D)?.IsIncapacitated == true || !Input.IsActionJustPressed("interact"))
             return;
 
         NetworkObject? target = FindLocalCandidate();
@@ -110,6 +112,13 @@ public partial class PlayerInteractor : Node
             return;
         }
 
+        if (_playerHost.GetNode<NetworkGasComponent>("NetworkGasComponent").RejectIncapacitated(sender, "interact")) return;
+        if (targetId.Value == _player.Id)
+        {
+            Reject(sender, targetId.Value, "self_interaction");
+            return;
+        }
+
         if (!_player.World.TryGet(targetId.Value, out NetworkObject? target) ||
             target is null)
         {
@@ -117,8 +126,11 @@ public partial class PlayerInteractor : Node
             return;
         }
 
-        if (target.Host is not IInteractable interactable ||
-            target.Host is not Node3D targetHost)
+        IInteractable? interactable = ResolveInteractable(target.Host);
+        if (interactable is PlayerReviveInteractable)
+            Log("revive_requested", new Dictionary<string, string?>
+            { ["requesting_peer_id"] = sender.ToString(), ["target_network_object_id"] = targetId.Value.ToString() });
+        if (interactable is null || target.Host is not Node3D targetHost)
         {
             Reject(sender, targetId.Value, "target_not_interactable");
             return;
@@ -158,13 +170,15 @@ public partial class PlayerInteractor : Node
         float bestDistance = InteractionRange;
         foreach (Node node in GetTree().GetNodesInGroup("interactable"))
         {
-            if (node is not Node3D host || host is not IInteractable)
+            if (node is not Node3D host || ResolveInteractable(host) is not IInteractable interactable)
                 continue;
 
             NetworkObject? candidate = host.GetNodeOrNull<NetworkObject>("NetworkObject");
-            if (candidate is null || !candidate.IsBound)
+            if (candidate is null || !candidate.IsBound || candidate == _player)
                 continue;
 
+            InteractionContext context = new(_player.OwnerPeerId, _player, candidate, _playerHost.GlobalPosition);
+            if (!interactable.CanInteract(context)) continue;
             float distance = _playerHost.GlobalPosition.DistanceTo(host.GlobalPosition);
             if (distance > bestDistance)
                 continue;
@@ -174,6 +188,16 @@ public partial class PlayerInteractor : Node
         }
 
         return best;
+    }
+
+    // Root implementations retain priority; otherwise the first direct child
+    // in authored scene order wins. No recursion or alternate request path.
+    internal static IInteractable? ResolveInteractable(Node host)
+    {
+        if (host is IInteractable root) return root;
+        foreach (Node child in host.GetChildren())
+            if (child is IInteractable component) return component;
+        return null;
     }
 
     private bool IsLocalOwner() =>
@@ -199,6 +223,8 @@ public partial class PlayerInteractor : Node
                 System.Globalization.CultureInfo.InvariantCulture);
         }
         Log("rejected", fields);
+        if (_player.World.TryGet(targetId, out NetworkObject? target) && target?.Host is Node host && ResolveInteractable(host) is PlayerReviveInteractable)
+            Log("revive_rejected", fields);
     }
 
     private void Log(
@@ -207,6 +233,8 @@ public partial class PlayerInteractor : Node
     {
         Dictionary<string, string?> values = new(fields)
         {
+            ["player_network_object_id"] = _player.Id.ToString(),
+            ["owner_peer_id"] = _player.OwnerPeerId.ToString(),
             ["role"] = Multiplayer.IsServer() ? "host" : "client",
             ["local_peer_id"] = Multiplayer.GetUniqueId().ToString()
         };
