@@ -125,3 +125,13 @@ The guest endpoint is local machine configuration, not repository state. Copy
 `vm-endpoint.example.psd1` to gitignored `vm-endpoint.local.psd1` and edit its
 `Target` when the Hyper-V guest address changes. An explicit `-VmAlias`
 overrides that local setting for one command.
+
+Graphical launches resolve `GameFactory.exe` after the completed export and
+manifest exist; an empty output directory must not choose the console wrapper.
+The host runner polls for a live process and `shell/ready` in the exact attempt's
+JSONL namespace, with an event timestamp at or after process start. It retains
+bounded startup failure/loader checks and all later topology checks. The VM's
+three-second stabilization delay remains: an earlier-return experiment failed
+native-handshake Retry acceptance, without establishing the cause.
+Run `tools\ab_test\tests\startup_checks.ps1` for the focused export selection,
+readiness provenance, exit, loader-error and timeout regression checks.

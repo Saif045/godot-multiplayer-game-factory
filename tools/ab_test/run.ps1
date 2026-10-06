@@ -48,6 +48,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\hash_utils.ps1")
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "powershell\process_utils.ps1")
+. (Join-Path $PSScriptRoot "startup.ps1")
 $sshOptions = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2")
 $externalCommandTimeoutSeconds = 30
 $openSshDirectory = Join-Path $env:WINDIR "System32\OpenSSH"
@@ -123,7 +124,6 @@ $outputDirectory = [System.IO.Path]::GetFullPath($outputDirectory)
 # Both participants use the graphical export. Godot's --log-file provides
 # artifact-owned logs, so the console wrapper is not needed for observability.
 $hostExecutable = Join-Path $outputDirectory "GameFactory.exe"
-if (-not (Test-Path $hostExecutable)) { $hostExecutable = Join-Path $outputDirectory "GameFactory.console.exe" }
 
 $runId = if ([string]::IsNullOrWhiteSpace($RunId)) {
     "ab_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([Guid]::NewGuid().ToString("N").Substring(0, 4))
@@ -621,6 +621,7 @@ function Write-HostConfig([string[]]$Arguments, [object]$Manifest, [string]$Mani
         standard_error_path = $StandardErrorPath
         godot_log_path = $hostGodotLogPath
         show_log_window = $true
+        startup_timeout_seconds = $HostTimeoutSeconds
     }
     $temporaryConfigPath = "$hostConfigPath.tmp"
     $hostConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporaryConfigPath -Encoding utf8
@@ -1202,7 +1203,6 @@ function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:result.steam_transport_retain_closed_peer = [bool]$script:SteamTransportRetainClosedPeer
     $script:outputDirectory = [System.IO.Path]::GetFullPath([string]$RunState.host_export_directory)
     $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.exe"
-    if (-not (Test-Path -LiteralPath $script:hostExecutable)) { $script:hostExecutable = Join-Path $script:outputDirectory "GameFactory.console.exe" }
     $script:attemptNumber = [int]$AttemptState.attempt
     $script:result.started_utc = [string]$AttemptState.started_utc
     $script:attemptLabel = "attempt_{0:D3}" -f $script:attemptNumber
@@ -1517,7 +1517,10 @@ try {
         $result.build_mapping["host_export"] = if ($SkipExport) { "explicit_reuse" } else { "automatic_reuse" }
         Write-Harness "reusing existing host export ($($result.build_mapping["host_export"]))"
     }
-    if (-not (Test-Path $hostExecutable)) { Set-Failure "build" "output" "Host executable was not found at $hostExecutable." }
+    # Resolve only after the export helper has produced its immutable manifest.
+    # An initially empty output directory must never select the console wrapper.
+    try { $hostExecutable = Resolve-GraphicalExport $outputDirectory }
+    catch { Set-Failure "build" "output" $_.Exception.Message }
 
     $manifestPath = Join-Path $outputDirectory "build_manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) { Set-Failure "build" "build_parity" "Build manifest was not found at $manifestPath." }

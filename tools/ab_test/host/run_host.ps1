@@ -1,5 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'startup.ps1')
+$process = $null
+$logTailProcess = $null
 
 $runtimeDirectory = Join-Path $PSScriptRoot '.runtime'
 $configPath = Join-Path $runtimeDirectory 'host_config.json'
@@ -54,9 +57,7 @@ try {
         $env:APPDATA = $previousAppData
         $env:LOCALAPPDATA = $previousLocalAppData
     }
-    Start-Sleep -Seconds 3
-    $process.Refresh()
-    if ($process.HasExited) { throw "Host exited during startup (exit code $($process.ExitCode))." }
+    Wait-GameFactoryStartup $process $workingDirectory @($config.arguments) ([int]$config.startup_timeout_seconds)
 
     $logTailProcess = $null
     if ([bool]$config.show_log_window) {
@@ -81,6 +82,8 @@ try {
     }
 }
 catch {
+    if ($null -ne $process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    if ($null -ne $logTailProcess) { Stop-Process -Id $logTailProcess.Id -Force -ErrorAction SilentlyContinue }
     Write-Status @{
         result = 'failed'
         stage = $failureStage

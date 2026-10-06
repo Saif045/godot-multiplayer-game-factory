@@ -6,6 +6,7 @@ if (-not (Test-Path -LiteralPath $hashUtilsPath)) {
     $hashUtilsPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "powershell\hash_utils.ps1"
 }
 . $hashUtilsPath
+$process = $null
 
 $agentDirectory = "C:\GameFactoryAgent"
 $configPath = Join-Path $agentDirectory "client_config.json"
@@ -69,10 +70,8 @@ try {
 
     $failureStage = "client_startup"
     $process = Start-Process -FilePath $executable -ArgumentList @($config.arguments) -WorkingDirectory $exportDirectory -PassThru
-    # Start-Process returning a PID only proves that Windows accepted the
-    # request. Check the initial process state and its visible error window so
-    # a loader failure is reported as startup failure rather than a later
-    # multiplayer timeout.
+    # Retain the VM stabilization boundary: advancing this runner earlier
+    # did not pass the required immutable Retry transport acceptance.
     Start-Sleep -Seconds 3
     $process.Refresh()
     $startupWindowTitle = [string]$process.MainWindowTitle
@@ -110,6 +109,7 @@ try {
     }
 }
 catch {
+    if ($null -ne $process) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
     Write-Status @{
         result = "failed"
         stage = $failureStage
