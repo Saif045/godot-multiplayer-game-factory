@@ -111,9 +111,15 @@ public partial class OnlineGameplayShell : Node
         Label inviteFeedback = new() { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         invite.Pressed += () =>
         {
-            string? feedback = SteamInviteFeedback.Request(platform.Adapter.IsOverlayAvailable, platform.Adapter.OpenInviteOverlay);
-            inviteFeedback.Text = feedback ?? string.Empty;
-            if (feedback is not null) GameLog.Info("shell", "invite_overlay_unavailable");
+            if (platform.Adapter.IsOverlayAvailable)
+            {
+                platform.Adapter.OpenInviteOverlay();
+                inviteFeedback.Text = string.Empty;
+            }
+            else
+            {
+                inviteFeedback.Text = "Steam Overlay is unavailable. Your friend can still join from Join Game.";
+            }
         };
         box.AddChild(invite);
         box.AddChild(inviteFeedback);

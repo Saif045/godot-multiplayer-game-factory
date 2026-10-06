@@ -72,12 +72,10 @@ replacement for architecture or protocol documentation.
 
 ## Latest runtime evidence
 
-Steam launch policy explicitly keeps App 480 in development with automatic
-relaunch disabled. Overlay availability is diagnostic only; Invite Friends
-shows a Join Game fallback when unavailable. Production restart execution is
-deferred to an early native bootstrap because GodotSteam constructs Steam
-callback registrations before autoloads. No real App ID or cold-start invite
-acceptance is claimed. See [Steam integration](steam-integration.md).
+App 480 development supports direct/harness launch; Steam overlay is not
+guaranteed unless Steam owns launch. Invite Friends falls back to Join Game
+when the overlay is unavailable. Real-App-ID launch normalization remains
+future work. See [Steam integration](steam-integration.md).
 
 Windows startup investigation at `62a8cfc` did not reproduce reported
 `0xC0000142 / STATUS_DLL_INIT_FAILED`: 109/109 controlled startup probes passed
