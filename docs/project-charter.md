@@ -114,6 +114,11 @@ The factory is succeeding when:
 
 The decisive measure is how quickly a new small co-op game can become playable and production-shaped. Neither architectural breadth nor elegance is sufficient on its own; accumulated, verified leverage is the goal.
 
+Downstream game reuse is the practical measure of that success. Reusable defects
+discovered in a game feed the canonical GameFactory upstream and return through
+official releases, even when the game supplies the only full reproduction.
+[ADR 0007](decisions/0007-upstream-downstream-distribution.md) defines this relationship.
+
 ## Decision discipline
 
 Architectural decisions belong in reviewed architecture decision records when they become durable. Open questions must remain visibly open rather than being smuggled into documentation as settled design. Current open questions include the eventual composition-root form and the shape and maturity of structured error codes. The current Steam session owns its lobby and peer lifecycle; a generic transport/session layer is not retained without a second concrete need.

@@ -34,6 +34,22 @@ The project supplies configurable default input actions—`move_forward`, `move_
 
 The project vendors Maaack Game Template `bd17ed931190dd32f15d97b5d9d1e0ecc94f3844` (version `1.6.0-dev-2`, MIT) and its required Maaack Plugin Updater `b3908ffe0e336500156fe1cfca2b30bbd0e18484` (version `0.5.1`, MIT) under `addons/`. Update by reviewing a pinned upstream revision, replacing only the upstream addon folders, rerunning the Godot smoke, and preserving each upstream license/attribution. Maaack owns local shell/UI features; it does not define authoritative multiplayer lobby, run, progression, win/loss, or results state.
 
+## Using GameFactory in a real game
+
+Create a separate game repository by cloning a published GameFactory release
+while retaining its Git ancestry. Keep `origin` for the game and `gamefactory`
+for the canonical upstream; implement product mechanics under `game/` and merge
+official release tags without squashing. The [consumer guide](docs/consuming-gamefactory.md)
+covers bootstrap, ownership, updates, and upstream repair of downstream defects.
+
+## Versions and releases
+
+The intended first release is `gamefactory-v0.1`, targeting the final documentation-complete
+commit with the accepted runtime intact. Published tags are immutable; v0.x
+upgrades are deliberate and have no formal compatibility or conflict-free guarantee.
+See the [maintainer release process](docs/releasing-gamefactory.md) for acceptance,
+migration notes, provenance and publication. This documentation does not publish the tag.
+
 ## Design philosophy
 
 1. Convention for common behavior.

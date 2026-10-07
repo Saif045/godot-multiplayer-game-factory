@@ -57,6 +57,13 @@ spawn and drop state.
 
 ## Evidence and direction
 
+GameFactory is distributed as a versioned project foundation through immutable
+Git tags. Separate game repositories retain upstream ancestry and a permanent
+`gamefactory` remote, and merge releases while manually reconciling shared
+integration files. [ADR 0007](decisions/0007-upstream-downstream-distribution.md)
+defines the boundary; the [consumer guide](consuming-gamefactory.md) covers use.
+Addon/submodule packaging is deferred until real games justify a clean boundary.
+
 The Steam-gameplay probe has both manual two-account evidence and a concrete host-PC-to-VM acceptance scenario covering lobby membership, native/Godot connection, player lifecycle, NetworkWorld spawn/despawn, server-authoritative door mutation, replicated-revision acknowledgement, and distributed diagnostics. The external harness requires two real Steam accounts and is not a generic Godot integration framework or CI coverage.
 
 Future work must be justified by playable co-op slices. Potential areas include dedicated Steam servers when there is a real deployment need, persistent identity, Godot integration/multiprocess testing, CI, packaging, and gameplay primitives. Do not reintroduce a platform-neutral transport/session layer without a concrete second implementation that needs it.

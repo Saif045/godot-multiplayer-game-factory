@@ -26,6 +26,22 @@ uses.
   implementation until that required acceptance has actually run and passed.
   A build/unit/headless pass is not a substitute for required runtime evidence.
 
+## Upstream and downstream ownership
+
+- GameFactory is the canonical upstream for reusable framework changes; in a
+  consumer game, prefer game-specific implementation under `game/`.
+- Do not permanently fork GameFactory-owned paths. Temporary downstream bug
+  branches may edit them for reproduction/diagnosis; reusable fixes must move
+  upstream before permanent downstream integration through an official release.
+- Merge official release tags and preserve ancestry: do not squash release
+  merges or replace them with release cherry-picks; do not routinely merge
+  upstream `master`. Keep the consumer's permanent `gamefactory` remote.
+- Manually reconcile shared integration files, preserving game, framework and
+  dependency requirements; do not mechanically choose `ours` or `theirs`.
+- When ownership is unclear, keep behavior in the game unless a reusable
+  contract is clear. See `docs/consuming-gamefactory.md` for ownership zones,
+  bootstrap, updates and the downstream reproduction/upstream repair workflow.
+
 ## Task routing
 
 Read this file, then only the nearest relevant scoped guide and any document it

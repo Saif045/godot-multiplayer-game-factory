@@ -12,6 +12,7 @@ Architecture decision records capture durable choices that materially constrain 
 | [0004](0004-separate-peer-player-network-object-identities.md) | Keep peer, player, and network-object identities separate | Accepted |
 | [0005](0005-one-assembly-until-boundaries-justify-packaging.md) | Keep one assembly until boundaries justify packaging | Accepted |
 | [0006](0006-steam-first-session-path.md) | Use Steam/Godot as the first online session path | Accepted |
+| [0007](0007-upstream-downstream-distribution.md) | Canonical upstream and ancestry-preserving downstream release distribution | Accepted |
 
 The charter and architecture documentation contain project principles and current observations. ADRs record the durable decisions that constrain that direction.
 
