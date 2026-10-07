@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Godot;
 using GameFactory.Diagnostics;
 using GameFactory.Gameplay.Carry;
@@ -27,6 +29,17 @@ public partial class OnlineGameplayWorld : Node3D
     private PlayerLifecycle? _playerLifecycle;
     private bool _started;
 
+    public bool IsEmpty => !_started && _playerLifecycle is null &&
+        _players.Count == 0 && _peers.Count == 0 && _world.Count == 0;
+
+    public Dictionary<string, string?> StateFields() => new()
+    {
+        ["players"] = _players.Count.ToString(),
+        ["peers"] = _peers.Count.ToString(),
+        ["network_objects"] = _world.Count.ToString(),
+        ["player_lifecycle_active"] = (_playerLifecycle is not null).ToString()
+    };
+
     [Export] public PackedScene PlayerScene { get; set; } = null!;
     [Export] public PackedScene SwitchScene { get; set; } = null!;
     [Export] public PackedScene CarryableScene { get; set; } = null!;
@@ -34,13 +47,14 @@ public partial class OnlineGameplayWorld : Node3D
     public override void _Ready()
     {
         _world = GetNode<NetworkWorld>("NetworkWorld");
-        Multiplayer.PeerConnected += OnPeerConnected;
         Multiplayer.PeerDisconnected += OnPeerDisconnected;
     }
 
     public void Start()
     {
         if (_started) return;
+        if (Multiplayer.IsServer() && !IsEmpty)
+            throw new InvalidOperationException("The previous gameplay world is not empty.");
         _started = true;
 
         if (!Multiplayer.IsServer())
@@ -86,9 +100,42 @@ public partial class OnlineGameplayWorld : Node3D
         GameLog.Info("shell.gameplay", "stopped");
     }
 
+    /// <summary>Reset only round objects; the shell keeps its connected Steam session.</summary>
+    public async Task ResetRoundAsync()
+    {
+        _started = false;
+        GameLog.Info("shell.gameplay", "round_teardown_started", fields: StateFields());
+        if (Multiplayer.IsServer())
+        {
+            // Peer removal must reach the live lifecycle before it is disposed.
+            // Queued player exits release hidden items and remove GAS effects.
+            _peers.Clear();
+            await WaitUntilAsync(() => !_world.Objects.Any(obj => obj.Host is NetworkPlayer3D));
+            foreach (NetworkObject obj in _world.Objects.ToArray())
+                _world.Despawn(obj.Id);
+        }
+        // Clients observe authoritative MultiplayerSpawner despawns; they never
+        // free replicated objects themselves or reset the world's ID allocator.
+        await WaitUntilAsync(() => _world.Count == 0);
+        _playerLifecycle?.Dispose();
+        _playerLifecycle = null;
+        if (!IsEmpty) throw new InvalidOperationException("Round teardown left gameplay state registered.");
+        GameLog.Info("shell.gameplay", "round_world_cleared", fields: StateFields());
+    }
+
+    private async Task WaitUntilAsync(Func<bool> condition)
+    {
+        ulong deadline = Time.GetTicksMsec() + 10000;
+        while (!condition())
+        {
+            if (!IsInsideTree() || Time.GetTicksMsec() >= deadline)
+                throw new TimeoutException("Round world did not clear within 10 seconds.");
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
+    }
+
     public override void _ExitTree()
     {
-        Multiplayer.PeerConnected -= OnPeerConnected;
         Multiplayer.PeerDisconnected -= OnPeerDisconnected;
         Stop();
     }
@@ -103,17 +150,12 @@ public partial class OnlineGameplayWorld : Node3D
         return player.GetNetworkObject().Id;
     }
 
-    private void OnPeerConnected(long peerValue)
-    {
-        // Godot emits the server ID as the transport becomes active. It is
-        // already registered as the local server peer in Start().
-        if (_started && Multiplayer.IsServer() && peerValue > PeerId.Server.Value)
-            _peers.Add(new PeerId(peerValue), isLocal: false);
-    }
-
     private void OnPeerDisconnected(long peerValue)
     {
         if (_started && Multiplayer.IsServer())
+        {
             _peers.Remove(new PeerId(peerValue));
+            GameLog.Info("shell.gameplay", "gameplay_peer_left", fields: StateFields());
+        }
     }
 }

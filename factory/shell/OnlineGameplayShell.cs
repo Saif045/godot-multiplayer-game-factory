@@ -18,13 +18,21 @@ public partial class OnlineGameplayShell : Node
     private OnlineGameplayWorld _gameplay = null!;
     private Control? _lobby;
     private GameFactory.Steam.ISteamAdapter? _adapter;
-    private bool _gameStarted;
-    private bool _clientPhaseReadySent;
+    private enum Phase { Lobby, Gameplay, Transitioning }
+    private Phase _phase = Phase.Lobby;
+    private int _lobbyRevision;
+    private int _round;
+    private int _clientReadyRevision = -1;
+    private readonly HashSet<long> _clearedPeers = new();
+    private Task? _returnTask;
     private bool _leaving;
     private readonly HashSet<SteamUserId> _expectedParticipants = new();
     private readonly HashSet<SteamUserId> _readyParticipants = new();
     private readonly Dictionary<PeerId, SteamUserId> _readyPeerUsers = new();
     private readonly string _sessionGeneration = Guid.NewGuid().ToString("N");
+
+    public bool CanReturnToLobby() => !_leaving && _phase == Phase.Gameplay && Multiplayer.IsServer();
+    public bool CanLeaveGame() => !_leaving && _phase != Phase.Transitioning;
 
     public override async void _Ready()
     {
@@ -61,7 +69,7 @@ public partial class OnlineGameplayShell : Node
             }
 
             ShowLobby();
-            GameLog.Info("shell", "lobby_entered");
+            GameLog.Info("shell", "lobby_entered", fields: ReadinessFields());
         }
         catch (Exception exception)
         {
@@ -81,6 +89,99 @@ public partial class OnlineGameplayShell : Node
         await _session.LeaveAsync();
     }
 
+    public Task ReturnToLobbyAsync()
+    {
+        if (!CanReturnToLobby()) return _returnTask ?? Task.CompletedTask;
+        _phase = Phase.Transitioning;
+        _returnTask = ReturnRoundAsync();
+        return _returnTask;
+    }
+
+    private async Task ReturnRoundAsync()
+    {
+        try
+        {
+            GameLog.Info("shell", "round_end_requested", fields: ReadinessFields());
+            _lobbyRevision++;
+            _readyParticipants.Clear();
+            _readyPeerUsers.Clear();
+            _clearedPeers.Clear();
+            long[] participants = Multiplayer.GetPeers().Where(peer => peer > PeerId.Server.Value).Select(peer => (long)peer).ToArray();
+            Rpc(MethodName.ResetRoundRpc, _lobbyRevision);
+            ClosePauseMenu();
+            await _gameplay.ResetRoundAsync();
+            ulong deadline = Time.GetTicksMsec() + 10000;
+            while (participants.Any(peer => Multiplayer.GetPeers().Contains((int)peer) && !_clearedPeers.Contains(peer)))
+            {
+                if (_leaving || !IsInsideTree() || Time.GetTicksMsec() >= deadline)
+                    throw new TimeoutException("Participants did not confirm an empty world within 10 seconds.");
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+            if (_leaving) return;
+            _phase = Phase.Lobby;
+            RefreshExpectedParticipants(_adapter!);
+            Rpc(MethodName.LobbyPhaseRpc, _lobbyRevision);
+            _adapter!.SetLobbyJoinable(true);
+            _adapter.SetRichPresence("connect", $"+connect_lobby {_adapter.CurrentLobby!.Id}");
+            _adapter.SetRichPresence("gamefactory_protocol", "1");
+            ShowLobby();
+            GameLog.Info("shell", "round_returned_to_lobby", fields: ReadinessFields());
+            GameLog.Info("shell", "lobby_phase_started", fields: ReadinessFields());
+        }
+        catch (Exception exception)
+        {
+            // Never advertise or start a partially reset world. A failed reset
+            // terminates the session instead of weakening the despawn contract.
+            if (_leaving) return;
+            GameLog.Error("shell", "round_reset_failed", exception.Message, ReadinessFields());
+            _phase = Phase.Gameplay;
+            GetNode<GameShell>("/root/GameShell").LeaveGame();
+        }
+        finally { _returnTask = null; }
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private async void ResetRoundRpc(int revision)
+    {
+        if (_leaving || _phase != Phase.Gameplay || revision != _lobbyRevision + 1) return;
+        _lobbyRevision = revision;
+        _phase = Phase.Transitioning;
+        ClosePauseMenu();
+        try
+        {
+            await _gameplay.ResetRoundAsync();
+            if (!_leaving) RpcId(PeerId.Server.Value, MethodName.ClientWorldClearedRpc, revision);
+        }
+        catch (Exception exception)
+        {
+            if (_leaving) return;
+            GameLog.Error("shell", "round_reset_failed", exception.Message, ReadinessFields());
+            _phase = Phase.Gameplay;
+            GetNode<GameShell>("/root/GameShell").LeaveGame();
+        }
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ClientWorldClearedRpc(int revision)
+    {
+        long peer = Multiplayer.GetRemoteSenderId();
+        if (Multiplayer.IsServer() && _phase == Phase.Transitioning && revision == _lobbyRevision &&
+            peer > PeerId.Server.Value && Multiplayer.GetPeers().Contains((int)peer))
+        {
+            _clearedPeers.Add(peer);
+            GameLog.Info("shell", "round_peer_world_cleared", fields: ReadinessFields(new() { ["peer_id"] = peer.ToString() }));
+        }
+    }
+
+    private void ClosePauseMenu()
+    {
+        Node controller = GetNode("PauseMenuController");
+        Variant menu = controller.Get("pause_menu");
+        if (menu.AsGodotObject() is Node pause) pause.Call("close");
+        GetTree().Paused = false;
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+    }
+
     public override void _ExitTree()
     {
         if (_adapter is not null) _adapter.LobbyUpdated -= RefreshLobby;
@@ -94,6 +195,10 @@ public partial class OnlineGameplayShell : Node
 
     private void ShowLobby()
     {
+        if (_phase != Phase.Lobby || _leaving || _lobby is not null) return;
+        GetTree().Paused = false;
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+        GetNode("PauseMenuController").ProcessMode = ProcessModeEnum.Disabled;
         var panel = new PanelContainer { Name = "Lobby" };
         panel.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         var box = new VBoxContainer { CustomMinimumSize = new Vector2(360, 0), Position = new Vector2(32, 32) };
@@ -203,7 +308,7 @@ public partial class OnlineGameplayShell : Node
 
     private void StartGame()
     {
-        if (!Multiplayer.IsServer()) return;
+        if (!Multiplayer.IsServer() || _leaving || _phase != Phase.Lobby) return;
 
         SteamPlatform platform = GetNode<SteamPlatform>("/root/SteamPlatform");
         RefreshExpectedParticipants(platform.Adapter);
@@ -217,21 +322,43 @@ public partial class OnlineGameplayShell : Node
         // This slice supports assembling a lobby before play begins. Netfox's
         // dynamic-world bootstrap is not yet a supported late-join contract,
         // so stop Steam discovery before any peer enters the running world.
+        _phase = Phase.Transitioning;
+        _round++;
+        GameLog.Info("shell", "round_start_requested", fields: ReadinessFields());
         platform.Adapter.SetLobbyJoinable(false);
         platform.Adapter.ClearRichPresence();
-        _gameStarted = true;
         GameLog.Info("shell", "start_committed", fields: ReadinessFields());
         GameLog.Info("shell", "lobby_closed_for_gameplay");
-        Rpc(nameof(EnterGameplayRpc));
-        EnterGameplayRpc();
+        Rpc(MethodName.EnterGameplayRpc, _lobbyRevision, _round);
+        EnterGameplayRpc(_lobbyRevision, _round);
     }
 
     private void OnConnectedToServer()
     {
-        if (_clientPhaseReadySent || Multiplayer.IsServer()) return;
-        _clientPhaseReadySent = true;
-        RpcId(PeerId.Server.Value, MethodName.ClientReadyForPhaseRpc);
-        GameLog.Info("shell", "client_phase_ready_sent");
+        if (Multiplayer.IsServer() || _leaving) return;
+        // A rejoining client must learn the host's current revision first.
+        RpcId(PeerId.Server.Value, MethodName.RequestLobbyPhaseRpc);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void RequestLobbyPhaseRpc()
+    {
+        long peer = Multiplayer.GetRemoteSenderId();
+        if (Multiplayer.IsServer() && _phase == Phase.Lobby && !_leaving && peer > PeerId.Server.Value)
+            RpcId(peer, MethodName.LobbyPhaseRpc, _lobbyRevision);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void LobbyPhaseRpc(int revision)
+    {
+        if (_leaving || revision < _lobbyRevision || _phase == Phase.Gameplay || !_gameplay.IsEmpty) return;
+        _lobbyRevision = revision;
+        _phase = Phase.Lobby;
+        ShowLobby();
+        if (_clientReadyRevision == revision) return;
+        _clientReadyRevision = revision;
+        RpcId(PeerId.Server.Value, MethodName.ClientReadyForPhaseRpc, revision);
+        GameLog.Info("shell", "lobby_phase_ready_sent", fields: ReadinessFields());
     }
 
     private void OnPeerConnected(long peerValue)
@@ -239,7 +366,7 @@ public partial class OnlineGameplayShell : Node
         if (!Multiplayer.IsServer() || peerValue <= PeerId.Server.Value)
             return;
 
-        if (!_gameStarted)
+        if (_phase == Phase.Lobby && !_leaving)
         {
             GameLog.Info("shell", "peer_connected", fields: new Dictionary<string, string?>
             {
@@ -297,17 +424,27 @@ public partial class OnlineGameplayShell : Node
         }
         finally
         {
-            GetNode<GameShell>("/root/GameShell").GameplayLaunchFailed("host_game_already_started");
+            GetNode<GameShell>("/root/GameShell").GameplayLaunchFailed("The host closed the session or the connection was lost.");
         }
     }
 
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
-    private void ClientReadyForPhaseRpc()
+    private void ClientReadyForPhaseRpc(int revision)
     {
         if (!Multiplayer.IsServer()) return;
         long peerId = Multiplayer.GetRemoteSenderId();
         if (peerId <= PeerId.Server.Value) return;
+        if (_leaving || _phase != Phase.Lobby || revision != _lobbyRevision)
+        {
+            GameLog.Warning("shell", "lobby_phase_ready_rejected", fields: ReadinessFields(new()
+            {
+                ["peer_id"] = peerId.ToString(), ["received_revision"] = revision.ToString(),
+                ["reason"] = "stale_revision_or_phase"
+            }));
+            return;
+        }
         SteamPlatform platform = GetNode<SteamPlatform>("/root/SteamPlatform");
+        RefreshExpectedParticipants(platform.Adapter);
         PeerId peer = new(peerId);
         if (!platform.Adapter.TryGetSteamUserForPeer(peer, out SteamUserId userId) ||
             !_expectedParticipants.Contains(userId))
@@ -324,20 +461,12 @@ public partial class OnlineGameplayShell : Node
         {
             ["peer_id"] = peerId.ToString(),
             ["steam_user_id"] = userId.ToString(),
-            ["game_started"] = _gameStarted.ToString(),
+            ["lobby_revision"] = _lobbyRevision.ToString(),
             ["session_generation"] = _sessionGeneration
         });
-        if (_gameStarted)
-        {
-            GameLog.Warning("shell", "late_join_ready_rejected", fields: new Dictionary<string, string?>
-            {
-                ["peer_id"] = peerId.ToString()
-            });
-            return;
-        }
-
         _readyParticipants.Add(userId);
         _readyPeerUsers[peer] = userId;
+        GameLog.Info("shell", "lobby_phase_ready_received", fields: ReadinessFields(new() { ["peer_id"] = peerId.ToString() }));
         GameLog.Info("shell", "participant_ready", fields: ReadinessFields(new Dictionary<string, string?>
         {
             ["steam_user_id"] = userId.ToString(),
@@ -371,7 +500,7 @@ public partial class OnlineGameplayShell : Node
             });
         }
 
-        if (current.Contains(adapter.LocalUser.Id))
+        if (Multiplayer.IsServer() && _phase == Phase.Lobby && current.Contains(adapter.LocalUser.Id))
             _readyParticipants.Add(adapter.LocalUser.Id);
         _readyParticipants.IntersectWith(_expectedParticipants);
         foreach (PeerId peer in _readyPeerUsers.Where(pair => !_readyParticipants.Contains(pair.Value)).Select(pair => pair.Key).ToArray())
@@ -382,6 +511,7 @@ public partial class OnlineGameplayShell : Node
     }
 
     private bool IsReadyToStart() =>
+        !_leaving && _phase == Phase.Lobby && _gameplay.IsEmpty &&
         _expectedParticipants.Count > 0 && _expectedParticipants.SetEquals(_readyParticipants);
 
     private Dictionary<string, string?> ReadinessFields(Dictionary<string, string?>? fields = null)
@@ -390,17 +520,28 @@ public partial class OnlineGameplayShell : Node
         fields["expected_count"] = _expectedParticipants.Count.ToString();
         fields["ready_count"] = _readyParticipants.Count.ToString();
         fields["session_generation"] = _sessionGeneration;
+        fields["lobby_revision"] = _lobbyRevision.ToString();
+        fields["round"] = _round.ToString();
+        fields["phase"] = _phase.ToString();
+        fields["lobby_id"] = _adapter?.CurrentLobby?.Id.ToString();
+        fields["session_state"] = _session?.State.ToString();
+        fields["steam_peer_instance"] = _session?.ActivePeer?.GetInstanceId().ToString();
+        foreach (var pair in _gameplay.StateFields()) fields[pair.Key] = pair.Value;
         return fields;
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
-    private void EnterGameplayRpc()
+    private void EnterGameplayRpc(int revision, int round)
     {
-        _gameStarted = true;
+        if (_leaving || revision != _lobbyRevision || _phase == Phase.Gameplay) return;
+        _round = round;
+        _phase = Phase.Gameplay;
+        GetNode("PauseMenuController").ProcessMode = ProcessModeEnum.Inherit;
         _lobby?.QueueFree();
         _lobby = null;
         _gameplay.Start();
         GetNode<GameShell>("/root/GameShell").GameEntered();
         GameLog.Info("shell", "gameplay_entered");
+        GameLog.Info("shell", "round_started", fields: ReadinessFields());
     }
 }

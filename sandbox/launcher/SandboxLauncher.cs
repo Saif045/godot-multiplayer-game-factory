@@ -22,7 +22,9 @@ public partial class SandboxLauncher : Node
             ["netfox"] = "res://sandbox/netfox/netfox_time_probe.tscn",
             ["netfox-gameplay"] = "res://sandbox/netfox/netfox_gameplay_probe.tscn",
             ["netfox-player-3d"] = "res://sandbox/netfox/netfox_player_3d_probe.tscn",
-            ["gas-interop"] = "res://sandbox/gas/godot_gas_interop_probe.tscn"
+            ["gas-interop"] = "res://sandbox/gas/godot_gas_interop_probe.tscn",
+            ["round-reuse"] = "res://sandbox/shell/round_reuse_probe.tscn",
+            ["round-rpc"] = "res://sandbox/shell/round_rpc_probe.tscn"
         };
 
     public override void _Ready()
@@ -32,6 +34,13 @@ public partial class SandboxLauncher : Node
         string target = ReadTarget(
             OS.GetCmdlineArgs()
                 .Concat(OS.GetCmdlineUserArgs()));
+        if (target == "shell-readiness")
+        {
+            GetTree().Root.CallDeferred(Node.MethodName.AddChild,
+                new GameFactory.Sandbox.Shell.ShellReadinessProbe { Name = "ShellReadinessProbe" });
+            GetTree().CallDeferred(SceneTree.MethodName.ChangeSceneToFile, "res://factory/shell/main_menu.tscn");
+            return;
+        }
         if (!ScenePaths.TryGetValue(target, out string? scenePath))
         {
             GD.PushError(

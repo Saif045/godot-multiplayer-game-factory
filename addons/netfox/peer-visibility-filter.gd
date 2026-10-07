@@ -1,6 +1,5 @@
 extends Node
 class_name PeerVisibilityFilter
-const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## Tracks visibility for multiplayer peers
 ##
@@ -9,7 +8,7 @@ const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trac
 ## [br][br]
 ## By default, each peer's visibility is determined by
 ## [member default_visibility]. [br][br]
-## The default visibility can be overridden for individual peers using 
+## The default visibility can be overridden for individual peers using
 ## [method set_visibility_for] and [method unset_visibility_for].
 ## [br][br]
 ## Individual overrides can still be rejected by [i]filters[/i], which are
@@ -19,7 +18,7 @@ const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trac
 ## [member remove_visibility_filter].
 ## [br][br]
 ## To avoid taking up too much CPU time, visibilities are only recalculated on
-## a peer join or peer leave event by default. This can be changed by setting 
+## a peer join or peer leave event by default. This can be changed by setting
 ## [member update_mode]. Visibilities can also be manually updated using
 ## [member update_visibility].
 
@@ -110,8 +109,6 @@ func update_visibility(peers: PackedInt32Array = multiplayer.get_peers()) -> voi
 		# Don't include self in RPC target list
 		if multiplayer:
 			_rpc_target_peers.erase(multiplayer.get_unique_id())
-
-	_gf_trace.record(self, "visibility_update", {"visible": _visible_peers, "rpc_targets": _rpc_target_peers})
 
 ## Return a list of visible peers
 ## [br][br]

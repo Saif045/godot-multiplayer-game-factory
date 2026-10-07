@@ -1,8 +1,13 @@
 # Netfox Scope
 
 Read this guide and `docs/netfox-integration.md` before changing Netfox or a
-rollback-player composition. Netfox is pinned to v1.35.3; do not blindly update
+rollback-player composition. Netfox is pinned to source commit
+`38f59778b02bfd1a3dedc7dcc985945d7058858d` (reports 1.49.3); do not blindly update
 upstream or introduce a parallel rollback/reconciliation system.
+
+The upgrade and round reuse have accepted Steam A/B and focused guard/role
+evidence. See `docs/session-reuse-acceptance.md` for the tested contract and
+`docs/netfox-compatibility-spike.md` for provenance and local regression evidence.
 
 - Steam is transport below Godot `MultiplayerAPI`; Netfox owns time sync,
   history, prediction, rollback/resimulation, and interpolation.

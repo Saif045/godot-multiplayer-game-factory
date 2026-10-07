@@ -1,10 +1,9 @@
 extends Node
 class_name NetworkTickrateHandshake
-const _gf_trace = preload("res://factory/networking/netfox/netfox_lifecycle_trace.gd")
 
 ## Internal class to manage the tickrate handshake.
 ##
-## Whenever a new peer joins, they exchange their configured tickrate with the 
+## Whenever a new peer joins, they exchange their configured tickrate with the
 ## host. If the tickrate mismatches, a warning is emitted by default, as this is
 ## assumed to be a developer mistake.
 ## [br][br]
@@ -30,7 +29,7 @@ var mismatch_action: int = ProjectSettings.get_setting(&"netfox/time/tickrate_mi
 
 static var _logger := NetfoxLogger._for_netfox("NetworkTickrateHandshake")
 
-## Emitted when a tickrate mismatch is encountered, and [member mismatch_action] is set to 
+## Emitted when a tickrate mismatch is encountered, and [member mismatch_action] is set to
 ## [constant SIGNAL].
 signal on_tickrate_mismatch(peer: int, tickrate: int)
 
@@ -41,16 +40,14 @@ signal on_tickrate_mismatch(peer: int, tickrate: int)
 ## [br][br]
 ## Called by [_NetworkTime], no need to call manually.
 func run() -> void:
-	if multiplayer.is_server():
+	if _is_authority():
 		# Broadcast tickrate
-		_gf_trace.record(self, "tickrate_send", {"target": 0, "call": "rpc"})
 		_submit_tickrate.rpc(NetworkTime.tickrate)
-		
+
 		# Submit tickrate to anyone joining
 		multiplayer.peer_connected.connect(_handle_new_peer)
 	else:
 		# Submit tickrate to host
-		_gf_trace.record(self, "tickrate_send", {"target": 1, "call": "rpc_id"})
 		_submit_tickrate.rpc_id(1, NetworkTime.tickrate)
 
 ## Stop the tickrate handshake.
@@ -64,8 +61,7 @@ func _ready() -> void:
 	name = "NetworkTickrateHandshake"
 
 func _handle_new_peer(peer: int) -> void:
-	if multiplayer.is_server():
-		_gf_trace.record(self, "tickrate_send", {"target": peer, "call": "rpc_id", "trigger_peer": peer})
+	if _is_authority():
 		_submit_tickrate.rpc_id(peer, NetworkTime.tickrate)
 
 func _handle_tickrate_mismatch(peer: int, tickrate: int) -> void:
@@ -78,24 +74,27 @@ func _handle_tickrate_mismatch(peer: int, tickrate: int) -> void:
 					NetworkTime.tickrate, peer, tickrate
 				])
 		DISCONNECT:
-			if multiplayer.is_server():
+			if _is_authority():
 				_logger.warning("Peer #%d's tickrate of %dtps differs from expected %dtps! Disconnecting.", [
 					peer, tickrate, NetworkTime.tickrate
 				])
 				multiplayer.multiplayer_peer.disconnect_peer(peer)
 		ADJUST:
-			if not multiplayer.is_server():
+			if not _is_authority():
 				_logger.info("Local tickrate %dtps differs from tickrate of host at %dtps! Adjusting.", [
 					NetworkTime.tickrate, tickrate
 				])
 				# TODO: Make tickrate mutable at user's digression
-				ProjectSettings.set_setting(&"netfox/time/tickrate", tickrate)
+				NetworkTime._tickrate = tickrate
 		SIGNAL:
 			on_tickrate_mismatch.emit(peer, tickrate)
 
+func _is_authority() -> bool:
+	# HACK: This method is here to ease testing; pretending to be a client is messy from a unit test
+	return multiplayer.is_server()
+
 @rpc("any_peer", "reliable", "call_remote")
 func _submit_tickrate(tickrate: int) -> void:
-	_gf_trace.record(self, "tickrate_receive", {"tickrate": tickrate})
 	var sender := multiplayer.get_remote_sender_id()
 	_logger.debug("Received tickrate %d from peer %d", [tickrate, sender])
 

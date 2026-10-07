@@ -94,9 +94,19 @@ public partial class GameShell : Node
     public void PauseOpened() => GameLog.Info("shell", "pause_opened");
     public void PauseClosed() => GameLog.Info("shell", "pause_closed");
 
+    public bool CanReturnToLobby() => GetTree().CurrentScene is OnlineGameplayShell gameplay && gameplay.CanReturnToLobby();
+
+    public async void ReturnToLobby()
+    {
+        if (GetTree().CurrentScene is OnlineGameplayShell gameplay && gameplay.CanReturnToLobby())
+            await gameplay.ReturnToLobbyAsync();
+    }
+
     public async void LeaveGame()
     {
         if (_leaveInProgress)
+            return;
+        if (GetTree().CurrentScene is OnlineGameplayShell current && !current.CanLeaveGame())
             return;
 
         _leaveInProgress = true;

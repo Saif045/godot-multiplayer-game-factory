@@ -10,9 +10,16 @@ replacement for architecture or protocol documentation.
 - Steam lobby/peer lifecycle isolation is accepted for tested fresh join,
   same-lobby rejoin, new-lobby reuse, and role reversal; retained closed peers
   sent no stale handshakes.
-- The reusable Netfox v1.35.3 `CharacterBody3D` player composition is
+- The reusable Netfox source pin `38f59778b02bfd1a3dedc7dcc985945d7058858d`
+  (reports 1.49.3) `CharacterBody3D` player composition is
   acceptance-proven: split server-state/client-input authority, rollback,
   interpolation, bidirectional walking/jumping, and queued one-shot jump.
+- Gameplay → Lobby → Gameplay session reuse is acceptance-proven: fresh round
+  state, monotonic object/Netfox identities while the host peer remains live,
+  graceful leave/rejoin, equipped-client disconnect cleanup, terminal host
+  Leave, stale-readiness rejection, and same-process role reversal. Real late
+  input is safely skipped by the persistent Netfox receiver; no cached-node or
+  invalid-packet RPC errors appeared. See [acceptance evidence](session-reuse-acceptance.md).
 - The host-PC -> SSH/SCP -> GPU-P Hyper-V guest release and interactive-task
   path has verified build parity and cleanup behavior.
 

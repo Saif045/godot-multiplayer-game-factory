@@ -28,6 +28,7 @@ param(
     [switch]$FreshTransport,
     [switch]$SteamTransportTrace,
     [switch]$NetfoxLifecycleTrace,
+    [switch]$ShellReadinessProbe,
     [switch]$SteamTransportRetainClosedPeer,
     [string]$VmName = "Game-Testing-VM",
     [ValidateRange(30, 600)]
@@ -113,6 +114,7 @@ if ($Mode -eq "Retry") {
     $Scenario = [string]$retryState.scenario
     # Keep the diagnostic configuration frozen across immutable-build attempts.
     $NetfoxLifecycleTrace = $null -ne $retryState.PSObject.Properties['netfox_lifecycle_trace'] -and [bool]$retryState.netfox_lifecycle_trace
+    $ShellReadinessProbe = $null -ne $retryState.PSObject.Properties['shell_readiness_probe'] -and [bool]$retryState.shell_readiness_probe
     $SteamTransportTrace = $null -ne $retryState.PSObject.Properties['steam_transport_trace'] -and [bool]$retryState.steam_transport_trace
     $SteamTransportRetainClosedPeer = $null -ne $retryState.PSObject.Properties['steam_transport_retain_closed_peer'] -and [bool]$retryState.steam_transport_retain_closed_peer
     $ExpectedManifestSha256 = [string]$retryState.manifest_sha256
@@ -169,6 +171,7 @@ $result = [ordered]@{
     result = "failed"
     test_run_id = $runId
     scenario = $Scenario
+    shell_readiness_probe = [bool]$ShellReadinessProbe
     netfox_lifecycle_trace = [bool]$NetfoxLifecycleTrace
     steam_transport_trace = [bool]$SteamTransportTrace
     steam_transport_retain_closed_peer = [bool]$SteamTransportRetainClosedPeer
@@ -1195,6 +1198,8 @@ function Get-RunAttempt([object]$RunState, [int]$RequestedAttempt) {
 
 function Set-ExistingAttemptContext([object]$RunState, [object]$AttemptState) {
     $script:Scenario = [string]$RunState.scenario
+    $script:ShellReadinessProbe = $null -ne $RunState.PSObject.Properties['shell_readiness_probe'] -and [bool]$RunState.shell_readiness_probe
+    $script:result.shell_readiness_probe = [bool]$script:ShellReadinessProbe
     $script:NetfoxLifecycleTrace = $null -ne $RunState.PSObject.Properties['netfox_lifecycle_trace'] -and [bool]$RunState.netfox_lifecycle_trace
     $script:result.netfox_lifecycle_trace = [bool]$script:NetfoxLifecycleTrace
     $script:SteamTransportTrace = $null -ne $RunState.PSObject.Properties['steam_transport_trace'] -and [bool]$RunState.steam_transport_trace
@@ -1236,7 +1241,8 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
         attempt = $attemptNumber
         evidence_attempt_id = $attemptEvidenceId
         scenario = $Scenario
-        netfox_lifecycle_trace = [bool]$NetfoxLifecycleTrace
+        shell_readiness_probe = [bool]$ShellReadinessProbe
+    netfox_lifecycle_trace = [bool]$NetfoxLifecycleTrace
         steam_transport_trace = [bool]$SteamTransportTrace
         steam_transport_retain_closed_peer = [bool]$SteamTransportRetainClosedPeer
         lifecycle = $Lifecycle
@@ -1263,6 +1269,7 @@ function Save-RunAndAttemptState([string]$Lifecycle, [bool]$CleanupVerified, [ob
             schema_version = 1
             run_id = $runId
             scenario = $Scenario
+            shell_readiness_probe = [bool]$ShellReadinessProbe
             netfox_lifecycle_trace = [bool]$NetfoxLifecycleTrace
             steam_transport_trace = [bool]$SteamTransportTrace
             steam_transport_retain_closed_peer = [bool]$SteamTransportRetainClosedPeer
@@ -1604,6 +1611,7 @@ try {
     New-Item -ItemType File -Path $hostConsolePath -Force | Out-Null
     $hostArguments = @("--rendering-method", "gl_compatibility", "--log-file", $hostGodotLogPath, "--test-run-id=$attemptEvidenceId")
     if ($NetfoxLifecycleTrace) { $hostArguments += "--netfox-lifecycle-trace" }
+    if ($ShellReadinessProbe) { $hostArguments += "--run=shell-readiness" }
     if ($SteamTransportTrace) { $hostArguments += "--steam-transport-trace" }
     if ($SteamTransportRetainClosedPeer) { $hostArguments += "--steam-transport-retain-closed-peer" }
     if ($Scenario -ne "shell_manual") { $hostArguments += @("--run=$runTarget", "--steam-host", "--test-scenario=$Scenario") }
@@ -1632,6 +1640,7 @@ try {
         $result.stage = "client_launch"
         $clientArguments = @("--rendering-method", "gl_compatibility", "--log-file", $vmGodotLogPath, "--test-run-id=$attemptEvidenceId")
         if ($NetfoxLifecycleTrace) { $clientArguments += "--netfox-lifecycle-trace" }
+        if ($ShellReadinessProbe) { $clientArguments += "--run=shell-readiness" }
         if ($SteamTransportTrace) { $clientArguments += "--steam-transport-trace" }
         if ($SteamTransportRetainClosedPeer) { $clientArguments += "--steam-transport-retain-closed-peer" }
         Write-ClientConfig "launch" $clientArguments $manifest $manifestHash $vmExecutable

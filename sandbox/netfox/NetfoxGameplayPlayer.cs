@@ -299,7 +299,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         long networkTimeTick = networkTime.Get("tick").AsInt64();
         long rollbackTick = GetNode<Node>("/root/NetworkRollback").Get("tick").AsInt64();
         long lastKnownInputTick = rollbackSynchronizer.Call("get_last_known_input").AsInt64();
-        long lastKnownStateTick = rollbackSynchronizer.Call("get_last_known_state").AsInt64();
+        long lastKnownStateTick = LatestStateTick(rollbackSynchronizer, networkTimeTick);
         bool hasInput = rollbackSynchronizer.Call("has_input").AsBool();
         bool isPredicting = rollbackSynchronizer.Call("is_predicting").AsBool();
 
@@ -360,7 +360,7 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         long networkTimeTick = GetNode<Node>("/root/NetworkTime").Get("tick").AsInt64();
         long rollbackTick = GetNode<Node>("/root/NetworkRollback").Get("tick").AsInt64();
         long lastKnownInputTick = rollbackSynchronizer.Call("get_last_known_input").AsInt64();
-        long lastKnownStateTick = rollbackSynchronizer.Call("get_last_known_state").AsInt64();
+        long lastKnownStateTick = LatestStateTick(rollbackSynchronizer, networkTimeTick);
         TrackHistoryCadence(ref _lastKnownInputTick, lastKnownInputTick,
             ref _inputAdvanceEvents, ref _largestInputTickAdvance);
         TrackHistoryCadence(ref _lastKnownStateTick, lastKnownStateTick,
@@ -424,6 +424,13 @@ public partial class NetfoxGameplayPlayer : Node2D, INetworkSpawnInitializable
         _stateAdvanceEvents = 0;
         _largestInputTickAdvance = 0;
         _largestStateTickAdvance = 0;
+    }
+
+    private long LatestStateTick(Node synchronizer, long tick)
+    {
+        GodotObject properties = synchronizer.Get("_state_properties").AsGodotObject();
+        return GetNode<Node>("/root/NetworkHistoryServer")
+            .Call("get_latest_state_tick_for", properties.Call("get_subjects"), tick).AsInt64();
     }
 
     private static int? CalculateAge(long currentTick, long knownTick) => knownTick < 0 ? null : checked((int)(currentTick - knownTick));

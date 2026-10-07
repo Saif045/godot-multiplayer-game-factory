@@ -2,7 +2,8 @@
 
 ## Scope and status
 
-Netfox v1.35.3 is the pinned native GDScript rollback dependency for the
+Netfox source commit `38f59778b02bfd1a3dedc7dcc985945d7058858d` (reports 1.49.3)
+is the pinned native GDScript rollback dependency for the
 acceptance-proven Steam-backed two-player movement/player slice. GameFactory
 uses it selectively for responsive deterministic simulation; it does not
 introduce GAS, NetfoxSharp, Noray, a parallel reconciliation system, or a
@@ -35,42 +36,31 @@ unchanged.
 | Field | Value |
 |---|---|
 | Dependency | `foxssake/netfox` |
-| Version | `v1.35.3` |
-| Upstream archive | `netfox.v1.35.3.zip` |
-| Archive SHA-256 | `aba89f4e43031cadd643483904dd0844ea89368f72815cad343d02a21f795fb7` |
+| Version | Reports 1.49.3; upstream upgrade notes still say Unreleased |
+| Source commit | `38f59778b02bfd1a3dedc7dcc985945d7058858d` |
 | Vendored paths | `addons/netfox/`, `addons/netfox.internals/` |
 | Excluded | `netfox.noray`, NetfoxSharp, Netfox extras |
 
-The archive is preserved upstream under the normal addon layout. Both upstream
-editor plugins are enabled in `project.godot`; they manage the five Netfox
-autoloads: `NetworkTime`, `NetworkTimeSynchronizer`, `NetworkRollback`,
-`NetworkEvents`, and `NetworkPerformance`. Their generated autoload entries are
-not hand-authored replacements for the plugin mechanism.
+Both upstream plugins remain enabled. Their twelve autoloads include the five
+original time/rollback/event/performance nodes plus RollbackSimulationServer,
+NetworkHistoryServer, NetworkSynchronizationServer, NetworkIdentityServer,
+NetworkCommandServer, RollbackLivenessServer and InterpolationServer. Explicit
+settings preserve history64, input broadcastfalse and full-state interval24.
 
-The vendored `RollbackSynchronizer.get_last_known_input()` has a local
-source-level correction: it calls `_PropertyHistoryBuffer.get_latest_tick()`
-rather than `keys()`. The latter is a `Dictionary` API and causes a runtime
-error because `_PropertyHistoryBuffer` is a `RefCounted` wrapper. This keeps
-the documented public accessor usable for diagnostics; it does not alter
-history retention, authority, prediction, transport, or gameplay behavior.
+The old per-player `_submit_input` receiver and local history-accessor fix are
+retired. Input commands now enter persistent NetworkCommandServer; snapshot
+serialization consumes the payload before resolving identity and skips unknown
+subjects safely. NetworkIdentityServer IDs and NetworkObject paths must remain
+monotonic during a live peer; never call identity `clear()` during round reuse.
 
-`NetworkEvents` also carries a narrow v1.35.3 lifecycle correction: a
-listen-server close's `server_disconnected` notification is paired with the
-active server role immediately, while client-stop requires a started client
-role. Clearing the cached role prevents a second stop from the server frame
-check and prevents a time-loop frame after peer detachment. NetworkEvents
-remains the only start/stop owner; `NetworkTime.start()` keeps its duplicate
-warning and RPC routing remains unchanged.
-
-Opt-in diagnostic hooks in NetworkEvents, NetworkTime, NetworkTimeSynchronizer,
-NetworkTickrateHandshake, PeerVisibilityFilter, RollbackSynchronizer, and
-RollbackHistoryTransmitter use the factory `netfox_lifecycle_trace.gd` helper.
-Enable both peers through `tools/ab_test/run.ps1 -NetfoxLifecycleTrace` or
-`--netfox-lifecycle-trace`. `NFTRACE` records capture lifecycle/authority/targets;
-state RPC samples are rate-limited with exact totals at stop. Default runs are
-quiet. Version checks, exact local deltas, baseline limitations, and accepted
-fresh-gameplay/process-reuse evidence are recorded in
-[Netfox lifecycle investigation](netfox-lifecycle-investigation.md).
+The existing NetworkEvents listen-server role-pairing correction and its
+opt-in NFTRACE remain. NetworkEvents alone owns NetworkTime start/stop. Other
+old vendor trace hooks were retired with the coherent upstream replacement.
+Use `tools/ab_test/run.ps1 -NetfoxLifecycleTrace` for lifecycle evidence;
+ordinary upstream identity logs provide ID/path samples. The source delta and
+held-unreliable-input regression are in [the compatibility report](netfox-compatibility-spike.md).
+Steam gameplay, round/session reuse, guard rejection and same-process role
+reversal acceptance are in [session reuse acceptance](session-reuse-acceptance.md).
 
 On a fresh import Godot may need one clean editor restart after the plugins
 first add their interdependent autoloads. The first activation can compile
@@ -143,7 +133,7 @@ only from `_rollback_tick`, and applies `NetworkTime.physics_factor` only
 around `move_and_slide()`, as required by Netfox's CharacterBody integration.
 `Presentation` remains outside rollback state and is the interpolation target.
 
-The input node deliberately uses the core v1.35.3 `before_tick_loop` pattern,
+The input node deliberately uses the core `before_tick_loop` pattern,
 rather than adding `netfox.extras` solely for `BaseNetInput`. Extras is not
 otherwise needed or vendored, and keeping the two inputs in the prefab makes
 the rollback contract inspectable. Movement is sampled each tick; a physical
