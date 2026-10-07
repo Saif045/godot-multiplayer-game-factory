@@ -1,6 +1,6 @@
 # GameFactory
 
-GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games. It supports player-hosted/listen-server and future dedicated-server games, with server-authoritative shared gameplay as the default.
+GameFactory is a reusable Godot C# foundation for rapidly building small-session online co-op games. The accepted v0.1 foundation uses Steam player-hosted/listen-server sessions, with server-authoritative shared gameplay as the default. Dedicated Steam hosting remains future work.
 
 It is infrastructure, not a custom engine or a game: individual games retain their mechanics, content, progression, balance, and art. The factory preserves normal Godot workflows and direct Godot access where a reusable layer is not justified.
 
@@ -10,7 +10,11 @@ It is infrastructure, not a custom engine or a game: individual games retain the
 - session-scoped `PlayerId`, player registry, and server-side player lifecycle orchestration;
 - compositional `NetworkObject`, authority/replication components, and dynamic `NetworkWorld` spawning;
 - Steam listen-server flow: `SteamSession` -> `ISteamAdapter` -> `GodotSteamAdapter` -> GDScript bridge -> `SteamMultiplayerPeer`;
-- structured local and distributed diagnostics; and
+- lobby-phase join/rejoin and reusable Lobby → Gameplay → Lobby rounds while retaining the Steam session and peer; gameplay-phase joining is intentionally unsupported and rejected;
+- Netfox rollback, prediction, and interpolation using persistent command, synchronization, history, and identity servers at source pin `38f59778b02bfd1a3dedc7dcc985945d7058858d` (reports 1.49.3);
+- server-authoritative interaction, carry, one-slot inventory, and equipment;
+- GodotGAS integration, movement capability projections, and accepted Downed/revive/Dead/respawn player-vital lifecycle;
+- structured local and distributed diagnostics;
 - Maaack Game Template shell infrastructure (menus, settings, input remapping, loading, pause, UI audio, and local save helpers); and
 - a host-PC-to-VM Steam A/B acceptance harness, manual Steam gameplay probes, and engine-independent xUnit coverage for pure policy and data layers.
 
@@ -18,15 +22,15 @@ It is infrastructure, not a custom engine or a game: individual games retain the
 
 The accepted online path is Steam/Godot `MultiplayerPeer`, not a generic transport framework. `SteamSession` owns Steam lobby and peer lifecycle. Gameplay remains above Godot's `MultiplayerApi`, `PeerRegistry`, `PlayerLifecycle`, `NetworkWorld`, and object components, and does not call GodotSteam directly.
 
-Real two-account listen-server acceptance has exercised peer join/leave, player lifecycle, dynamic world spawn/despawn, late join, server-authoritative door interaction, replicated revision acknowledgement, and distributed diagnostics. This is strong manual evidence, not a release or compatibility guarantee. Persistent identity, authored/static network objects, CI, packaging, and dedicated Steam servers remain planned.
+Real two-account listen-server acceptance has exercised peer join/leave, player lifecycle, dynamic world spawn/despawn, lobby-phase join/rejoin, repeated round reuse, same-process role reversal, server-authoritative interaction, replicated revision acknowledgement, and distributed diagnostics. The accepted baseline is `2ea7288`; see [session reuse acceptance](docs/session-reuse-acceptance.md) and [current state](docs/current-state.md) for evidence and known limits. This is tested foundation evidence, not production/shipping readiness or a compatibility guarantee. Persistent identity, authored/static network objects, CI, packaging, and dedicated Steam servers remain planned.
 
 ## Current configuration
 
 The project uses Godot .NET SDK 4.7.1 and .NET 8, with conditional .NET 9 for Android. It vendors GodotSteam 4.22 under `addons/godotsteam/`; Windows binaries are rebuilt from Steamworks SDK 1.65 with the documented re-host teardown patch in `third_party/patches/godotsteam/`.
 
-Normal launch enters the Maaack-backed main menu. `Host Game` uses Maaack's loading path to enter the retained Steam gameplay acceptance scene. `Esc` opens Maaack's pause/options UI; leaving first calls the existing Steam-session teardown then returns to the menu. Explicit `--run=steam-gameplay` and `--run=steam` still bypass the shell for focused development probes. Both use development App ID 480 only.
+Normal launch enters the Maaack-backed main menu. `Host Game` uses Maaack's loading path to enter the online lobby shell; the host starts Gameplay once participants are ready. Host Return to Lobby clears the round and reopens the lobby without replacing the live Steam peer. `Esc` opens Maaack's pause/options UI; terminal Leave tears down the Steam session and returns to the menu. Explicit `--run=steam-gameplay` and `--run=steam` still bypass the shell for focused development probes. Both use development App ID 480 only.
 
-The project supplies configurable default input actions—`move_forward`, `move_backward`, `move_left`, `move_right`, `jump`, `sprint`, `crouch`, `interact`, `primary_action`, `secondary_action`, `drop_item`, and `ping`—with keyboard/mouse and controller bindings. Maaack's Controls UI owns remapping, reset, and local persistence; its startup configuration autoload reapplies saved bindings on the next launch. These are defaults for future co-op games, not implemented movement or mandatory gameplay APIs; individual games may add, remove, or reinterpret actions.
+The project supplies configurable default input actions—`move_forward`, `move_backward`, `move_left`, `move_right`, `jump`, `sprint`, `crouch`, `interact`, `primary_action`, `secondary_action`, `drop_item`, and `ping`—with keyboard/mouse and controller bindings. Maaack's Controls UI owns remapping, reset, and local persistence; its startup configuration autoload reapplies saved bindings on the next launch. These defaults support the accepted player slice and remain configurable game conventions; individual games may add, remove, or reinterpret actions.
 
 The project vendors Maaack Game Template `bd17ed931190dd32f15d97b5d9d1e0ecc94f3844` (version `1.6.0-dev-2`, MIT) and its required Maaack Plugin Updater `b3908ffe0e336500156fe1cfca2b30bbd0e18484` (version `0.5.1`, MIT) under `addons/`. Update by reviewing a pinned upstream revision, replacing only the upstream addon folders, rerunning the Godot smoke, and preserving each upstream license/attribution. Maaack owns local shell/UI features; it does not define authoritative multiplayer lobby, run, progression, win/loss, or results state.
 

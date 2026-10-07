@@ -4,7 +4,7 @@ GameFactory's implemented online path is Steam listen-server networking through 
 
 ## Session path
 
-`SteamSession` coordinates explicit Steam initialization, lobby creation/join/leave, and the peer assigned to the active Godot multiplayer API. It calls `ISteamAdapter`; `GodotSteamAdapter` is the typed C# facade over the project-owned GDScript bridge, which is the only layer calling GodotSteam.
+`SteamPlatform` owns process-lifetime Steam initialization; `SteamSession` coordinates lobby creation/join/leave and the peer assigned to the active Godot multiplayer API. It calls `ISteamAdapter`; `GodotSteamAdapter` is the typed C# facade over the project-owned GDScript bridge, which is the only layer calling GodotSteam.
 
 This is intentionally a Steam-specific boundary. A former generic ENet transport and generic `NetworkSession` were removed because they had no useful second implementation and obscured ownership. The session's actual owner is now clear: `SteamSession` owns its Steam lobby and `MultiplayerPeer` lifecycle.
 
@@ -16,4 +16,4 @@ The server remains authoritative for shared world state. A represented object ow
 
 ## Evidence and limits
 
-Two-account Steam listen-server acceptance has exercised lobby join/leave, player and object lifecycle, late join, authority, replication acknowledgement, and diagnostics. Engine-independent policies have xUnit coverage; the concrete host-PC-to-VM Steam scenario is externally automated with build-parity and staged diagnostics, while a generic Godot integration framework and CI remain planned. Dedicated servers and authentication are future work, not declared adapter seams.
+Two-account Steam listen-server acceptance has exercised lobby join/leave, player and object lifecycle, lobby-phase join/rejoin, repeated round/session reuse, same-process role reversal, authority, replication acknowledgement, and diagnostics. Gameplay-phase joining is intentionally unsupported; see [session reuse acceptance](session-reuse-acceptance.md). Engine-independent policies have xUnit coverage; the concrete host-PC-to-VM Steam scenario is externally automated with build-parity and staged diagnostics, while a generic Godot integration framework and CI remain planned. Dedicated servers and authentication are future work, not declared adapter seams.

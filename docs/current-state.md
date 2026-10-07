@@ -1,7 +1,9 @@
 # Current State
 
 This is the compact source of current maturity and evidence. It is not a
-replacement for architecture or protocol documentation.
+replacement for architecture or protocol documentation. The accepted v0.1
+runtime baseline is `2ea72888989eed883b09065c741c6410aa17077d` (`2ea7288`),
+accepted October 7, 2026.
 
 ## Proven foundation
 
@@ -85,6 +87,25 @@ replacement for architecture or protocol documentation.
   releases hidden inventory/equipment to World and removes equipment effects.
 
 ## Latest runtime evidence
+
+October 7 session-reuse/Netfox acceptance is the newest runtime milestone,
+recorded at `2ea7288`. Frozen run `netfox_round_reuse_20261007_050603`
+proved repeated fresh rounds, leave/rejoin, equipped-client disconnect cleanup,
+host continuation and terminal Leave. Focused run
+`readiness_roles_20261007_054650_run` proved stale/Gameplay readiness rejection
+and same-process role reversal with balanced NetworkEvents starts/stops.
+Real late unreliable input safely skipped removed identities through the
+persistent receiver; no cached-node or invalid-packet RPC errors appeared.
+Gameplay discovery hid the lobby as intended; the direct connected-peer
+`late_join_rejected` fallback was not deliberately forced. Both checkpoints
+preserved evidence and verified host0/VM0 cleanup. Recorded cheap validation
+passed build (zero warnings/errors), 73 tests, lifecycle/history-motion/reuse
+probes and the held stale-input regression. These are accepted prior results,
+not checks rerun for documentation closure. See
+[session reuse acceptance](session-reuse-acceptance.md) for build hashes,
+the diagnostic-export deviation, log qualifications, and exact evidence.
+
+## Earlier accepted evidence
 
 Player Vital Lifecycle run `player_vital_lifecycle_20261006_081300` used one
 fresh immutable export `gf_629f3e3a_c79372e6ca6e`, manifest
@@ -229,6 +250,14 @@ evidence and investigate it only if it recurs.
 
 ## Recent commits
 
+- `2ea7288` — accepted reusable gameplay sessions and persistent Netfox input routing.
+- `e462e70` — accepted player-vital lifecycle.
+- `629f3e3` — fresh graphical export resolution and host-readiness gate.
+- `94c8ec1` — simplified Steam development launch handling.
+- `898b357` — explicit Steam launch/overlay policy.
+- `a9899d7` — unreproduced Windows startup failure record and diagnostic import exclusion.
+- `62a8cfc` — role-paired Netfox stop lifecycle and runtime acceptance.
+- `f7c129f` — accepted Steam lifecycle and BadCert qualification.
 - `d28f7ad` — native GodotSteam callback lifecycle isolation, rebuilt DLLs,
   reproducible patches, and opt-in diagnostics.
 - `45fcd36` — export-helper completion fix and lifecycle/gameplay acceptance record.
@@ -239,10 +268,5 @@ evidence and investigate it only if it recurs.
 - `0c265dd` — accepted server-authoritative networked GodotGAS Health slice.
 - `5bcfbaf` — accepted non-stackable GodotGAS SpeedBoost / Netfox boundary.
 - `4f213f5` — accepted GAS Sprint + Stamina / Netfox boundary.
-- latest — accepted predicted GAS Dash / Netfox boundary.
-- latest — accepted server-authoritative one-slot inventory state machine.
-
-## Working tree
-
-One unrelated untracked GodotSteam temporary DLL may be present locally; do not
-stage it with documentation changes.
+- `cb9918f` — accepted predicted GAS Dash / Netfox boundary.
+- `6f65e67` — accepted server-authoritative one-slot inventory state machine.

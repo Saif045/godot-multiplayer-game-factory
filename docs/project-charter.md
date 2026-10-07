@@ -44,7 +44,7 @@ Runtime role, session lifecycle, and transport facts should each have an identif
 
 ### Make automation observable
 
-Defaults and reflection-driven behavior must expose enough validation and diagnostics to explain what was selected, rejected, or changed. The exploratory replication sandbox emits basic text logs; structured diagnostics are planned.
+Defaults and reflection-driven behavior must expose enough validation and diagnostics to explain what was selected, rejected, or changed. Structured local/distributed diagnostics, exported-build identity, and host/VM acceptance tooling are implemented; current evidence and limitations are recorded in [current state](current-state.md).
 
 ### Finish subsystems professionally
 
@@ -63,7 +63,7 @@ The long-term factory scope includes reusable concerns that recur across games:
 - unit, integration, and multiprocess scenario testing; and
 - documentation, examples, platform/build tooling, and other recurring infrastructure a new small co-op game would otherwise recreate.
 
-These categories express target scope, not current availability. The present implementation covers only an initial networking subset documented in [architecture.md](architecture.md).
+These categories express target scope, not current availability. The accepted v0.1 foundation includes Steam listen-server lobby/session reuse, Netfox movement, interaction/carry/inventory/equipment, and GodotGAS player capabilities/vitals documented in [architecture.md](architecture.md). Current joining is lobby-only; gameplay-phase joining is intentionally unsupported.
 
 ## Outside the factory
 
@@ -75,7 +75,7 @@ The factory does not own the qualities that make an individual game distinct:
 - art direction and presentation;
 - game-specific simulation or domain models.
 
-For example, GameFactory may eventually provide interaction or pickup infrastructure, while a particular game's climbing mechanic, mountain rules, special items, and win conditions remain game code. Reusable technical primitives may support distinctive work without absorbing its product decisions.
+For example, GameFactory provides accepted interaction and pickup infrastructure, while a particular game's climbing mechanic, mountain rules, special items, and win conditions remain game code. Reusable technical primitives may support distinctive work without absorbing its product decisions.
 
 ## Development strategy
 
@@ -99,7 +99,7 @@ A reusable capability should have:
 - documentation that distinguishes implemented behavior from planned direction;
 - at least one executable scenario when cross-process behavior is involved.
 
-The repository has not reached this bar across all current code. The refit plan exists to close those gaps incrementally.
+The repository has not reached this bar across all current code. The accepted v0.1 baseline supports building a real game; production App ID, shipping compatibility, and external-environment limits remain distinct from slice acceptance.
 
 ## Success criteria
 

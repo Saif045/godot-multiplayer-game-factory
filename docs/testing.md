@@ -20,7 +20,7 @@ Every invoked check reports `PASS`, `FAIL`, or `SKIP`, its command, and a short 
 | --- | --- | --- | --- |
 | Hygiene | `git diff --check` | Changed tracked text has no whitespace errors. | Cheap; no engine/network. |
 | Build | `dotnet build GameFactory.csproj --disable-build-servers -m:1 -p:UseSharedCompilation=false` | C# project compiles with the reliable serial/shared-compiler-disabled settings. | Cheap; .NET SDK. |
-| Unit regression | `dotnet test tests/GameFactory.Tests/GameFactory.Tests.csproj --disable-build-servers -m:1 -p:UseSharedCompilation=false` | Deterministic policy/value/diagnostics coverage (currently 71 tests). | Cheap; no Godot scene, Steam, graphics, or VM. |
+| Unit regression | `dotnet test tests/GameFactory.Tests/GameFactory.Tests.csproj --disable-build-servers -m:1 -p:UseSharedCompilation=false` | Deterministic policy/value/diagnostics coverage (73 tests at accepted baseline `2ea7288`). | Cheap; no Godot scene, Steam, graphics, or VM. |
 | Godot headless | `Godot ... --headless --path <repo> --editor --quit` | Project/addon/script import and editor initialization can load headlessly. | Local Godot console executable; no graphics or VM. |
 | GAS probe | `Godot ... --headless --path <repo> -- --run=gas-interop` | The self-terminating GodotGAS adapter/effect lifecycle contract. | About 20 seconds; local Godot, no Steam/VM. |
 | Export smoke | `tools/build_test_client.ps1`, then a bounded exported headless boot | Managed Windows export is complete and the exported runtime remains alive through a short boot window. | Slower; Godot export templates/.NET publish. Not visual UX proof. |

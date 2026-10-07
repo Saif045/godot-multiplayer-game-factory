@@ -6,10 +6,12 @@ Netfox source commit `38f59778b02bfd1a3dedc7dcc985945d7058858d` (reports 1.49.3)
 is the pinned native GDScript rollback dependency for the
 acceptance-proven Steam-backed two-player movement/player slice. GameFactory
 uses it selectively for responsive deterministic simulation; it does not
-introduce GAS, NetfoxSharp, Noray, a parallel reconciliation system, or a
+introduce NetfoxSharp, Noray, a parallel reconciliation system, or a
 generic replication migration.
 
 Use Netfox for continuous latency-sensitive deterministic simulation.
+GodotGAS owns canonical abilities/attributes/tags outside rollback history;
+only explicit deterministic projections/inputs bridge into movement simulation.
 Discrete authoritative gameplay uses reliable RPC, server validation, and
 ordinary `ReplicationComponent`/`MultiplayerSynchronizer` replication. Do
 canonical integration before reconciliation instrumentation; `is_fresh ==
@@ -238,8 +240,12 @@ and permit normal motion. No vendor history clearing, `process_settings()`
 reset, or arbitrary `_Process()` teleport is used.
 
 The headless `sandbox/netfox/player_vital_motion_probe.tscn` loads the prefab's
-actual state list into Netfox's `_RollbackHistoryRecorder`, restores pre-reset
-history, and proves reset replay plus resumed motion. It also proves canonical
+actual `RollbackSynchronizer.state_properties` list into `_PropertyPool`, then
+registers and pushes those properties through `NetworkHistoryServer`.
+It inspects `_get_rollback_state_snapshot(21)` and restores ticks 20/21 with
+`_restore_rollback_state` to prove reset replay and resumed motion using the
+production simulation script and fixture player/input/GAS projections.
+It also proves canonical
 incapacitation overrides stale movement/jump/dash inputs while gravity settles
 the body. Immutable A/B run `player_vital_lifecycle_20261006_081300` proves
 normal and equipped respawn with unchanged network identity (attempts 002/006).
